@@ -1,0 +1,11 @@
+node_modules/
+.vercel/
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+Thumbs.db
+
+# arquivo legado (vers\u00e3o anterior, localStorage) — manter local apenas como refer\u00eancia
+polimata-admin_40.html
