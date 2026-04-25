@@ -345,7 +345,7 @@ tbody tr:last-child td{border-bottom:none;}
     <span class="nav-section">Cadastros</span>
     <div class="nav-item" onclick="showView('pessoas',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-      Fornecedores · Func. · Órgãos
+      Cadastro
     </div>
 
     <span class="nav-section">Financeiro</span>
@@ -1081,8 +1081,15 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="form-group">
           <label class="form-label">Cliente *</label>
           <div class="autocomplete-wrap">
+            <select class="form-input" id="rec-tipo-parte" style="margin-bottom:6px;" onchange="onChangeContrapartTipo('rec')">
+              <option value="Cliente,Prospect">Cliente / Prospect (padrão)</option>
+              <option value="Fornecedor">Fornecedor</option>
+              <option value="Funcionário">Funcionário</option>
+              <option value="Órgão Público">Órgão Público</option>
+              <option value="">Outro / não cadastrado</option>
+            </select>
             <input class="form-input" id="rec-client" placeholder="Nome do cliente" autocomplete="off"
-              oninput="acSearch(this,'rec-client-list','Cliente,Prospect')"
+              oninput="acSearch(this,'rec-client-list', document.getElementById('rec-tipo-parte').value)"
               onkeydown="acKeydown(event,'rec-client-list')"
               onblur="setTimeout(()=>acClose('rec-client-list'),180)">
             <div class="autocomplete-list" id="rec-client-list"></div>
@@ -1149,8 +1156,15 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="form-group">
           <label class="form-label">Fornecedor *</label>
           <div class="autocomplete-wrap">
+            <select class="form-input" id="pay-tipo-parte" style="margin-bottom:6px;" onchange="onChangeContrapartTipo('pay')">
+              <option value="Fornecedor">Fornecedor (padrão)</option>
+              <option value="Órgão Público">Órgão Público</option>
+              <option value="Funcionário">Funcionário (reembolso)</option>
+              <option value="Cliente">Cliente (devolução)</option>
+              <option value="">Outro / não cadastrado</option>
+            </select>
             <input class="form-input" id="pay-supplier" placeholder="Nome do fornecedor" autocomplete="off"
-              oninput="acSearch(this,'pay-supplier-list','Fornecedor')"
+              oninput="acSearch(this,'pay-supplier-list', document.getElementById('pay-tipo-parte').value)"
               onkeydown="acKeydown(event,'pay-supplier-list')"
               onblur="setTimeout(()=>acClose('pay-supplier-list'),180)">
             <div class="autocomplete-list" id="pay-supplier-list"></div>
@@ -1532,20 +1546,20 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- MODAL EXPORTAR -->
 <div class="modal-overlay" id="modal-export">
-  <div class="modal" style="width:440px;">
-    <div class="modal-header"><span class="modal-title">Exportar Relatório</span><button class="modal-close" onclick="closeModal('modal-export')">×</button></div>
+  <div class="modal" style="width:560px;max-height:85vh;overflow-y:auto;">
+    <div class="modal-header"><span class="modal-title">Exportar Relatórios</span><button class="modal-close" onclick="closeModal('modal-export')">×</button></div>
     <div class="modal-body">
-      <p style="font-size:12px;color:var(--text-mid);margin-bottom:18px;">Escolha o formato para exportar o relatório completo da empresa:</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-        <div onclick="exportExcel()" style="padding:20px;border:2px solid var(--cream-dark);border-radius:8px;cursor:pointer;text-align:center;background:var(--cream);transition:all .2s;" onmouseover="this.style.borderColor='var(--green)'" onmouseout="this.style.borderColor='var(--cream-dark)'">
-          <div style="width:52px;height:52px;background:rgba(39,174,96,.12);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:18px;font-weight:700;color:#27ae60;">XLS</div>
-          <div style="font-size:13px;font-weight:600;color:var(--navy);">Excel</div>
-          <div style="font-size:10px;color:var(--text-mid);margin-top:3px;">Múltiplas abas com todos os dados</div>
-        </div>
-        <div onclick="exportPDF()" style="padding:20px;border:2px solid var(--cream-dark);border-radius:8px;cursor:pointer;text-align:center;background:var(--cream);transition:all .2s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--cream-dark)'">
-          <div style="width:52px;height:52px;background:rgba(204,145,94,.15);border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:18px;font-weight:700;color:var(--gold-dark);">PDF</div>
-          <div style="font-size:13px;font-weight:600;color:var(--navy);">PDF</div>
-          <div style="font-size:10px;color:var(--text-mid);margin-top:3px;">Relatório executivo formatado</div>
+      <p style="font-size:12px;color:var(--text-mid);margin-bottom:14px;">Escolha o relatório que deseja baixar. Cada arquivo Excel sai isolado, com as colunas certas pra esse tema.</p>
+
+      <div id="export-list" style="display:flex;flex-direction:column;gap:6px;">
+        <!-- Renderizado por renderExportList() -->
+      </div>
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--cream-dark);">
+        <p style="font-size:11px;color:var(--text-mid);margin-bottom:10px;">Quer um arquivo único com tudo?</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <button onclick="exportExcel()" class="btn btn-outline" style="padding:10px;font-size:11px;">📊 Tudo em Excel (multi-aba)</button>
+          <button onclick="exportPDF()" class="btn btn-outline" style="padding:10px;font-size:11px;">📄 Resumo executivo PDF</button>
         </div>
       </div>
     </div>
@@ -1575,6 +1589,27 @@ const DB = {
   transacoes_extrato: [], emails_processados: []
 };
 const DB_TABLES = Object.keys(DB);
+
+function onChangeContrapartTipo(prefix){
+  const tipo = document.getElementById(prefix+'-tipo-parte').value;
+  const inputId = prefix === 'rec' ? 'rec-client' : 'pay-supplier';
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const placeholders = {
+    'Cliente,Prospect': 'Nome do cliente ou prospect',
+    'Cliente': 'Nome do cliente',
+    'Fornecedor': 'Nome do fornecedor',
+    'Funcionário': 'Nome do funcionário',
+    'Órgão Público': 'Nome do órgão',
+    '': 'Nome (texto livre — não busca cadastro)'
+  };
+  input.placeholder = placeholders[tipo] || 'Nome';
+  input.value = '';
+  // Fecha lista de autocomplete se estava aberta
+  const listId = prefix === 'rec' ? 'rec-client-list' : 'pay-supplier-list';
+  const list = document.getElementById(listId);
+  if(list) list.style.display = 'none';
+}
 
 function uid(){
   // UUID v4 (compatível com coluna id uuid do Supabase)
@@ -1729,6 +1764,23 @@ function goToDashboard(el){
 }
 
 function handleMainAdd(){
+  // Casos especiais que precisam de função própria (reset de form, etc.)
+  if(currentView === 'pessoas'){
+    openPessoaModal();
+    return;
+  }
+  if(currentView === 'conciliacao'){
+    document.getElementById('concil-file-input')?.click();
+    return;
+  }
+  if(currentView === 'nfimport'){
+    document.getElementById('nf-file-input')?.click();
+    return;
+  }
+  if(currentView === 'dre' || currentView === 'nfemitir' || currentView === 'recorrencias'){
+    toast('🚧 Em construção');
+    return;
+  }
   const map = {
     dashboard:'modal-receivable', receivable:'modal-receivable',
     payable:'modal-payable', cashflow:'modal-receivable',
@@ -2940,7 +2992,129 @@ function deleteDoc(id){
 // =============================================
 // EXPORTAR
 // =============================================
-function openExportModal(){ document.getElementById('modal-export').classList.add('open'); }
+function openExportModal(){
+  renderExportList();
+  document.getElementById('modal-export').classList.add('open');
+}
+
+const EXPORT_SECTIONS = [
+  { key:'cad-cliente',  label:'Cadastros — Clientes & Prospects',  icon:'👥', count:()=>DB.pessoas.filter(p=>p.tipo==='Cliente').length + (DB.clients||[]).length },
+  { key:'cad-forn',     label:'Cadastros — Fornecedores',          icon:'🏢', count:()=>DB.pessoas.filter(p=>p.tipo==='Fornecedor').length },
+  { key:'cad-func',     label:'Cadastros — Funcionários',          icon:'👷', count:()=>DB.pessoas.filter(p=>p.tipo==='Funcionário').length },
+  { key:'cad-orgao',    label:'Cadastros — Órgãos Públicos',       icon:'🏛️', count:()=>DB.pessoas.filter(p=>p.tipo==='Órgão Público').length },
+  { key:'receivable',   label:'Contas a Receber',                  icon:'💰', count:()=>DB.receivable.length },
+  { key:'payable',      label:'Contas a Pagar',                    icon:'💳', count:()=>DB.payable.length },
+  { key:'contracts',    label:'Contratos',                          icon:'📜', count:()=>DB.contracts.length },
+  { key:'projects',     label:'Projetos',                           icon:'📂', count:()=>DB.projects.length },
+  { key:'cashflow',     label:'Fluxo de Caixa (Receber + Pagar)',  icon:'📈', count:()=>DB.receivable.length + DB.payable.length },
+  { key:'concil',       label:'Conciliação (transações)',           icon:'🔍', count:()=>(DB.transacoes_extrato||[]).length }
+];
+
+function renderExportList(){
+  const c = document.getElementById('export-list');
+  if(!c) return;
+  c.innerHTML = EXPORT_SECTIONS.map(s => {
+    const n = s.count();
+    const disabled = n === 0;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--cream-dark);border-radius:6px;background:${disabled?'#fafafa':'#fff'};opacity:${disabled?0.5:1};">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:18px;">${s.icon}</span>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--navy);">${s.label}</div>
+          <div style="font-size:10px;color:var(--text-mid);">${n} registro(s)</div>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="exportSection('${s.key}')" ${disabled?'disabled':''} style="padding:6px 12px;font-size:10px;${disabled?'background:#ddd;cursor:not-allowed;':''}">⬇ Excel</button>
+    </div>`;
+  }).join('');
+}
+
+function exportSection(key){
+  const wb = XLSX.utils.book_new();
+  const addSheet = (name, headers, rows) => {
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = headers.map(()=>({wch:24}));
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+
+  const built = {
+    'cad-cliente': () => {
+      addSheet('Clientes (Cadastro Pessoa)',
+        ['Nome/Razão Social','Nome Fantasia','CNPJ/CPF','Segmento','E-mail','Telefone','Cidade','UF','Status'],
+        DB.pessoas.filter(p=>p.tipo==='Cliente').map(p=>[p.nome,p.fantasia||'',p.doc||'',p.segmento||'',p.email||'',p.telefone||'',p.cidade||'',p.uf||'',p.status]));
+      if((DB.clients||[]).length){
+        addSheet('Clientes & Prospects (CRM)',
+          ['Nome','Tipo','E-mail','Telefone','Segmento','Origem'],
+          DB.clients.map(r=>[r.name,r.type,r.email,r.phone,r.segment,r.origin]));
+      }
+      return 'Clientes';
+    },
+    'cad-forn': () => {
+      addSheet('Fornecedores',
+        ['Nome/Razão Social','Nome Fantasia','CNPJ/CPF','Segmento','Porte','Situação','E-mail','Telefone','Cidade','UF','Status'],
+        DB.pessoas.filter(p=>p.tipo==='Fornecedor').map(p=>[p.nome,p.fantasia||'',p.doc||'',p.segmento||'',p.porte||'',p.situacao||'',p.email||'',p.telefone||'',p.cidade||'',p.uf||'',p.status]));
+      return 'Fornecedores';
+    },
+    'cad-func': () => {
+      addSheet('Funcionarios',
+        ['Nome','CPF','Cargo','E-mail','Telefone','Status'],
+        DB.pessoas.filter(p=>p.tipo==='Funcionário').map(p=>[p.nome,p.doc||'',p.segmento||'',p.email||'',p.telefone||'',p.status]));
+      return 'Funcionarios';
+    },
+    'cad-orgao': () => {
+      addSheet('Orgaos Publicos',
+        ['Nome','CNPJ','Cidade','UF','E-mail','Telefone','Status'],
+        DB.pessoas.filter(p=>p.tipo==='Órgão Público').map(p=>[p.nome,p.doc||'',p.cidade||'',p.uf||'',p.email||'',p.telefone||'',p.status]));
+      return 'Orgaos_Publicos';
+    },
+    'receivable': () => {
+      addSheet('Contas a Receber',
+        ['Cliente','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Status','Categoria','Subcategoria','Conciliado','Sem Doc','Observações'],
+        DB.receivable.map(r=>[r.client,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due),r.status, r.cat||'', r.subcat||'', r.conciliado?'Sim':'Não', r.sem_documento?'Sim':'Não', r.notes||'']));
+      return 'ContasAReceber';
+    },
+    'payable': () => {
+      addSheet('Contas a Pagar',
+        ['Fornecedor','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Categoria','Subcategoria','Status','Conciliado','Sem Doc','Observações'],
+        DB.payable.map(r=>[r.supplier,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due), r.cat||'', r.subcat||'', r.status, r.conciliado?'Sim':'Não', r.sem_documento?'Sim':'Não', r.notes||'']));
+      return 'ContasAPagar';
+    },
+    'contracts': () => {
+      addSheet('Contratos',
+        ['Nº','Cliente/Forn.','Objeto','Valor (R$)','Início','Término','Tipo','Status'],
+        DB.contracts.map(r=>[r.number,r.party,r.object,r.value,fmtDate(r.start),fmtDate(r.end),r.type||'',r.status]));
+      return 'Contratos';
+    },
+    'projects': () => {
+      addSheet('Projetos',
+        ['Nome','Cliente','Status','Início','Entrega','Valor (R$)','Progresso (%)'],
+        DB.projects.map(r=>[r.name,r.client,r.status,fmtDate(r.start),fmtDate(r.deadline),r.value,r.progress]));
+      return 'Projetos';
+    },
+    'cashflow': () => {
+      const all = [
+        ...DB.receivable.map(r=>['Entrada (Receita)', r.client||'', r.desc||'', r.value, fmtDate(r.due), r.status, r.cat||'', r.subcat||'']),
+        ...DB.payable.map(r=>['Saída (Despesa)', r.supplier||'', r.desc||'', r.value, fmtDate(r.due), r.status, r.cat||'', r.subcat||''])
+      ].sort((a,b)=>(a[4]||'').localeCompare(b[4]||''));
+      addSheet('Fluxo de Caixa',
+        ['Tipo','Parte','Descrição','Valor (R$)','Vencimento','Status','Categoria','Subcategoria'],
+        all);
+      return 'FluxoCaixa';
+    },
+    'concil': () => {
+      addSheet('Transações Extrato',
+        ['Data','Descrição','Valor','Moeda','Tipo','Origem','Arquivo','Conciliado em','Lançamento ID','Ignorado'],
+        (DB.transacoes_extrato||[]).map(t=>[t.data, t.descricao, t.valor, t.moeda||'BRL', t.tipo, t.origem||'', t.arquivo||'', t.conciliado_em||'', t.conciliado_com_id||'', t.ignorado?'Sim':'Não']));
+      return 'Conciliacao';
+    }
+  };
+
+  const builder = built[key];
+  if(!builder){ toast('⚠️ Relatório não encontrado'); return; }
+  const fileLabel = builder();
+  XLSX.writeFile(wb, `Polimata_${fileLabel}_${today()}.xlsx`);
+  toast(`✓ ${fileLabel} exportado`);
+}
 
 function exportExcel(){
   const wb = XLSX.utils.book_new();
