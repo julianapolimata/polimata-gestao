@@ -272,6 +272,11 @@ tbody tr:last-child td{border-bottom:none;}
 .concil-no-match{font-size:11px;color:var(--text-mid);font-style:italic;}
 .concil-action-btns{display:flex;gap:5px;flex-wrap:wrap;}
 .concil-action-btns .btn{padding:5px 10px;font-size:10px;letter-spacing:.6px;}
+.kanban-card{background:#fff;border:1px solid var(--cream-dark);border-radius:6px;padding:10px;cursor:grab;transition:all .15s;}
+.kanban-card:hover{border-color:var(--gold);box-shadow:0 4px 12px rgba(0,32,62,0.08);transform:translateY(-1px);}
+.kanban-card:active{cursor:grabbing;}
+.btn-xs{padding:4px 8px;font-size:9px;}
+
 .badge-conciliado{background:rgba(39,174,96,0.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-sem-doc{background:rgba(204,145,94,0.15);color:var(--gold-dark);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-pendente{background:rgba(230,126,34,0.12);color:var(--orange);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
@@ -343,9 +348,17 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <span class="nav-section">Cadastros</span>
-    <div class="nav-item" onclick="showView('pessoas',this)">
-      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-      Cadastro
+    <div class="nav-item" onclick="showCadastroTab('fornecedor',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 21V7l9-4 9 4v14"/><path d="M9 21v-6h6v6"/><line x1="3" y1="21" x2="21" y2="21"/></svg>
+      Fornecedores
+    </div>
+    <div class="nav-item" onclick="showCadastroTab('funcionario',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/></svg>
+      Funcionários
+    </div>
+    <div class="nav-item" onclick="showCadastroTab('orgao',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 21V10l7-7 7 7v11"/><path d="M9 21v-6h6v6"/></svg>
+      Órgãos Públicos
     </div>
 
     <span class="nav-section">Financeiro</span>
@@ -659,6 +672,13 @@ tbody tr:last-child td{border-bottom:none;}
           <div style="display:flex;gap:8px;align-items:center;">
             <select class="filter-select" id="cf-year-filter" onchange="renderCashflow()" style="font-size:11px;padding:6px 10px;">
             </select>
+            <select class="filter-select" id="cf-modo" onchange="renderCashflow()" style="font-size:11px;padding:6px 10px;">
+              <option value="realizado">Realizado</option>
+              <option value="projetado_3">Projeção +3 meses</option>
+              <option value="projetado_6" selected>Projeção +6 meses</option>
+              <option value="projetado_12">Projeção +12 meses</option>
+              <option value="ambos">Realizado + Projetado</option>
+            </select>
             <div style="display:flex;gap:4px;background:var(--cream);border-radius:6px;padding:3px;">
               <button id="cf-btn-waterfall" onclick="setCfChartType('waterfall')" style="border:none;background:var(--navy);color:#fff;border-radius:4px;padding:5px 12px;font-size:10px;font-weight:600;letter-spacing:1px;cursor:pointer;font-family:'Montserrat',sans-serif;text-transform:uppercase;">Cascata</button>
               <button id="cf-btn-bar" onclick="setCfChartType('bar')" style="border:none;background:transparent;color:var(--text-mid);border-radius:4px;padding:5px 12px;font-size:10px;font-weight:600;letter-spacing:1px;cursor:pointer;font-family:'Montserrat',sans-serif;text-transform:uppercase;">Barras</button>
@@ -857,14 +877,27 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="Prospect">Prospect</option>
           <option value="Inativo">Inativo</option>
         </select>
+        <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--cream-dark);">
+          <button id="cli-view-funil" class="btn btn-sm" onclick="setClientView('funil')" style="border-radius:0;padding:7px 14px;font-size:10px;">📋 Funil</button>
+          <button id="cli-view-lista" class="btn btn-sm" onclick="setClientView('lista')" style="border-radius:0;padding:7px 14px;font-size:10px;">📑 Lista</button>
+        </div>
       </div>
-      <div class="tbl-wrap">
+
+      <!-- Visão LISTA -->
+      <div id="cli-view-lista-wrap" class="tbl-wrap" style="display:none;">
         <table>
           <thead><tr>
-            <th>Nome/Empresa</th><th>Contato</th><th>Tipo</th><th>Origem</th><th>Observações</th><th>Ações</th>
+            <th>Nome/Empresa</th><th>Contato</th><th>Tipo</th><th>Etapa Funil</th><th>Origem</th><th>Ações</th>
           </tr></thead>
           <tbody id="cli-tbody"></tbody>
         </table>
+      </div>
+
+      <!-- Visão FUNIL -->
+      <div id="cli-view-funil-wrap" style="display:block;">
+        <div id="cli-kanban" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start;">
+          <!-- Renderizado pela renderKanban() -->
+        </div>
       </div>
     </div>
 
@@ -873,9 +906,10 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="toolbar">
         <select class="filter-select" id="proj-filter" onchange="renderProjects()">
           <option value="">Todos os status</option>
-          <option value="Em andamento">Em andamento</option>
+          <option value="Em planejamento">Em planejamento</option>
+          <option value="Em execução">Em execução</option>
+          <option value="Pausado">Pausado</option>
           <option value="Concluído">Concluído</option>
-          <option value="Aguardando">Aguardando</option>
           <option value="Cancelado">Cancelado</option>
         </select>
       </div>
@@ -1139,6 +1173,26 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-row">
         <div class="form-group"><label class="form-label">Observações</label><textarea class="form-textarea" id="rec-notes" placeholder="Informações adicionais..."></textarea></div>
       </div>
+
+      <div style="margin-top:14px;padding:12px;background:rgba(204,145,94,0.06);border-left:3px solid var(--gold);border-radius:6px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:var(--navy);font-size:12px;">
+          <input type="checkbox" id="rec-recorrente" onchange="document.getElementById('rec-recorrencia-fields').style.display=this.checked?'block':'none';" style="width:15px;height:15px;accent-color:var(--gold);">
+          🔄 Lançamento recorrente
+        </label>
+        <div id="rec-recorrencia-fields" style="display:none;margin-top:10px;">
+          <div class="form-row form-row-2">
+            <div class="form-group"><label class="form-label">Frequência</label>
+              <select class="form-select" id="rec-rec-frequencia">
+                <option value="mensal">Mensal</option>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Última geração até</label><input class="form-input" type="date" id="rec-rec-ate"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-receivable')">Cancelar</button>
@@ -1212,6 +1266,26 @@ tbody tr:last-child td{border-bottom:none;}
       <div class="form-row">
         <div class="form-group"><label class="form-label">Observações</label><textarea class="form-textarea" id="pay-notes" placeholder="Informações adicionais..."></textarea></div>
       </div>
+
+      <div style="margin-top:14px;padding:12px;background:rgba(204,145,94,0.06);border-left:3px solid var(--gold);border-radius:6px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:var(--navy);font-size:12px;">
+          <input type="checkbox" id="pay-recorrente" onchange="document.getElementById('pay-recorrencia-fields').style.display=this.checked?'block':'none';" style="width:15px;height:15px;accent-color:var(--gold);">
+          🔄 Despesa recorrente (assinatura, conta fixa, etc.)
+        </label>
+        <div id="pay-recorrencia-fields" style="display:none;margin-top:10px;">
+          <div class="form-row form-row-2">
+            <div class="form-group"><label class="form-label">Frequência</label>
+              <select class="form-select" id="pay-rec-frequencia">
+                <option value="mensal">Mensal</option>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Última geração até</label><input class="form-input" type="date" id="pay-rec-ate"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-payable')">Cancelar</button>
@@ -1225,15 +1299,32 @@ tbody tr:last-child td{border-bottom:none;}
   <div class="modal modal-lg">
     <div class="modal-header"><span class="modal-title" id="con-modal-title">Novo Contrato</span><button class="modal-close" onclick="closeModal('modal-contract')">×</button></div>
     <div class="modal-body">
+
+      <!-- Tipo do contrato (principal ou aditivo) -->
       <div class="form-row form-row-2">
-        <div class="form-group"><label class="form-label">Nº do Contrato</label><input class="form-input" id="con-number" placeholder="Ex: CTR-2025-001"></div>
+        <div class="form-group"><label class="form-label">Natureza *</label>
+          <select class="form-select" id="con-natureza" onchange="onChangeNaturezaContrato()">
+            <option value="principal">Contrato Principal</option>
+            <option value="aditivo">Aditivo (vincula a um contrato existente)</option>
+          </select>
+        </div>
+        <div class="form-group" id="con-pai-wrap" style="display:none;">
+          <label class="form-label">Contrato Pai *</label>
+          <select class="form-select" id="con-pai-id">
+            <option value="">— selecione —</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row form-row-2">
+        <div class="form-group"><label class="form-label">Nº do Contrato</label><input class="form-input" id="con-number" placeholder="Ex: CTR-2026-001"></div>
         <div class="form-group"><label class="form-label">Cliente/Fornecedor *</label><input class="form-input" id="con-party" placeholder="Nome da parte contratante"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Objeto do Contrato *</label><input class="form-input" id="con-object" placeholder="Descreva o objeto contratado"></div>
       </div>
       <div class="form-row form-row-3">
-        <div class="form-group"><label class="form-label">Valor (R$) *</label><input class="form-input" type="number" id="con-value" placeholder="0,00" step="0.01"></div>
+        <div class="form-group"><label class="form-label">Valor Total (R$) *</label><input class="form-input" type="number" id="con-value" placeholder="0,00" step="0.01"></div>
         <div class="form-group"><label class="form-label">Data de Início</label><input class="form-input" type="date" id="con-start"></div>
         <div class="form-group"><label class="form-label">Data de Término</label><input class="form-input" type="date" id="con-end"></div>
       </div>
@@ -1255,7 +1346,36 @@ tbody tr:last-child td{border-bottom:none;}
           </select>
         </div>
       </div>
-      <div class="form-row">
+
+      <!-- Bloco Recorrência -->
+      <div style="margin-top:14px;padding:14px;background:rgba(204,145,94,0.06);border-left:3px solid var(--gold);border-radius:6px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:var(--navy);font-size:13px;">
+          <input type="checkbox" id="con-rec-ativa" onchange="onToggleRecorrencia()" style="width:16px;height:16px;accent-color:var(--gold);">
+          🔄 Emissão recorrente mensal de NF
+        </label>
+        <div id="con-rec-fields" style="display:none;margin-top:14px;">
+          <div class="form-row form-row-3">
+            <div class="form-group"><label class="form-label">Dia da Emissão</label>
+              <select class="form-select" id="con-rec-dia">
+                ${Array.from({length:28},(_,i)=>i+1).map(d=>`<option value="${d}">Dia ${d}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Valor Mensal (R$)</label><input class="form-input" type="number" id="con-rec-valor" placeholder="0,00" step="0.01"></div>
+            <div class="form-group"><label class="form-label">Item LC116 (código)</label><input class="form-input" id="con-rec-lc116" placeholder="Ex: 17.20"></div>
+          </div>
+          <div class="form-row form-row-2">
+            <div class="form-group"><label class="form-label">Descrição do serviço (vai pra NF)</label><input class="form-input" id="con-rec-descricao" placeholder="Ex: Consultoria em GRC — mensalidade"></div>
+            <div class="form-group"><label class="form-label">Modo de emissão</label>
+              <select class="form-select" id="con-rec-modo">
+                <option value="consolidado">Consolidado (1 NF total = principal + aditivos)</option>
+                <option value="separado">Separado (1 NF por contrato/aditivo)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-top:14px;">
         <div class="form-group"><label class="form-label">Observações</label><textarea class="form-textarea" id="con-notes" placeholder="Cláusulas especiais, observações..."></textarea></div>
       </div>
     </div>
@@ -1310,34 +1430,47 @@ tbody tr:last-child td{border-bottom:none;}
 
 <!-- MODAL PROJETO -->
 <div class="modal-overlay" id="modal-project">
-  <div class="modal">
+  <div class="modal modal-lg">
     <div class="modal-header"><span class="modal-title" id="proj-modal-title">Novo Projeto</span><button class="modal-close" onclick="closeModal('modal-project')">×</button></div>
     <div class="modal-body">
       <div class="form-row">
         <div class="form-group"><label class="form-label">Nome do Projeto *</label><input class="form-input" id="proj-name" placeholder="Nome do projeto"></div>
       </div>
       <div class="form-row form-row-2">
-        <div class="form-group"><label class="form-label">Cliente</label><input class="form-input" id="proj-client" placeholder="Cliente responsável"></div>
+        <div class="form-group"><label class="form-label">Cliente</label><input class="form-input" id="proj-client" placeholder="Cliente"></div>
+        <div class="form-group"><label class="form-label">Responsável</label><input class="form-input" id="proj-responsavel" placeholder="Quem toca o projeto"></div>
+      </div>
+      <div class="form-row form-row-2">
         <div class="form-group"><label class="form-label">Status</label>
           <select class="form-select" id="proj-status">
-            <option value="Aguardando">Aguardando</option>
-            <option value="Em andamento">Em andamento</option>
+            <option value="Em planejamento">Em planejamento</option>
+            <option value="Em execução">Em execução</option>
+            <option value="Pausado">Pausado</option>
             <option value="Concluído">Concluído</option>
             <option value="Cancelado">Cancelado</option>
           </select>
         </div>
+        <div class="form-group"><label class="form-label">Progresso (%)</label><input class="form-input" type="number" id="proj-progress" placeholder="0" min="0" max="100"></div>
       </div>
       <div class="form-row form-row-2">
         <div class="form-group"><label class="form-label">Data de Início</label><input class="form-input" type="date" id="proj-start"></div>
         <div class="form-group"><label class="form-label">Data de Entrega</label><input class="form-input" type="date" id="proj-deadline"></div>
       </div>
-      <div class="form-row form-row-2">
-        <div class="form-group"><label class="form-label">Valor (R$)</label><input class="form-input" type="number" id="proj-value" placeholder="0,00" step="0.01"></div>
-        <div class="form-group"><label class="form-label">Progresso (%)</label><input class="form-input" type="number" id="proj-progress" placeholder="0" min="0" max="100"></div>
-      </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Descrição / Entregas</label><textarea class="form-textarea" id="proj-desc" placeholder="Descreva o escopo e entregas esperadas..."></textarea></div>
+        <div class="form-group"><label class="form-label">Descrição / Escopo</label><textarea class="form-textarea" id="proj-desc" placeholder="Descreva o escopo e entregas esperadas..."></textarea></div>
       </div>
+
+      <!-- Etapas / Marcos -->
+      <div style="margin-top:16px;padding:14px;background:rgba(0,32,62,0.03);border-left:3px solid var(--navy);border-radius:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <label style="font-weight:600;color:var(--navy);font-size:13px;">📍 Etapas / Marcos</label>
+          <button type="button" class="btn btn-outline btn-sm" onclick="addProjEtapa()">+ Etapa</button>
+        </div>
+        <div id="proj-etapas-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+
+      <!-- Contratos vinculados (informativo) -->
+      <div id="proj-contratos-info" style="margin-top:12px;font-size:11px;color:var(--text-mid);"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-project')">Cancelar</button>
@@ -1590,6 +1723,11 @@ const DB = {
 };
 const DB_TABLES = Object.keys(DB);
 
+function showCadastroTab(tab, el){
+  showView('pessoas', el);
+  setTimeout(()=>switchPessoaTab(tab), 50);
+}
+
 function onChangeContrapartTipo(prefix){
   const tipo = document.getElementById(prefix+'-tipo-parte').value;
   const inputId = prefix === 'rec' ? 'rec-client' : 'pay-supplier';
@@ -1609,6 +1747,46 @@ function onChangeContrapartTipo(prefix){
   const listId = prefix === 'rec' ? 'rec-client-list' : 'pay-supplier-list';
   const list = document.getElementById(listId);
   if(list) list.style.display = 'none';
+}
+
+// =============================================
+// DEDUPLICAÇÃO de lançamentos
+// =============================================
+function findDuplicateLancamento(novo, tipo){
+  // tipo: 'receivable' ou 'payable'
+  // novo: { numero_nf?, value, due, client?, supplier? }
+  const collection = tipo === 'receivable' ? DB.receivable : DB.payable;
+  const parteNova = (tipo === 'receivable' ? novo.client : novo.supplier) || '';
+  const parteNovaLower = parteNova.toLowerCase().trim();
+  const valorNovo = Number(novo.value || 0);
+  const numeroNovo = String(novo.numero_nf || novo.num || '').trim().toLowerCase();
+
+  for(const item of collection){
+    const parteItem = (tipo === 'receivable' ? item.client : item.supplier) || '';
+    const parteItemLower = parteItem.toLowerCase().trim();
+
+    // Critério 1 (alta confiança): mesmo numero_nf + mesma parte
+    if(numeroNovo && item.desc){
+      const itemDesc = String(item.desc).toLowerCase();
+      if(itemDesc.includes(numeroNovo) && parteItemLower === parteNovaLower){
+        return { item, motivo: 'numero_nf+parte', confianca: 'certa' };
+      }
+    }
+
+    // Critério 2 (média confiança): mesmo valor + mesma parte + due ±3 dias
+    const valorItem = Number(item.value || 0);
+    if(Math.abs(valorItem - valorNovo) > 0.02) continue;
+    if(parteItemLower !== parteNovaLower) continue;
+    if(item.due && novo.due){
+      const di = new Date(item.due + 'T12:00:00');
+      const dn = new Date(novo.due + 'T12:00:00');
+      const diffDays = Math.abs(di - dn) / (1000*60*60*24);
+      if(diffDays <= 3){
+        return { item, motivo: 'valor+parte+data', confianca: 'provavel' };
+      }
+    }
+  }
+  return null;
 }
 
 function uid(){
@@ -1751,6 +1929,7 @@ function showView(v, el){
   if(v==='documents') renderDocuments();
   if(v==='pessoas'){ switchPessoaTab(currentPessoaTab); }
   if(v==='conciliacao') renderConciliacao();
+  if(v==='clients') setClientView(_clientView || 'funil');
   if(v==='nfimport') renderEmailsProcessados();
   if(v==='dre') renderDRE();
   if(v==='nfemitir') renderEmitirNF();
@@ -1767,6 +1946,14 @@ function handleMainAdd(){
   // Casos especiais que precisam de função própria (reset de form, etc.)
   if(currentView === 'pessoas'){
     openPessoaModal();
+    return;
+  }
+  if(currentView === 'contracts'){
+    openContractModal();
+    return;
+  }
+  if(currentView === 'projects'){
+    openProjectModal();
     return;
   }
   if(currentView === 'conciliacao'){
@@ -2071,11 +2258,27 @@ function saveReceivable(){
   if(!client||!value||!desc||!due){ toast('⚠️ Preencha os campos obrigatórios.'); return; }
   if(!cat){ toast('⚠️ Selecione a categoria.'); return; }
   if(!subcat){ toast('⚠️ Selecione a subcategoria.'); return; }
+
+  // Checar duplicata (apenas em criação, não edição)
+  if(!editId){
+    const dup = findDuplicateLancamento({client, value:Number(value), due, num:''}, 'receivable');
+    if(dup){
+      const msg = dup.confianca === 'certa'
+        ? `⚠️ Já existe um lançamento idêntico (${dup.item.desc?.substring(0,50)}). Continuar mesmo assim?`
+        : `⚠️ Lançamento parecido já existe: ${dup.item.client} · ${fmtMoney(dup.item.value)} · ${fmtDate(dup.item.due)}.\nContinuar?`;
+      if(!confirm(msg)) return;
+    }
+  }
+
+  const recorrente = document.getElementById('rec-recorrente')?.checked || false;
+  const rec_frequencia = document.getElementById('rec-rec-frequencia')?.value || null;
+  const rec_ate = document.getElementById('rec-rec-ate')?.value || null;
+
   if(editId){
     const i = DB.receivable.findIndex(r=>r.id===editId);
-    DB.receivable[i]={...DB.receivable[i],client,value:Number(value),desc,due,status,cat,subcat,notes};
+    DB.receivable[i]={...DB.receivable[i],client,value:Number(value),desc,due,status,cat,subcat,notes,recorrente,rec_frequencia,rec_ate};
   } else {
-    DB.receivable.push({id:uid(),client,value:Number(value),desc,due,status,forma,cat,subcat,notes,created:today()});
+    DB.receivable.push({id:uid(),client,value:Number(value),desc,due,status,forma,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,created:today()});
   }
   save('receivable'); closeModal('modal-receivable'); renderReceivable(); renderDashboard();
   toast('✓ Conta salva com sucesso!');
@@ -2084,6 +2287,16 @@ function saveReceivable(){
 function editReceivable(id){
   const r = DB.receivable.find(x=>x.id===id); if(!r) return;
   editId=id;
+  // Recorrência
+  const recCheckbox = document.getElementById('rec-recorrente');
+  if(recCheckbox){
+    recCheckbox.checked = !!r.recorrente;
+    document.getElementById('rec-recorrencia-fields').style.display = r.recorrente ? 'block' : 'none';
+    if(r.recorrente){
+      document.getElementById('rec-rec-frequencia').value = r.rec_frequencia || 'mensal';
+      document.getElementById('rec-rec-ate').value = r.rec_ate || '';
+    }
+  }
   document.getElementById('rec-modal-title').textContent='Editar Conta a Receber';
   document.getElementById('rec-client').value=r.client||'';
   document.getElementById('rec-value').value=r.value||'';
@@ -2163,11 +2376,26 @@ function savePayable(){
   if(!supplier||!value||!desc||!due){ toast('⚠️ Preencha os campos obrigatórios.'); return; }
   if(!cat){ toast('⚠️ Selecione a categoria.'); return; }
   if(!subcat){ toast('⚠️ Selecione a subcategoria.'); return; }
+  // Checar duplicata
+  if(!editId){
+    const dup = findDuplicateLancamento({supplier, value:Number(value), due, num:''}, 'payable');
+    if(dup){
+      const msg = dup.confianca === 'certa'
+        ? `⚠️ Já existe um lançamento idêntico (${dup.item.desc?.substring(0,50)}). Continuar mesmo assim?`
+        : `⚠️ Lançamento parecido já existe: ${dup.item.supplier} · ${fmtMoney(dup.item.value)} · ${fmtDate(dup.item.due)}.\nContinuar?`;
+      if(!confirm(msg)) return;
+    }
+  }
+
+  const pay_recorrente = document.getElementById('pay-recorrente')?.checked || false;
+  const pay_rec_freq = document.getElementById('pay-rec-frequencia')?.value || null;
+  const pay_rec_ate = document.getElementById('pay-rec-ate')?.value || null;
+
   if(editId){
     const i = DB.payable.findIndex(r=>r.id===editId);
-    DB.payable[i]={...DB.payable[i],supplier,value:Number(value),desc,cat,subcat,due,status,notes};
+    DB.payable[i]={...DB.payable[i],supplier,value:Number(value),desc,cat,subcat,due,status,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate};
   } else {
-    DB.payable.push({id:uid(),supplier,value:Number(value),desc,cat,due,status,forma,notes,created:today()});
+    DB.payable.push({id:uid(),supplier,value:Number(value),desc,cat,due,status,forma,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,created:today()});
   }
   save('payable'); closeModal('modal-payable'); renderPayable(); renderDashboard();
   toast('✓ Conta salva com sucesso!');
@@ -2374,6 +2602,91 @@ function setCfChartType(type){
   renderCashflow();
 }
 
+function calcularProjecaoFutura(numMeses){
+  // Projeta entradas e saídas dos próximos N meses baseado em recorrências
+  // Retorna: { entradas: [...], saidas: [...], labelsPosteriores: [...] }
+  const entradas = new Array(numMeses).fill(0);
+  const saidas = new Array(numMeses).fill(0);
+  const labels = [];
+  const monthLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const today = new Date();
+
+  for(let i = 0; i < numMeses; i++){
+    const futureDate = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+    labels.push(`${monthLabels[futureDate.getMonth()]}/${String(futureDate.getFullYear()).slice(2)}`);
+  }
+
+  const incPorFreq = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+
+  // Receivables recorrentes
+  DB.receivable.filter(r => r.recorrente && r.due).forEach(r => {
+    const inc = incPorFreq[r.rec_frequencia] || 1;
+    let d = new Date(r.due + 'T12:00:00');
+    while(d <= today){
+      d.setMonth(d.getMonth() + inc);
+    }
+    for(let i = 0; i < numMeses; i++){
+      const target = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+      if(d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()){
+        entradas[i] += Number(r.value) || 0;
+        d.setMonth(d.getMonth() + inc);
+      } else if(d < target){
+        d = new Date(target);
+      }
+    }
+  });
+
+  // Payables recorrentes
+  DB.payable.filter(r => r.recorrente && r.due).forEach(r => {
+    const inc = incPorFreq[r.rec_frequencia] || 1;
+    let d = new Date(r.due + 'T12:00:00');
+    while(d <= today){
+      d.setMonth(d.getMonth() + inc);
+    }
+    for(let i = 0; i < numMeses; i++){
+      const target = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+      if(d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()){
+        saidas[i] += Number(r.value) || 0;
+        d.setMonth(d.getMonth() + inc);
+      } else if(d < target){
+        d = new Date(target);
+      }
+    }
+  });
+
+  // Contratos com recorrência (apenas entradas — sou o prestador)
+  DB.contracts.filter(c => c.rec_ativa && c.status === 'Ativo').forEach(c => {
+    const valor = Number(c.rec_valor_mensal || c.value) || 0;
+    for(let i = 0; i < numMeses; i++){
+      entradas[i] += valor; // assume mensal
+    }
+  });
+
+  // Lançamentos NÃO recorrentes mas com data futura (já cadastrados)
+  DB.receivable.filter(r => !r.recorrente && r.due).forEach(r => {
+    const d = new Date(r.due + 'T12:00:00');
+    if(d <= today) return;
+    for(let i = 0; i < numMeses; i++){
+      const target = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+      if(d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()){
+        entradas[i] += Number(r.value) || 0;
+      }
+    }
+  });
+  DB.payable.filter(r => !r.recorrente && r.due).forEach(r => {
+    const d = new Date(r.due + 'T12:00:00');
+    if(d <= today) return;
+    for(let i = 0; i < numMeses; i++){
+      const target = new Date(today.getFullYear(), today.getMonth() + 1 + i, 1);
+      if(d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()){
+        saidas[i] += Number(r.value) || 0;
+      }
+    }
+  });
+
+  return { entradas, saidas, labels };
+}
+
 function renderCashflow(){
   // --- TOTALS ---
   const totalIn  = DB.receivable.reduce((a,r)=>a+Number(r.value),0);
@@ -2385,7 +2698,13 @@ function renderCashflow(){
   balEl.textContent = fmtMoney(balance);
   balEl.style.color = balance >= 0 ? 'var(--green)' : 'var(--red)';
 
-  // --- YEAR SELECTOR ---
+  // --- MODO (Realizado / Projetado) ---
+  const modoSel = document.getElementById('cf-modo');
+  const modo = modoSel ? modoSel.value : 'projetado_6';
+  const projMeses = { realizado: 0, projetado_3: 3, projetado_6: 6, projetado_12: 12, ambos: 6 }[modo] || 0;
+  const incluiRealizado = modo !== 'projetado_3' && modo !== 'projetado_6' && modo !== 'projetado_12';
+
+  // --- YEAR SELECTOR (apenas pra realizado) ---
   const allDates = [
     ...DB.receivable.map(r=>r.due||r.created),
     ...DB.payable.map(r=>r.due||r.created)
@@ -2400,7 +2719,7 @@ function renderCashflow(){
   }
   const selectedYear = yearSel ? yearSel.value : years[0];
 
-  // --- MONTHLY DATA ---
+  // --- MONTHLY DATA REALIZADO ---
   const monthLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const entriesByMonth = new Array(12).fill(0);
   const saidasByMonth  = new Array(12).fill(0);
@@ -2419,10 +2738,26 @@ function renderCashflow(){
   });
 
   const curMonth = new Date().getFullYear().toString()===selectedYear ? new Date().getMonth() : 11;
-  const labels   = monthLabels.slice(0, curMonth+1);
-  const dataIn   = entriesByMonth.slice(0, curMonth+1);
-  const dataOut  = saidasByMonth.slice(0, curMonth+1);
-  const dataSaldo= dataIn.map((e,i)=>e-dataOut[i]);
+  let labels, dataIn, dataOut;
+
+  if(modo === 'realizado'){
+    labels   = monthLabels.slice(0, curMonth+1);
+    dataIn   = entriesByMonth.slice(0, curMonth+1);
+    dataOut  = saidasByMonth.slice(0, curMonth+1);
+  } else if(modo === 'ambos'){
+    // Realizado até hoje + projeção próximos 6 meses
+    const proj = calcularProjecaoFutura(6);
+    labels = [...monthLabels.slice(0, curMonth+1).map(m=>m+'/'+selectedYear.slice(2)+' ✓'), ...proj.labels.map(l=>l+' →')];
+    dataIn = [...entriesByMonth.slice(0, curMonth+1), ...proj.entradas];
+    dataOut = [...saidasByMonth.slice(0, curMonth+1), ...proj.saidas];
+  } else {
+    // projetado_X — só projeção
+    const proj = calcularProjecaoFutura(projMeses);
+    labels = proj.labels;
+    dataIn = proj.entradas;
+    dataOut = proj.saidas;
+  }
+  const dataSaldo = dataIn.map((e,i)=>e-dataOut[i]);
 
   // --- DRAW CHART ---
   const canvas = document.getElementById('cf-chart');
@@ -2656,37 +2991,140 @@ function renderContracts(){
   });
   const tbody = document.getElementById('con-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(8,'Nenhum contrato cadastrado.'); return; }
-  tbody.innerHTML = data.map(r=>`<tr>
-    <td style="font-size:11px;color:var(--text-mid);">${r.number||'—'}</td>
-    <td style="font-weight:500;">${r.party||'—'}</td>
-    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.object||'—'}</td>
-    <td class="amount-pos">${fmtMoney(r.value)}</td>
-    <td>${fmtDate(r.start)}</td>
-    <td>${fmtDate(r.end)}${r.end&&isOverdue(r.end)&&r.status==='Ativo'?'<br><span style="font-size:9px;color:var(--orange);">VENCE EM BREVE</span>':''}</td>
-    <td>${statusBadge(r.status)}</td>
-    <td><div class="action-btns">
-      <button class="icon-btn" onclick="editContract('${r.id}')">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-      <button class="icon-btn danger" onclick="deleteCon('${r.id}')">
-        <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
-    </div></td>
-  </tr>`).join('');
+
+  // Agrupar: principais primeiro, com aditivos aninhados abaixo
+  const principais = data.filter(c => (c.natureza || 'principal') === 'principal');
+  const aditivosPorPai = {};
+  data.filter(c => c.natureza === 'aditivo' && c.contrato_pai_id).forEach(a => {
+    if(!aditivosPorPai[a.contrato_pai_id]) aditivosPorPai[a.contrato_pai_id] = [];
+    aditivosPorPai[a.contrato_pai_id].push(a);
+  });
+  // Aditivos órfãos (pai não está no filtro): mostra à parte
+  const idsPrincipais = new Set(principais.map(p=>p.id));
+  const aditivosOrfaos = data.filter(c => c.natureza === 'aditivo' && !idsPrincipais.has(c.contrato_pai_id));
+
+  function rowHTML(r, isAditivo){
+    const indent = isAditivo ? 'padding-left:30px;' : '';
+    const valorTotal = isAditivo ? '' : `${fmtMoney(calcValorContratoComAditivos(r.id))}`;
+    const recBadge = r.rec_ativa ? '<span class="badge" style="background:rgba(204,145,94,0.12);color:var(--gold-dark);font-size:9px;">🔄 Recorrente</span>' : '';
+    const aditivoBadge = isAditivo ? '<span class="badge" style="background:rgba(0,32,62,0.10);color:var(--navy);font-size:9px;margin-right:4px;">↳ Aditivo</span>' : '';
+    return `<tr style="${isAditivo?'background:rgba(0,32,62,0.02);':''}">
+      <td style="font-size:11px;color:var(--text-mid);${indent}">${aditivoBadge}${r.number||'—'}</td>
+      <td style="font-weight:500;">${r.party||'—'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.object||'—'} ${recBadge}</td>
+      <td class="amount-pos">${fmtMoney(r.value)}${valorTotal && valorTotal !== fmtMoney(r.value) ? `<br><span style="font-size:9px;color:var(--text-mid);">Total c/ aditivos: ${valorTotal}</span>` : ''}</td>
+      <td>${fmtDate(r.start)}</td>
+      <td>${fmtDate(r.end)}${r.end&&isOverdue(r.end)&&r.status==='Ativo'?'<br><span style="font-size:9px;color:var(--orange);">VENCE EM BREVE</span>':''}</td>
+      <td>${statusBadge(r.status)}</td>
+      <td><div class="action-btns">
+        ${!isAditivo ? `<button class="icon-btn" onclick="addAditivo('${r.id}')" title="Adicionar aditivo" style="color:var(--gold);border-color:var(--gold);">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>` : ''}
+        <button class="icon-btn" onclick="editContract('${r.id}')" title="Editar">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+        <button class="icon-btn danger" onclick="deleteCon('${r.id}')" title="Excluir">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
+      </div></td>
+    </tr>`;
+  }
+
+  let rows = '';
+  principais.forEach(p => {
+    rows += rowHTML(p, false);
+    (aditivosPorPai[p.id] || []).forEach(a => rows += rowHTML(a, true));
+  });
+  aditivosOrfaos.forEach(a => rows += rowHTML(a, true));
+
+  tbody.innerHTML = rows;
+}
+
+function calcValorContratoComAditivos(contratoId){
+  const principal = DB.contracts.find(c => c.id === contratoId);
+  if(!principal) return 0;
+  const aditivos = DB.contracts.filter(c => c.natureza === 'aditivo' && c.contrato_pai_id === contratoId && c.status === 'Ativo');
+  return Number(principal.value||0) + aditivos.reduce((a,c) => a + Number(c.value||0), 0);
+}
+
+function addAditivo(contratoPaiId){
+  editId = null;
+  document.getElementById('con-modal-title').textContent = 'Novo Aditivo';
+  // Reset form
+  ['number','party','object','value','start','end','type','status','notes','rec-dia','rec-valor','rec-lc116','rec-descricao','rec-modo'].forEach(f=>{
+    const el = document.getElementById('con-'+f);
+    if(el && el.tagName === 'INPUT') el.value = '';
+    if(el && el.tagName === 'TEXTAREA') el.value = '';
+  });
+  document.getElementById('con-rec-ativa').checked = false;
+  document.getElementById('con-rec-fields').style.display = 'none';
+
+  // Pré-preencher com dados do pai
+  const pai = DB.contracts.find(c => c.id === contratoPaiId);
+  if(pai){
+    document.getElementById('con-party').value = pai.party || '';
+    document.getElementById('con-object').value = '(Aditivo) ' + (pai.object || '');
+    document.getElementById('con-type').value = pai.type || 'Prestação de Serviços';
+    document.getElementById('con-status').value = 'Ativo';
+  }
+
+  // Setar natureza = aditivo + popular dropdown de pais
+  document.getElementById('con-natureza').value = 'aditivo';
+  populateContratoPaiDropdown(contratoPaiId);
+  onChangeNaturezaContrato();
+
+  document.getElementById('modal-contract').classList.add('open');
+}
+
+function populateContratoPaiDropdown(selectedId){
+  const sel = document.getElementById('con-pai-id');
+  if(!sel) return;
+  const principais = DB.contracts.filter(c => (c.natureza || 'principal') === 'principal' && c.id !== editId);
+  sel.innerHTML = '<option value="">— selecione —</option>' +
+    principais.map(c => `<option value="${c.id}" ${c.id===selectedId?'selected':''}>${c.number || c.id.slice(0,6)} — ${c.party}</option>`).join('');
+}
+
+function onChangeNaturezaContrato(){
+  const nat = document.getElementById('con-natureza').value;
+  document.getElementById('con-pai-wrap').style.display = nat === 'aditivo' ? 'block' : 'none';
+  if(nat === 'aditivo') populateContratoPaiDropdown();
+}
+
+function onToggleRecorrencia(){
+  const ativa = document.getElementById('con-rec-ativa').checked;
+  document.getElementById('con-rec-fields').style.display = ativa ? 'block' : 'none';
+  if(ativa && !document.getElementById('con-rec-valor').value){
+    // Default: valor mensal = valor total / 12
+    const valorTotal = parseFloat(document.getElementById('con-value').value) || 0;
+    if(valorTotal > 0) document.getElementById('con-rec-valor').value = (valorTotal/12).toFixed(2);
+  }
 }
 
 function saveContract(){
   const party = document.getElementById('con-party').value.trim();
   const object = document.getElementById('con-object').value.trim();
   const value = document.getElementById('con-value').value;
+  const natureza = document.getElementById('con-natureza').value;
+  const contrato_pai_id = document.getElementById('con-pai-id').value;
   if(!party||!object||!value){ toast('⚠️ Preencha os campos obrigatórios.'); return; }
+  if(natureza === 'aditivo' && !contrato_pai_id){ toast('⚠️ Aditivo precisa de contrato pai.'); return; }
+
+  const recAtiva = document.getElementById('con-rec-ativa').checked;
   const d = {
     number: document.getElementById('con-number').value.trim(),
-    party, object, value:Number(value),
+    party, object, value: Number(value),
     start: document.getElementById('con-start').value,
     end: document.getElementById('con-end').value,
     type: document.getElementById('con-type').value,
     status: document.getElementById('con-status').value,
-    notes: document.getElementById('con-notes').value.trim()
+    notes: document.getElementById('con-notes').value.trim(),
+    natureza,
+    contrato_pai_id: natureza === 'aditivo' ? contrato_pai_id : null,
+    rec_ativa: recAtiva,
+    rec_dia: recAtiva ? Number(document.getElementById('con-rec-dia').value) : null,
+    rec_valor_mensal: recAtiva ? Number(document.getElementById('con-rec-valor').value) || 0 : null,
+    rec_descricao: recAtiva ? document.getElementById('con-rec-descricao').value.trim() : '',
+    rec_lc116: recAtiva ? document.getElementById('con-rec-lc116').value.trim() : '',
+    rec_modo: recAtiva ? document.getElementById('con-rec-modo').value : null
   };
+
   if(editId){ const i=DB.contracts.findIndex(r=>r.id===editId); DB.contracts[i]={...DB.contracts[i],...d}; }
   else { DB.contracts.push({id:uid(),created:today(),...d}); }
   save('contracts'); closeModal('modal-contract'); renderContracts(); renderDashboard();
@@ -2696,11 +3134,26 @@ function saveContract(){
 function editContract(id){
   const r = DB.contracts.find(x=>x.id===id); if(!r) return;
   editId=id;
-  document.getElementById('con-modal-title').textContent='Editar Contrato';
+  document.getElementById('con-modal-title').textContent = r.natureza === 'aditivo' ? 'Editar Aditivo' : 'Editar Contrato';
   ['number','party','object','value','start','end','type','status','notes'].forEach(f=>{
     const el = document.getElementById('con-'+f);
     if(el) el.value = r[f]||'';
   });
+  document.getElementById('con-natureza').value = r.natureza || 'principal';
+  populateContratoPaiDropdown(r.contrato_pai_id);
+  onChangeNaturezaContrato();
+
+  // Recorrência
+  document.getElementById('con-rec-ativa').checked = !!r.rec_ativa;
+  document.getElementById('con-rec-fields').style.display = r.rec_ativa ? 'block' : 'none';
+  if(r.rec_ativa){
+    document.getElementById('con-rec-dia').value = r.rec_dia || 1;
+    document.getElementById('con-rec-valor').value = r.rec_valor_mensal || '';
+    document.getElementById('con-rec-descricao').value = r.rec_descricao || '';
+    document.getElementById('con-rec-lc116').value = r.rec_lc116 || '';
+    document.getElementById('con-rec-modo').value = r.rec_modo || 'consolidado';
+  }
+
   document.getElementById('modal-contract').classList.add('open');
 }
 
@@ -2714,6 +3167,26 @@ function deleteCon(id){
 // =============================================
 // CLIENTES
 // =============================================
+let _clientView = 'funil';
+const FUNIL_ETAPAS = [
+  { id:'Sondagem', label:'Sondagem', color:'#9b9b9b', desc:'primeiro contato, descobrindo necessidade' },
+  { id:'Proposta', label:'Proposta', color:'#CC915E', desc:'proposta enviada, aguardando' },
+  { id:'Fechado',  label:'Fechado ✓', color:'#27ae60', desc:'virou cliente' },
+  { id:'Perdido',  label:'Perdido',  color:'#e74c3c', desc:'não fechou' }
+];
+
+function setClientView(v){
+  _clientView = v;
+  document.getElementById('cli-view-lista-wrap').style.display = v === 'lista' ? 'block' : 'none';
+  document.getElementById('cli-view-funil-wrap').style.display = v === 'funil' ? 'block' : 'none';
+  // Visual estado dos botões
+  const bF = document.getElementById('cli-view-funil');
+  const bL = document.getElementById('cli-view-lista');
+  if(v === 'funil'){ bF.classList.add('btn-navy'); bF.classList.remove('btn-outline'); bL.classList.add('btn-outline'); bL.classList.remove('btn-navy'); }
+  else { bL.classList.add('btn-navy'); bL.classList.remove('btn-outline'); bF.classList.add('btn-outline'); bF.classList.remove('btn-navy'); }
+  renderClients();
+}
+
 function renderClients(){
   const q = document.getElementById('cli-search').value.toLowerCase();
   const f = document.getElementById('cli-filter').value;
@@ -2722,6 +3195,12 @@ function renderClients(){
     const mf = !f||r.type===f;
     return mq&&mf;
   });
+
+  if(_clientView === 'funil') renderKanban(data);
+  else renderListaClientes(data);
+}
+
+function renderListaClientes(data){
   const tbody = document.getElementById('cli-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(6,'Nenhum cliente cadastrado.'); return; }
   tbody.innerHTML = data.map(r=>`<tr>
@@ -2734,15 +3213,113 @@ function renderClients(){
       <div style="font-size:11px;color:var(--text-mid);">${r.phone||''}</div>
     </td>
     <td>${statusBadge(r.type)}</td>
+    <td><span class="badge" style="background:rgba(0,32,62,0.08);color:var(--navy);">${r.etapa_funil||'Sondagem'}</span></td>
     <td><span class="badge badge-gray">${r.origin||'—'}</span></td>
-    <td style="font-size:11px;color:var(--text-mid);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.notes||'—'}</td>
     <td><div class="action-btns">
-      <button class="icon-btn" onclick="editClient('${r.id}')">
+      <button class="icon-btn" onclick="editClient('${r.id}')" title="Editar">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-      <button class="icon-btn danger" onclick="deleteCli('${r.id}')">
+      <button class="icon-btn danger" onclick="deleteCli('${r.id}')" title="Excluir">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
     </div></td>
   </tr>`).join('');
+}
+
+function renderKanban(data){
+  const board = document.getElementById('cli-kanban');
+  if(!board) return;
+
+  board.innerHTML = FUNIL_ETAPAS.map(etapa => {
+    const cards = data.filter(c => (c.etapa_funil||'Sondagem') === etapa.id);
+    const cardsHTML = cards.map(c => `
+      <div class="kanban-card" draggable="true"
+           ondragstart="onCardDragStart(event,'${c.id}')"
+           onclick="editClient('${c.id}')">
+        <div style="font-weight:600;font-size:12px;color:var(--navy);margin-bottom:3px;">${c.name||'—'}</div>
+        <div style="font-size:10px;color:var(--text-mid);margin-bottom:6px;">${c.segment||''} ${c.origin?'· '+c.origin:''}</div>
+        ${c.email?`<div style="font-size:10px;color:var(--text-mid);">📧 ${c.email}</div>`:''}
+        ${c.phone?`<div style="font-size:10px;color:var(--text-mid);">📞 ${c.phone}</div>`:''}
+        ${etapa.id==='Fechado'?`<button class="btn btn-primary btn-xs" style="margin-top:8px;width:100%;" onclick="event.stopPropagation();converterEmCliente('${c.id}');">+ Converter em Projeto</button>`:''}
+      </div>
+    `).join('');
+
+    return `<div class="kanban-col" style="background:rgba(0,32,62,0.03);border-radius:8px;padding:10px;min-height:300px;"
+                 ondragover="event.preventDefault();this.style.background='rgba(204,145,94,0.10)';"
+                 ondragleave="this.style.background='rgba(0,32,62,0.03)';"
+                 ondrop="onCardDrop(event,'${etapa.id}',this)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid ${etapa.color};">
+        <div>
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:${etapa.color};">${etapa.label}</div>
+          <div style="font-size:9px;color:var(--text-mid);">${etapa.desc}</div>
+        </div>
+        <span style="background:${etapa.color};color:#fff;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">${cards.length}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${cardsHTML}</div>
+    </div>`;
+  }).join('');
+}
+
+function onCardDragStart(e, clientId){
+  e.dataTransfer.setData('text/plain', clientId);
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onCardDrop(e, etapaDestino, colEl){
+  e.preventDefault();
+  colEl.style.background = 'rgba(0,32,62,0.03)';
+  const clientId = e.dataTransfer.getData('text/plain');
+  const cli = DB.clients.find(c => c.id === clientId);
+  if(!cli) return;
+  cli.etapa_funil = etapaDestino;
+  // Lógica automática:
+  // - Fechado → vira Cliente
+  // - Perdido → vira Inativo
+  // - Outras → mantém Prospect
+  if(etapaDestino === 'Fechado') cli.type = 'Cliente';
+  else if(etapaDestino === 'Perdido') cli.type = 'Inativo';
+  else if(!cli.type || cli.type === 'Inativo') cli.type = 'Prospect';
+  save('clients');
+  renderClients();
+  toast(`✓ Movido para "${etapaDestino}"`);
+}
+
+async function converterEmCliente(clientId){
+  const cli = DB.clients.find(c => c.id === clientId);
+  if(!cli) return;
+  if(!confirm(`Converter "${cli.name}" em Cliente Ativo e criar projeto inicial?`)) return;
+
+  // 1. Cadastra como pessoa Cliente (se ainda não existe)
+  const jaPessoa = DB.pessoas.some(p => p.tipo === 'Cliente' && p.nome?.toLowerCase() === cli.name?.toLowerCase());
+  if(!jaPessoa){
+    const novaPessoa = {
+      id: uid(), created: today(),
+      tipo: 'Cliente', pjpf: 'PJ', status: 'Ativo',
+      nome: cli.name,
+      email: cli.email||'', telefone: cli.phone||'',
+      segmento: cli.segment||'',
+      doc: '', fantasia: '', porte: '', situacao: 'Não verificada',
+      contato: '', logradouro:'', bairro:'', cidade:'', uf:'', cep:'',
+      banco:'', agencia:'', conta:'',
+      notes: `Convertido do CRM em ${today()}`
+    };
+    DB.pessoas.push(novaPessoa);
+    save('pessoas');
+  }
+
+  // 2. Cria projeto vazio
+  const novoProjeto = {
+    id: uid(), created: today(),
+    name: `Projeto ${cli.name}`,
+    client: cli.name,
+    status: 'Em planejamento',
+    start: today(), deadline: '',
+    value: 0, progress: 0,
+    notes: `Criado a partir da conversão de prospect em ${today()}`
+  };
+  DB.projects.push(novoProjeto);
+  save('projects');
+
+  toast(`✓ "${cli.name}" virou cliente ativo + projeto criado`);
+  renderClients();
 }
 
 function saveClient(){
@@ -2757,7 +3334,7 @@ function saveClient(){
     notes: document.getElementById('cli-notes').value.trim()
   };
   if(editId){ const i=DB.clients.findIndex(r=>r.id===editId); DB.clients[i]={...DB.clients[i],...d}; }
-  else { DB.clients.push({id:uid(),created:today(),...d}); }
+  else { DB.clients.push({id:uid(),created:today(),etapa_funil:'Sondagem',...d}); }
   save('clients'); closeModal('modal-client'); renderClients(); renderDashboard();
   toast('✓ Cliente salvo!');
 }
@@ -2784,51 +3361,120 @@ function deleteCli(id){
 // =============================================
 function renderProjects(){
   const f = document.getElementById('proj-filter').value;
-  const cols = ['Aguardando','Em andamento','Concluído','Cancelado'];
+  const cols = ['Em planejamento','Em execução','Pausado','Concluído','Cancelado'];
   const kanban = document.getElementById('proj-kanban');
+  // Migração silenciosa: status antigos -> novos
+  DB.projects.forEach(p => {
+    if(p.status === 'Aguardando') p.status = 'Em planejamento';
+    if(p.status === 'Em andamento') p.status = 'Em execução';
+  });
+
   kanban.innerHTML = cols.map(col=>{
-    const items = DB.projects.filter(p=>(!f||f===col)?(p.status===col):false);
     const allItems = DB.projects.filter(p=>p.status===col);
-    const displayItems = f ? items : allItems;
+    const displayItems = f ? (f===col ? allItems : []) : allItems;
     return `<div class="kanban-col">
       <div class="kanban-col-title">
         ${col}
         <span class="kanban-count">${displayItems.length}</span>
       </div>
-      ${displayItems.length ? displayItems.map(p=>`
-        <div class="kanban-card" style="border-left-color:${colColor(col)};">
-          <div class="kanban-card-client">${p.client||'Sem cliente'}</div>
-          <div class="kanban-card-title">${p.name}</div>
-          <div class="kanban-card-meta">Entrega: ${fmtDate(p.deadline)||'—'}</div>
+      ${displayItems.length ? displayItems.map(p=>{
+        const etapas = p.etapas || [];
+        const concluidas = etapas.filter(e => e.status === 'concluida').length;
+        const totalEtapas = etapas.length;
+        const contratosLink = DB.contracts.filter(c => (c.party||'').toLowerCase() === (p.client||'').toLowerCase());
+        const valorTotalContratos = contratosLink.reduce((a,c) => a + Number(c.value||0), 0);
+        return `
+        <div class="kanban-card" style="border-left:4px solid ${colColor(col)};padding:12px;">
+          <div class="kanban-card-client" style="font-size:10px;color:var(--text-mid);text-transform:uppercase;letter-spacing:1px;">${p.client||'Sem cliente'}</div>
+          <div class="kanban-card-title" style="font-weight:600;color:var(--navy);font-size:13px;margin:4px 0;">${p.name}</div>
+          ${p.responsavel?`<div style="font-size:10px;color:var(--text-mid);">👤 ${p.responsavel}</div>`:''}
+          <div class="kanban-card-meta" style="font-size:10px;color:var(--text-mid);">📅 Entrega: ${fmtDate(p.deadline)||'—'}</div>
+          ${totalEtapas > 0 ? `<div style="font-size:10px;color:var(--text-mid);">📍 ${concluidas}/${totalEtapas} etapas</div>` : ''}
+          ${contratosLink.length ? `<div style="font-size:10px;color:var(--gold-dark);">📜 ${contratosLink.length} contrato(s) — ${fmtMoney(valorTotalContratos)}</div>` : ''}
           ${p.progress!=null?`<div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${p.progress}%;background:${colColor(col)};"></div></div>`:''}
           <div style="display:flex;gap:5px;margin-top:10px;">
             <button class="btn btn-outline btn-xs" onclick="editProject('${p.id}')">Editar</button>
             <button class="btn btn-xs" style="border:1.5px solid var(--red);color:var(--red);background:transparent;" onclick="deleteProj('${p.id}')">×</button>
           </div>
         </div>
-      `).join('') : `<p style="font-size:11px;color:var(--text-mid);text-align:center;padding:16px 0;">Sem projetos</p>`}
+      `;
+      }).join('') : `<p style="font-size:11px;color:var(--text-mid);text-align:center;padding:16px 0;">—</p>`}
     </div>`;
   }).join('');
 }
 
 function colColor(col){
   return {
-    'Aguardando':'var(--gold)','Em andamento':'var(--navy)',
-    'Concluído':'var(--green)','Cancelado':'var(--red)'
+    'Em planejamento':'var(--gold)','Em execução':'var(--navy)',
+    'Pausado':'var(--orange)','Concluído':'var(--green)','Cancelado':'var(--red)',
+    // backward compat
+    'Aguardando':'var(--gold)','Em andamento':'var(--navy)'
   }[col]||'var(--cream-dark)';
+}
+
+// === Etapas ===
+let _projEtapas = [];
+
+function renderProjEtapas(){
+  const c = document.getElementById('proj-etapas-list');
+  if(!c) return;
+  if(!_projEtapas.length){
+    c.innerHTML = '<div style="font-size:11px;color:var(--text-mid);font-style:italic;text-align:center;padding:8px;">Sem etapas. Adicione marcos do projeto.</div>';
+    return;
+  }
+  c.innerHTML = _projEtapas.map((e,i) => `
+    <div style="display:flex;gap:6px;align-items:center;background:#fff;padding:6px 8px;border-radius:5px;border:1px solid var(--cream-dark);">
+      <select onchange="_projEtapas[${i}].status=this.value" style="font-size:11px;padding:3px 6px;border:1px solid var(--cream-dark);border-radius:4px;width:110px;">
+        <option value="pendente" ${e.status==='pendente'?'selected':''}>⏳ Pendente</option>
+        <option value="em_andamento" ${e.status==='em_andamento'?'selected':''}>▶ Em andamento</option>
+        <option value="concluida" ${e.status==='concluida'?'selected':''}>✓ Concluída</option>
+      </select>
+      <input value="${(e.nome||'').replace(/"/g,'&quot;')}" placeholder="Nome da etapa" oninput="_projEtapas[${i}].nome=this.value" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--cream-dark);border-radius:4px;">
+      <input type="date" value="${e.prazo||''}" oninput="_projEtapas[${i}].prazo=this.value" style="font-size:11px;padding:4px 6px;border:1px solid var(--cream-dark);border-radius:4px;width:130px;">
+      <button type="button" class="icon-btn danger" onclick="removeProjEtapa(${i})" style="padding:3px 6px;">×</button>
+    </div>
+  `).join('');
+}
+
+function addProjEtapa(){
+  _projEtapas.push({ nome: '', status: 'pendente', prazo: '' });
+  renderProjEtapas();
+}
+
+function removeProjEtapa(idx){
+  _projEtapas.splice(idx, 1);
+  renderProjEtapas();
+}
+
+function refreshContratosVinculados(){
+  const cliente = (document.getElementById('proj-client').value || '').trim();
+  const info = document.getElementById('proj-contratos-info');
+  if(!info) return;
+  if(!cliente){ info.innerHTML = ''; return; }
+  const list = DB.contracts.filter(c => (c.party||'').toLowerCase() === cliente.toLowerCase());
+  if(!list.length){
+    info.innerHTML = `<em>Nenhum contrato cadastrado para "${cliente}". Crie um em <strong>Contratos</strong> pra vincular.</em>`;
+    return;
+  }
+  const total = list.reduce((a,c) => a + Number(c.value||0), 0);
+  info.innerHTML = `📜 <strong>${list.length} contrato(s)</strong> vinculado(s) a este cliente — total ${fmtMoney(total)}`;
 }
 
 function saveProject(){
   const name = document.getElementById('proj-name').value.trim();
   if(!name){ toast('⚠️ Informe o nome do projeto.'); return; }
+  const valEl = document.getElementById('proj-value');
   const d = {
-    name, client: document.getElementById('proj-client').value.trim(),
+    name,
+    client: document.getElementById('proj-client').value.trim(),
+    responsavel: document.getElementById('proj-responsavel').value.trim(),
     status: document.getElementById('proj-status').value,
     start: document.getElementById('proj-start').value,
     deadline: document.getElementById('proj-deadline').value,
-    value: Number(document.getElementById('proj-value').value)||0,
+    value: valEl ? (Number(valEl.value)||0) : 0,
     progress: Number(document.getElementById('proj-progress').value)||0,
-    desc: document.getElementById('proj-desc').value.trim()
+    desc: document.getElementById('proj-desc').value.trim(),
+    etapas: _projEtapas.filter(e => e.nome && e.nome.trim())
   };
   if(editId){ const i=DB.projects.findIndex(r=>r.id===editId); DB.projects[i]={...DB.projects[i],...d}; }
   else { DB.projects.push({id:uid(),created:today(),...d}); }
@@ -2836,14 +3482,36 @@ function saveProject(){
   toast('✓ Projeto salvo!');
 }
 
+function openProjectModal(){
+  editId = null;
+  document.getElementById('proj-modal-title').textContent = 'Novo Projeto';
+  ['name','client','responsavel','start','deadline','progress','desc'].forEach(f=>{
+    const el = document.getElementById('proj-'+f);
+    if(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) el.value = '';
+  });
+  document.getElementById('proj-status').value = 'Em planejamento';
+  _projEtapas = [];
+  renderProjEtapas();
+  refreshContratosVinculados();
+  document.getElementById('modal-project').classList.add('open');
+  // Recalc contratos quando o usuário muda o cliente
+  const cliInp = document.getElementById('proj-client');
+  if(cliInp){ cliInp.oninput = refreshContratosVinculados; }
+}
+
 function editProject(id){
   const r = DB.projects.find(x=>x.id===id); if(!r) return;
   editId=id;
   document.getElementById('proj-modal-title').textContent='Editar Projeto';
-  ['name','client','status','start','deadline','value','progress','desc'].forEach(f=>{
+  ['name','client','responsavel','status','start','deadline','progress','desc'].forEach(f=>{
     const el=document.getElementById('proj-'+f); if(el) el.value=r[f]||'';
   });
+  _projEtapas = (r.etapas || []).map(e => ({...e}));
+  renderProjEtapas();
+  refreshContratosVinculados();
   document.getElementById('modal-project').classList.add('open');
+  const cliInp = document.getElementById('proj-client');
+  if(cliInp){ cliInp.oninput = refreshContratosVinculados; }
 }
 
 function deleteProj(id){
@@ -3409,7 +4077,7 @@ async function handleNFFiles(files){
 
     try {
       const [result, base64Data] = await Promise.all([
-        readNFWithAI(file, apiKey),
+        readNFWithAI(file),
         fileToBase64(file)
       ]);
       const ext = file.name.split('.').pop().toLowerCase();
@@ -3466,7 +4134,7 @@ async function fetchAnthropicWithRetry(url, options, maxAttempts = 4){
   throw lastErr || new Error('Falha após múltiplas tentativas');
 }
 
-async function readNFWithAI(file, apiKey){
+async function readNFWithAI(file){
   // Convert file to base64
   const base64 = await fileToBase64(file);
   const ext = file.name.split('.').pop().toLowerCase();
@@ -3833,6 +4501,20 @@ async function confirmSelected(){
 
       const descFull = num ? `${tipo_doc} ${num} — ${desc}` : `${tipo_doc} — ${desc}`;
 
+      // ── Detecção de duplicata por NF: pular se já existe ──
+      const tipoTabelaCheck = nf.tipo === 'saida' ? 'receivable' : 'payable';
+      const dupCheck = findDuplicateLancamento(
+        nf.tipo === 'saida'
+          ? { client: parte, value: val, due, num: num }
+          : { supplier: parte, value: val, due, num: num },
+        tipoTabelaCheck
+      );
+      if(dupCheck && dupCheck.confianca === 'certa'){
+        toast(`⏭️ NF ${num || descFull} já cadastrada — pulando duplicata`);
+        confirmadas.push(nf._rid);
+        continue;
+      }
+
       // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
       const isSaidaCheck = nf.tipo === 'saida';
       const collCheck = isSaidaCheck ? DB.receivable : DB.payable;
@@ -4140,6 +4822,25 @@ function switchPessoaTab(tab){
     }
   });
   renderPessoas();
+}
+
+function openContractModal(){
+  editId = null;
+  document.getElementById('con-modal-title').textContent = 'Novo Contrato';
+  ['number','party','object','value','start','end','notes','rec-valor','rec-lc116','rec-descricao'].forEach(f=>{
+    const el = document.getElementById('con-'+f);
+    if(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) el.value = '';
+  });
+  document.getElementById('con-natureza').value = 'principal';
+  document.getElementById('con-type').value = 'Prestação de Serviços';
+  document.getElementById('con-status').value = 'Ativo';
+  document.getElementById('con-rec-ativa').checked = false;
+  document.getElementById('con-rec-fields').style.display = 'none';
+  document.getElementById('con-rec-dia').value = 5;
+  document.getElementById('con-rec-modo').value = 'consolidado';
+  populateContratoPaiDropdown();
+  onChangeNaturezaContrato();
+  document.getElementById('modal-contract').classList.add('open');
 }
 
 function openPessoaModal(tipo){
@@ -4508,12 +5209,7 @@ async function importFromFolder() {
     toast('⚠️ Seu navegador não suporta seleção de pasta. Use Chrome ou Edge atualizado.');
     return;
   }
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    toast('⚠️ Configure sua chave de API primeiro!');
-    document.getElementById('apikey-input').focus();
-    return;
-  }
+  // Chave da API agora fica no servidor (/api/anthropic), não precisa checar local
   try {
     const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
     const files = await coletarArquivosDaPasta(dirHandle);
@@ -4986,7 +5682,118 @@ if(typeof formatDateBR === 'undefined'){
 // =============================================
 function renderDRE(){ /* Fase 7 — implementação a partir de plano_contas no Supabase */ }
 function renderEmitirNF(){ /* Fase NFS-e — integração API Nacional */ }
-function renderRecorrencias(){ /* Fase 5 — receitas + despesas recorrentes */ }
+function getRecorrenciaProximaData(item){
+  if(!item.due || !item.rec_frequencia) return null;
+  const d = new Date(item.due + 'T12:00:00');
+  const inc = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 }[item.rec_frequencia] || 1;
+  d.setMonth(d.getMonth() + inc);
+  return d.toISOString().slice(0,10);
+}
+
+function gerarProximaParcela(tipo, id){
+  const collection = tipo === 'receivable' ? DB.receivable : DB.payable;
+  const item = collection.find(i => i.id === id);
+  if(!item) return;
+  const proxima = getRecorrenciaProximaData(item);
+  if(!proxima) return;
+  const novo = { ...item, id: uid(), created: today(), due: proxima, status: 'Pendente', conciliado: false, sem_documento: false, anexo: null, anexoNome: null, anexoTipo: null };
+  item.rec_ultima_geracao = today();
+  collection.push(novo);
+  save(tipo);
+  renderRecorrencias();
+  toast(`✓ Nova parcela gerada para ${proxima}`);
+}
+
+function renderRecorrencias(){
+  const lista = [];
+  DB.contracts.filter(c => c.rec_ativa).forEach(c => {
+    lista.push({
+      origem: 'Contrato', tipo: 'entrada',
+      desc: `${c.party} — ${c.object || ''}`,
+      valor: c.rec_valor_mensal || c.value,
+      frequencia: 'mensal',
+      proxima: c.rec_dia ? `dia ${c.rec_dia}` : '—',
+      icon: '📜', cor: 'var(--green)', acao: null
+    });
+  });
+  DB.receivable.filter(r => r.recorrente).forEach(r => {
+    const px = getRecorrenciaProximaData(r);
+    lista.push({
+      origem: 'Conta a Receber', tipo: 'entrada',
+      desc: `${r.client} — ${r.desc}`,
+      valor: r.value, frequencia: r.rec_frequencia || 'mensal',
+      proxima: px ? formatDateBR(px) : '—',
+      icon: '💰', cor: 'var(--green)',
+      acao: { tipo: 'receivable', id: r.id }
+    });
+  });
+  DB.payable.filter(r => r.recorrente).forEach(r => {
+    const px = getRecorrenciaProximaData(r);
+    lista.push({
+      origem: 'Conta a Pagar', tipo: 'saida',
+      desc: `${r.supplier} — ${r.desc}`,
+      valor: r.value, frequencia: r.rec_frequencia || 'mensal',
+      proxima: px ? formatDateBR(px) : '—',
+      icon: '💳', cor: 'var(--red)',
+      acao: { tipo: 'payable', id: r.id }
+    });
+  });
+
+  const container = document.getElementById('view-recorrencias');
+  if(!container) return;
+  const totalEntrada = lista.filter(l => l.tipo === 'entrada').reduce((a,l) => a + Number(l.valor||0), 0);
+  const totalSaida = lista.filter(l => l.tipo === 'saida').reduce((a,l) => a + Number(l.valor||0), 0);
+  const saldoMensal = totalEntrada - totalSaida;
+
+  container.innerHTML = `
+    <div class="stats-grid" style="margin-bottom:18px;">
+      <div class="stat-card green">
+        <div class="stat-label">Entradas Recorrentes</div>
+        <div class="stat-value">${fmtMoney(totalEntrada)}</div>
+        <div class="stat-sub">${lista.filter(l => l.tipo === 'entrada').length} fonte(s)</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">Saídas Recorrentes</div>
+        <div class="stat-value">${fmtMoney(totalSaida)}</div>
+        <div class="stat-sub">${lista.filter(l => l.tipo === 'saida').length} fonte(s)</div>
+      </div>
+      <div class="stat-card ${saldoMensal>=0?'green':'red'}">
+        <div class="stat-label">Saldo Mensal Recorrente</div>
+        <div class="stat-value" style="color:${saldoMensal>=0?'var(--green)':'var(--red)'};">${fmtMoney(saldoMensal)}</div>
+        <div class="stat-sub">Diferença líquida</div>
+      </div>
+      <div class="stat-card navy">
+        <div class="stat-label">Total de Recorrências</div>
+        <div class="stat-value">${lista.length}</div>
+        <div class="stat-sub">Contratos + lançamentos</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Todas as Recorrências</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        ${lista.length === 0 ? '<div style="text-align:center;color:var(--text-mid);font-size:12px;padding:24px;">Nenhuma recorrência. Marque "Lançamento recorrente" ao criar uma Conta a Receber/Pagar, ou ative recorrência num Contrato.</div>' : `
+        <table>
+          <thead><tr>
+            <th>Origem</th><th>Descrição</th><th style="text-align:right;">Valor</th><th>Frequência</th><th>Próxima</th><th>Ações</th>
+          </tr></thead>
+          <tbody>
+            ${lista.map(l => `<tr>
+              <td><span style="font-size:14px;">${l.icon}</span> ${l.origem}</td>
+              <td style="font-size:11px;">${l.desc}</td>
+              <td style="text-align:right;font-weight:600;color:${l.cor};">${fmtMoney(l.valor)}</td>
+              <td><span class="badge badge-gray">${l.frequencia}</span></td>
+              <td style="font-size:11px;">${l.proxima}</td>
+              <td>${l.acao ? `<button class="btn btn-outline btn-xs" onclick="gerarProximaParcela('${l.acao.tipo}','${l.acao.id}')">+ Gerar próxima</button>` : '<span style="font-size:10px;color:var(--text-mid);">via contrato</span>'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`}
+      </div>
+    </div>
+  `;
+}
 
 // =============================================
 // AUTH + BOOT
@@ -5024,47 +5831,4 @@ async function bootApp(){
   document.getElementById('app-loading').classList.remove('hidden');
   document.getElementById('user-email-label').textContent = currentUser.email;
 
-  try {
-    await loadAll();
-  } catch(e){
-    console.error('Falha ao carregar dados:', e);
-    toast('⚠️ Erro ao carregar dados do servidor.');
-  }
-
-  document.getElementById('app-loading').classList.add('hidden');
-
-  // Dispara render inicial
-  try { renderDashboard && renderDashboard(); } catch(e){}
-  try { updateApiKeyStatus(); } catch(e){}
-  try { renderEmailsProcessados && renderEmailsProcessados(); } catch(e){}
-}
-
-(async function init(){
-  // Checa sessão existente
-  const { data: { session } } = await supabase.auth.getSession();
-  if(session && session.user){
-    currentUser = session.user;
-    await bootApp();
-  }
-  // Senão: overlay de login já está visível por padrão
-})();
-
-</script>
-
-<!-- MODAL VISUALIZAR ANEXO -->
-<div class="modal-overlay" id="modal-anexo" onclick="if(event.target===this)closeModal('modal-anexo')">
-  <div class="modal modal-lg" style="max-width:800px;max-height:90vh;display:flex;flex-direction:column;">
-    <div class="modal-header">
-      <span class="modal-title" id="anexo-modal-title">📎 Documento Anexado</span>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button class="btn btn-outline btn-sm" onclick="downloadAnexo()" id="btn-download-anexo">⬇ Baixar</button>
-        <button class="modal-close" onclick="closeModal('modal-anexo')">×</button>
-      </div>
-    </div>
-    <div class="modal-body" style="flex:1;overflow:auto;padding:0;background:#f0f0f0;border-radius:0 0 8px 8px;">
-      <div id="anexo-viewer" style="width:100%;height:100%;min-height:500px;display:flex;align-items:center;justify-content:center;"></div>
-    </div>
-  </div>
-</div>
-</body>
-</html>
+ 

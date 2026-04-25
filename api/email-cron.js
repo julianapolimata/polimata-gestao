@@ -390,11 +390,27 @@ async function createLancamento(parsed, att, base64) {
 
   const targetTable = isSaida ? 'receivable' : 'payable';
 
-  // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
+  // ── Detecção de duplicata: bate por numero_nf + parte ou valor+parte+data ±3 dias?
   const { data: candidates } = await getSupabase()
     .from(targetTable)
     .select('id, data')
     .eq('user_id', process.env.POLIMATA_USER_ID);
+
+  const numeroLower = String(numero || '').trim().toLowerCase();
+  const dupExato = (candidates || []).find(c => {
+    const item = c.data || {};
+    const itemDesc = String(item.desc || '').toLowerCase();
+    const itemParte = isSaida ? (item.client || '') : (item.supplier || '');
+    if(!numeroLower) return false;
+    if(!itemDesc.includes(numeroLower)) return false;
+    if(itemParte.toLowerCase().trim() !== parte.toLowerCase().trim()) return false;
+    return true;
+  });
+
+  if (dupExato) {
+    console.log(`[dedup] NF ${numero} já existe (id ${dupExato.id}) — pulando`);
+    return null; // Não cria duplicata
+  }
 
   const matchSemDoc = (candidates || []).find(c => {
     const item = c.data || {};
