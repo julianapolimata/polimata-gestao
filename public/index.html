@@ -5831,4 +5831,28 @@ async function bootApp(){
   document.getElementById('app-loading').classList.remove('hidden');
   document.getElementById('user-email-label').textContent = currentUser.email;
 
- 
+  try {
+    await loadAll();
+  } catch(e){
+    console.error('Falha ao carregar dados:', e);
+    toast('⚠️ Erro ao carregar dados do servidor.');
+  }
+
+  document.getElementById('app-loading').classList.add('hidden');
+
+  // Dispara render inicial
+  try { renderDashboard && renderDashboard(); } catch(e){}
+  try { updateApiKeyStatus(); } catch(e){}
+  try { renderEmailsProcessados && renderEmailsProcessados(); } catch(e){}
+}
+
+(async function init(){
+  const { data: { session } } = await supabase.auth.getSession();
+  if(session && session.user){
+    currentUser = session.user;
+    await bootApp();
+  }
+})();
+</script>
+</body>
+</html>
