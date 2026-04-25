@@ -263,6 +263,19 @@ tbody tr:last-child td{border-bottom:none;}
 .user-chip{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-mid);padding:4px 10px;border:1px solid var(--cream-dark);border-radius:20px;}
 .user-chip .dot{width:7px;height:7px;background:var(--green);border-radius:50%;}
 
+
+/* CONCILIAÇÃO */
+#concil-dropzone:hover{border-color:var(--gold);background:rgba(204,145,94,0.04);}
+.concil-row{border-bottom:1px solid var(--cream-dark);}
+.concil-match-card{font-size:11px;color:var(--text-mid);background:var(--cream);padding:6px 10px;border-radius:4px;line-height:1.4;}
+.concil-match-card strong{color:var(--navy);}
+.concil-no-match{font-size:11px;color:var(--text-mid);font-style:italic;}
+.concil-action-btns{display:flex;gap:5px;flex-wrap:wrap;}
+.concil-action-btns .btn{padding:5px 10px;font-size:10px;letter-spacing:.6px;}
+.badge-conciliado{background:rgba(39,174,96,0.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.badge-pendente{background:rgba(230,126,34,0.12);color:var(--orange);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.moeda-badge{display:inline-block;background:var(--cream);color:var(--navy);font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;font-weight:600;letter-spacing:.5px;}
+
 </style>
 </head>
 <body>
@@ -324,6 +337,10 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="nav-item" onclick="showView('cashflow',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Fluxo de Caixa
+    </div>
+    <div class="nav-item" onclick="showView('conciliacao',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z"/><polyline points="9 12 11 14 15 10"/></svg>
+      Conciliação
     </div>
     <div class="nav-item" onclick="showView('contracts',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -653,6 +670,61 @@ tbody tr:last-child td{border-bottom:none;}
     </div>
 
     <!-- ===== CONTRATOS ===== -->
+    <div class="view" id="view-conciliacao">
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+          <span class="card-title">Importar Extrato / Fatura</span>
+        </div>
+        <div class="card-body">
+          <div id="concil-dropzone" style="border:2px dashed var(--cream-dark);border-radius:8px;padding:30px;text-align:center;background:var(--cream);transition:all .2s;cursor:pointer;position:relative;">
+            <input type="file" id="concil-file-input" accept=".ofx,.csv,.pdf,.xlsx,.xls" multiple
+              style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;"
+              onchange="handleConcilFiles(this.files)">
+            <svg width="36" height="36" fill="none" stroke="var(--gold)" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:10px;"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-family:'Cormorant Garamond',serif;font-size:18px;color:var(--navy);margin-bottom:4px;">Solte aqui o extrato bancário, fatura de cartão ou pacote de NFs</div>
+            <div style="font-size:11px;color:var(--text-mid);">Formatos aceitos: OFX, CSV, PDF, XLSX</div>
+          </div>
+          <div id="concil-status" style="margin-top:14px;font-size:11px;color:var(--text-mid);"></div>
+        </div>
+      </div>
+
+      <div class="card" id="concil-results-card" style="display:none;">
+        <div class="card-header">
+          <span class="card-title">Transações lidas — revisão e conciliação</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="concil-summary" style="font-size:11px;color:var(--text-mid);"></span>
+            <button class="btn btn-outline btn-sm" onclick="clearConcilResults()">Descartar</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição (extrato)</th>
+                  <th style="text-align:right;">Valor</th>
+                  <th>Match sugerido</th>
+                  <th style="width:280px;">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="concil-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px;" id="concil-history-card">
+        <div class="card-header">
+          <span class="card-title">Histórico de conciliações</span>
+        </div>
+        <div class="card-body">
+          <div id="concil-history-empty" style="text-align:center;color:var(--text-mid);font-size:12px;padding:18px;">Nenhuma conciliação realizada ainda.</div>
+          <div id="concil-history-list"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="view" id="view-contracts">
       <div class="toolbar">
         <div class="search-wrap">
@@ -1419,7 +1491,8 @@ let currentUser = null;
 // =============================================
 const DB = {
   receivable: [], payable: [], contracts: [], clients: [],
-  projects: [], tasks: [], documents: [], pessoas: [], nf_history: []
+  projects: [], tasks: [], documents: [], pessoas: [], nf_history: [],
+  transacoes_extrato: []
 };
 const DB_TABLES = Object.keys(DB);
 
@@ -1429,6 +1502,61 @@ function uid(){
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8); return v.toString(16);
   });
+}
+
+// =============================================
+// FX / PTAX Helpers (BCB Olinda)
+// =============================================
+const FX_SYMBOLS = { BRL:'R$', USD:'US$', EUR:'€', GBP:'£', JPY:'¥', ARS:'$', CHF:'CHF', CAD:'C$' };
+function fmtMoney(value, moeda){
+  const m = (moeda||'BRL').toUpperCase();
+  const sym = FX_SYMBOLS[m] || (m+' ');
+  const v = (Number(value)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  return `${sym}${m==='BRL'?'':' '}${v}`.replace('R$ ','R$ ');
+}
+
+// Cache em memória para evitar requisições duplicadas
+const _ptaxCache = {};
+async function fetchPTAX(moeda, dataYYYYMMDD){
+  const moedaUpper = (moeda||'USD').toUpperCase();
+  if(moedaUpper === 'BRL') return null;
+  const cacheKey = `${moedaUpper}|${dataYYYYMMDD}`;
+  if(_ptaxCache[cacheKey]) return _ptaxCache[cacheKey];
+
+  const startDate = new Date(dataYYYYMMDD + 'T12:00:00');
+  for(let i=0; i<10; i++){
+    const d = new Date(startDate);
+    d.setDate(d.getDate() - i);
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    const dataStr = `${mm}-${dd}-${yyyy}`;
+
+    const url = moedaUpper === 'USD'
+      ? `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='${dataStr}'&$format=json`
+      : `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)?@moeda='${moedaUpper}'&@dataCotacao='${dataStr}'&$format=json`;
+
+    try {
+      const r = await fetch(url);
+      if(!r.ok) continue;
+      const j = await r.json();
+      if(j.value && j.value.length > 0){
+        const v = j.value[0];
+        const result = {
+          compra: v.cotacaoCompra,
+          venda: v.cotacaoVenda,
+          dataCotacao: `${yyyy}-${mm}-${dd}`,
+          moeda: moedaUpper,
+          tipoBoletim: v.tipoBoletim || 'Fechamento'
+        };
+        _ptaxCache[cacheKey] = result;
+        return result;
+      }
+    } catch(e){
+      console.warn('Erro PTAX:', e);
+    }
+  }
+  throw new Error(`PTAX não encontrada para ${moedaUpper} em ${dataYYYYMMDD} (verificados últimos 10 dias)`);
 }
 
 // syncQueue evita corridas entre saves simultâneos na mesma tabela
@@ -1507,6 +1635,7 @@ function showView(v, el){
   if(v==='tasks') renderTasks();
   if(v==='documents') renderDocuments();
   if(v==='pessoas'){ switchPessoaTab(currentPessoaTab); }
+  if(v==='conciliacao') renderConciliacao();
 }
 
 // Re-renderiza o dashboard sempre que o usuário navega até ele,
@@ -1570,9 +1699,6 @@ document.querySelectorAll('.modal-overlay').forEach(o=>{
 // =============================================
 // FORMATTING
 // =============================================
-function fmtMoney(v){
-  return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-}
 function fmtDate(d){
   if(!d) return '—';
   const [y,m,day] = d.split('-');
@@ -1766,7 +1892,7 @@ function renderReceivable(){
   tbody.innerHTML = data.map(r=>`<tr>
     <td style="font-weight:500;">${r.client||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-pos">${fmtMoney(r.value)}</td>
+    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Recebido'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -1856,7 +1982,7 @@ function renderPayable(){
   tbody.innerHTML = data.map(r=>`<tr>
     <td style="font-weight:500;">${r.supplier||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-neg">${fmtMoney(r.value)}</td>
+    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Pago'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -3075,6 +3201,8 @@ Responda APENAS com JSON válido, sem markdown, sem explicações:
   "destinatario_cnpj": "CNPJ do destinatário",
   "descricao": "descrição resumida (ex: DAS - Simples Nacional, DARF - IRPJ, NFS-e - Consultoria em GRC)",
   "valor_total": 0.00,
+  "moeda": "BRL" ou "USD" ou "EUR" ou "GBP" (sigla ISO 4217 da moeda do documento; default "BRL" se for documento brasileiro),
+  "valor_original": 0.00 (valor na moeda original; se moeda=BRL, igual a valor_total),
   "data_emissao": "YYYY-MM-DD",
   "data_vencimento": "YYYY-MM-DD ou null",
   "parte": "nome do cliente (se saida) ou fornecedor/órgão (se entrada)",
@@ -3124,6 +3252,8 @@ Responda APENAS com JSON válido, sem markdown, sem explicações:
   "destinatario_cnpj": "CNPJ do destinatário",
   "descricao": "descrição resumida (ex: DAS - Simples Nacional, DARF - IRPJ, NFS-e - Consultoria em GRC)",
   "valor_total": 0.00,
+  "moeda": "BRL" ou "USD" ou "EUR" ou "GBP" (sigla ISO 4217; default "BRL" se for brasileiro),
+  "valor_original": 0.00 (valor na moeda original; se moeda=BRL, igual a valor_total),
   "data_emissao": "YYYY-MM-DD",
   "data_vencimento": "YYYY-MM-DD ou null",
   "parte": "nome do cliente (se saida) ou fornecedor/órgão (se entrada)",
@@ -3334,7 +3464,7 @@ function mapNFCategoria(nf){
 }
 
 // --- CONFIRM SELECTED ---
-function confirmSelected(){
+async function confirmSelected(){
   try {
     // 1. Pegar todas as notas pendentes marcadas
     const selecionadas = nfPending.filter(nf => {
@@ -3357,12 +3487,31 @@ function confirmSelected(){
     let recCount = 0, payCount = 0;
     const confirmadas = [];
 
-    selecionadas.forEach(nf => {
+    for (const nf of selecionadas) {
       const due      = (nf.data_vencimento || nf.data_emissao || today()).substring(0,10);
       const desc     = String(nf.descricao || 'Documento Fiscal').trim();
-      const val      = parseFloat(nf.valor_total) || 0;
+      let val        = parseFloat(nf.valor_total) || 0;
       const num      = nf.numero_nf || '';
       const tipo_doc = nf.tipo_documento || 'NF';
+
+      // Multi-moeda: se moeda != BRL, busca PTAX e converte
+      const moeda    = (nf.moeda || 'BRL').toUpperCase();
+      const valorOrig= parseFloat(nf.valor_original || nf.valor_total) || 0;
+      let cotacao    = null;
+      if(moeda !== 'BRL' && valorOrig > 0){
+        try {
+          const dataRef = (nf.data_emissao || today()).substring(0,10);
+          cotacao = await fetchPTAX(moeda, dataRef);
+          // Para Contas a Pagar (entrada): cotação de venda (saída de R$)
+          // Para Contas a Receber (saida): cotação de compra (entrada de R$)
+          const taxa = nf.tipo === 'saida' ? cotacao.compra : cotacao.venda;
+          val = +(valorOrig * taxa).toFixed(2);
+        } catch(e){
+          console.warn('Falha ao buscar PTAX:', e);
+          toast(`⚠️ PTAX ${moeda} não encontrada — usando valor original como BRL`);
+          val = valorOrig;
+        }
+      }
 
       // Para saida (Polímata emitiu): a contraparte é o DESTINATÁRIO (cliente)
       // Para entrada (terceiro emitiu): a contraparte é o EMITENTE (fornecedor)
@@ -3438,6 +3587,11 @@ function confirmSelected(){
           value: val, due: due,
           status: 'Pendente', cat: '', subcat: '',
           notes: 'Importado via IA',
+          moeda, valor_original: valorOrig,
+          cotacao_ptax: cotacao ? cotacao.compra : null,
+          cotacao_tipo: cotacao ? 'compra' : null,
+          data_cotacao: cotacao ? cotacao.dataCotacao : null,
+          conciliado: false,
           anexo: nf.fileBase64||null,
           anexoNome: nf.fileName||null,
           anexoTipo: nf.fileMediaType||null
@@ -3460,6 +3614,11 @@ function confirmSelected(){
           status: 'Pendente',
           cat: mapNFCategoria(nf), subcat: desc,
           notes: 'Importado via IA',
+          moeda, valor_original: valorOrig,
+          cotacao_ptax: cotacao ? cotacao.venda : null,
+          cotacao_tipo: cotacao ? 'venda' : null,
+          data_cotacao: cotacao ? cotacao.dataCotacao : null,
+          conciliado: false,
           anexo: nf.fileBase64||null,
           anexoNome: nf.fileName||null,
           anexoTipo: nf.fileMediaType||null
@@ -3481,7 +3640,7 @@ function confirmSelected(){
       });
 
       confirmadas.push(nf._rid);
-    });
+    }
 
     // Salvar tudo
     save('receivable');
@@ -3571,6 +3730,9 @@ function clearNFHistory(){
 // Add nfimport to view titles and add labels
 viewTitles['nfimport'] = 'Importar Notas Fiscais';
 addLabels['nfimport'] = 'Selecionar Arquivos';
+
+viewTitles['conciliacao'] = 'Conciliação Bancária';
+addLabels['conciliacao'] = 'Importar Extrato';
 
 
 // =============================================
@@ -4018,6 +4180,394 @@ if(document.readyState === 'complete' || document.readyState === 'interactive'){
   renderDashboard();
 }
 
+
+
+
+// =============================================
+// CONCILIAÇÃO BANCÁRIA
+// =============================================
+let concilTransactions = []; // transações lidas, ainda não persistidas
+
+function renderConciliacao(){
+  // Inicializa drag & drop e renderiza histórico
+  const dz = document.getElementById('concil-dropzone');
+  if(dz && !dz._dndBound){
+    dz._dndBound = true;
+    dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.style.borderColor='var(--gold)'; dz.style.background='rgba(204,145,94,0.06)'; });
+    dz.addEventListener('dragleave', ()=>{ dz.style.borderColor='var(--cream-dark)'; dz.style.background='var(--cream)'; });
+    dz.addEventListener('drop', e=>{
+      e.preventDefault();
+      dz.style.borderColor='var(--cream-dark)'; dz.style.background='var(--cream)';
+      handleConcilFiles(e.dataTransfer.files);
+    });
+  }
+  renderConcilHistory();
+}
+
+async function handleConcilFiles(files){
+  if(!files || !files.length) return;
+  const status = document.getElementById('concil-status');
+  status.textContent = `Lendo ${files.length} arquivo(s)…`;
+  concilTransactions = [];
+
+  for(const file of files){
+    try {
+      const ext = (file.name.split('.').pop()||'').toLowerCase();
+      let txs = [];
+      if(ext === 'ofx'){
+        const text = await file.text();
+        txs = parseOFX(text, file.name);
+      } else if(ext === 'csv'){
+        const text = await file.text();
+        txs = parseCSV(text, file.name);
+      } else if(ext === 'pdf'){
+        status.textContent = `Lendo PDF "${file.name}" via IA (pode demorar 10-20s)…`;
+        txs = await parsePDFExtract(file);
+      } else if(ext === 'xlsx' || ext === 'xls'){
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        txs = parseCSV(csv, file.name);
+      } else {
+        toast(`⚠️ Formato não suportado: .${ext}`);
+        continue;
+      }
+      concilTransactions.push(...txs);
+    } catch(e){
+      console.error('Erro lendo', file.name, e);
+      toast(`⚠️ Falha ao ler ${file.name}: ${e.message}`);
+    }
+  }
+
+  status.textContent = `${concilTransactions.length} transação(ões) lida(s).`;
+  renderConcilResults();
+}
+
+// --- OFX Parser ---
+function parseOFX(text, fileName){
+  const txs = [];
+  const blocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/g) || [];
+  for(const b of blocks){
+    const get = tag => {
+      const m = b.match(new RegExp('<' + tag + '>([^<\r\n]+)', 'i'));
+      return m ? m[1].trim() : '';
+    };
+    const rawDate = get('DTPOSTED').substring(0, 8); // YYYYMMDD
+    const valor = parseFloat(get('TRNAMT')) || 0;
+    const memo = get('MEMO') || get('NAME') || '';
+    const tipo = valor >= 0 ? 'entrada' : 'saida';
+    if(rawDate.length === 8){
+      const data = `${rawDate.substring(0,4)}-${rawDate.substring(4,6)}-${rawDate.substring(6,8)}`;
+      txs.push({
+        _rid: uid(),
+        data, descricao: memo,
+        valor: Math.abs(valor),
+        moeda: 'BRL',
+        tipo,
+        origem: 'ofx',
+        arquivo: fileName,
+        fitid: get('FITID')
+      });
+    }
+  }
+  return txs;
+}
+
+// --- CSV Parser (heurístico — tenta detectar colunas Data/Descrição/Valor) ---
+function parseCSV(text, fileName){
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if(lines.length < 2) return [];
+
+  // Detecta separador
+  const sep = (lines[0].match(/;/g)||[]).length > (lines[0].match(/,/g)||[]).length ? ';' : ',';
+  const header = lines[0].split(sep).map(c => c.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+
+  const idxData  = header.findIndex(h => /data|date|lan[çc]amento/i.test(h));
+  const idxDesc  = header.findIndex(h => /descr|hist[óo]r|memo|name|estabelec/i.test(h));
+  const idxValor = header.findIndex(h => /valor|value|amount|montante/i.test(h));
+
+  if(idxValor < 0) return []; // sem coluna de valor não dá pra processar
+
+  const txs = [];
+  for(let i=1; i<lines.length; i++){
+    const cols = lines[i].split(sep).map(c => c.trim().replace(/^["']|["']$/g, ''));
+    const dataRaw = idxData >= 0 ? cols[idxData] : '';
+    const desc = idxDesc >= 0 ? cols[idxDesc] : '';
+    const valorRaw = cols[idxValor]||'';
+    const valor = parseFloat(valorRaw.replace(/\./g,'').replace(',','.')) || parseFloat(valorRaw) || 0;
+    if(!valor) continue;
+
+    // Normaliza data: dd/mm/yyyy → yyyy-mm-dd
+    let data = '';
+    const m1 = dataRaw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const m2 = dataRaw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(m1) data = `${m1[3]}-${m1[2]}-${m1[1]}`;
+    else if(m2) data = m2[0];
+    else data = today();
+
+    txs.push({
+      _rid: uid(),
+      data, descricao: desc,
+      valor: Math.abs(valor),
+      moeda: 'BRL',
+      tipo: valor >= 0 ? 'entrada' : 'saida',
+      origem: 'csv',
+      arquivo: fileName
+    });
+  }
+  return txs;
+}
+
+// --- PDF Parser via IA ---
+async function parsePDFExtract(file){
+  const base64 = await fileToBase64(file);
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+      { type: 'text', text: `Você é um leitor de extratos bancários e faturas de cartão de crédito.
+
+Identifique se este PDF é:
+1. Extrato bancário (lista de movimentações em conta corrente, geralmente em BRL)
+2. Fatura de cartão de crédito (lista de compras, possivelmente com transações em moeda estrangeira)
+
+Para CADA transação, extraia:
+- data (YYYY-MM-DD)
+- descricao (estabelecimento/histórico)
+- valor (sempre POSITIVO)
+- moeda (sigla ISO 4217 — "BRL" se nacional, "USD" se em dólares no extrato/fatura)
+- valor_original (se houver — valor na moeda original antes da conversão; em fatura de cartão internacional)
+- valor_brl (se transação for em moeda estrangeira na fatura, o valor já convertido em BRL que aparece na fatura)
+- tipo: "entrada" (crédito/recebimento) ou "saida" (débito/pagamento/despesa)
+
+Responda APENAS com um JSON array, sem markdown:
+[
+  {"data":"YYYY-MM-DD","descricao":"...","valor":0.00,"moeda":"BRL","valor_original":null,"valor_brl":null,"tipo":"saida"},
+  ...
+]` }
+    ]
+  }];
+
+  const r = await fetch('/api/anthropic', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages })
+  });
+  if(!r.ok){
+    const err = await r.json();
+    throw new Error(err.error?.message || 'Erro IA');
+  }
+  const data = await r.json();
+  const text = data.content[0].text.trim().replace(/```json|```/g,'').trim();
+  const arr = JSON.parse(text);
+  return arr.map(t => ({ _rid: uid(), origem: 'pdf', arquivo: file.name, ...t }));
+}
+
+// --- Match Engine ---
+function findConcilMatches(tx){
+  const isInflow = tx.tipo === 'entrada';
+  const collection = isInflow ? DB.receivable : DB.payable;
+  const txDate = new Date(tx.data + 'T12:00:00');
+
+  return collection
+    .filter(item => !item.conciliado)
+    .map(item => {
+      // Match por valor: prioriza moeda original quando ambas são estrangeiras
+      const itemMoeda = (item.moeda||'BRL').toUpperCase();
+      const txMoeda = (tx.moeda||'BRL').toUpperCase();
+
+      let valorRef, txValorRef;
+      if(itemMoeda !== 'BRL' && itemMoeda === txMoeda){
+        valorRef = Number(item.valor_original)||0;
+        txValorRef = Number(tx.valor_original||tx.valor)||0;
+      } else if(itemMoeda !== 'BRL' && tx.valor_original){
+        // item em moeda estrangeira, tx é fatura de cartão com valor_original
+        valorRef = Number(item.valor_original)||0;
+        txValorRef = Number(tx.valor_original)||0;
+      } else {
+        valorRef = Number(item.value||item.valor)||0;
+        txValorRef = Number(tx.valor)||0;
+      }
+
+      const diffValor = Math.abs(valorRef - txValorRef);
+      if(diffValor > 0.02) return null;
+
+      const itemDate = new Date((item.due||item.data) + 'T12:00:00');
+      const diffDays = Math.abs(itemDate - txDate) / (1000*60*60*24);
+      if(diffDays > 3.5) return null;
+
+      return { item, score: diffDays };
+    })
+    .filter(Boolean)
+    .sort((a,b) => a.score - b.score);
+}
+
+function renderConcilResults(){
+  const card = document.getElementById('concil-results-card');
+  const tbody = document.getElementById('concil-tbody');
+  const summary = document.getElementById('concil-summary');
+
+  if(!concilTransactions.length){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+
+  const conMatch = concilTransactions.filter(t => findConcilMatches(t).length > 0).length;
+  const semMatch = concilTransactions.length - conMatch;
+  summary.textContent = `${conMatch} com sugestão · ${semMatch} sem match · ${concilTransactions.length} no total`;
+
+  tbody.innerHTML = concilTransactions.map(tx => {
+    const matches = findConcilMatches(tx);
+    const top = matches[0];
+    const isInflow = tx.tipo === 'entrada';
+    const valorTxt = (tx.moeda && tx.moeda !== 'BRL')
+      ? `${fmtMoney(tx.valor_original||tx.valor, tx.moeda)} <span style="color:var(--text-mid);font-size:10px;">(${fmtMoney(tx.valor_brl||tx.valor, 'BRL')})</span>`
+      : fmtMoney(tx.valor, 'BRL');
+
+    const matchHTML = top
+      ? `<div class="concil-match-card"><strong>${(top.item.client||top.item.supplier||'-')}</strong><br>${(top.item.desc||'').substring(0,55)}<br>Venc: ${formatDateBR(top.item.due||top.item.data)} · ${fmtMoney(top.item.value||top.item.valor, top.item.moeda||'BRL')}${matches.length>1?` <em>(+${matches.length-1} outros)</em>`:''}</div>`
+      : '<span class="concil-no-match">Sem correspondência</span>';
+
+    const acoes = top
+      ? `<div class="concil-action-btns">
+          <button class="btn btn-primary btn-sm" onclick="confirmConcilMatch('${tx._rid}','${top.item.id}')">✓ Confirmar</button>
+          <button class="btn btn-outline btn-sm" onclick="rejectConcilMatch('${tx._rid}')">↻ Trocar</button>
+          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')">Ignorar</button>
+        </div>`
+      : `<div class="concil-action-btns">
+          <button class="btn btn-navy btn-sm" onclick="createFromConcil('${tx._rid}')">+ Criar lançamento</button>
+          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')">Ignorar</button>
+        </div>`;
+
+    return `<tr class="concil-row" id="concil-tr-${tx._rid}">
+      <td style="font-size:11px;">${formatDateBR(tx.data)}</td>
+      <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${(tx.descricao||'').substring(0,80)}<br><span style="color:var(--text-mid);font-size:9px;">${(tx.tipo==='entrada'?'↑ ':'↓ ')}${tx.origem.toUpperCase()} · ${tx.arquivo||''}</span></td>
+      <td style="text-align:right;font-size:11px;font-weight:600;color:${isInflow?'var(--green)':'var(--red)'};">${valorTxt}</td>
+      <td>${matchHTML}</td>
+      <td>${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+function confirmConcilMatch(txRid, itemId){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  const isInflow = tx.tipo === 'entrada';
+  const collection = isInflow ? DB.receivable : DB.payable;
+  const item = collection.find(i => i.id === itemId);
+  if(!item) return;
+
+  // Marca o lançamento como conciliado e calcula câmbio efetivo se aplicável
+  item.conciliado = true;
+  item.data_conciliacao = today();
+  item.extrato_ref = tx._rid;
+  if(item.moeda && item.moeda !== 'BRL' && tx.valor && Number(item.valor_original) > 0){
+    item.cambio_efetivo = +(tx.valor / Number(item.valor_original)).toFixed(4);
+  }
+  if(isInflow) item.status = 'Recebido'; else item.status = 'Pago';
+  save(isInflow ? 'receivable' : 'payable');
+
+  // Persiste a transação no extrato como conciliada
+  DB.transacoes_extrato.push({
+    id: uid(),
+    ...tx,
+    conciliado_com_id: itemId,
+    conciliado_em: today()
+  });
+  save('transacoes_extrato');
+
+  // Remove da lista pendente
+  concilTransactions = concilTransactions.filter(t => t._rid !== txRid);
+  renderConcilResults();
+  toast('✓ Conciliado.');
+}
+
+function rejectConcilMatch(txRid){
+  // No futuro: abrir modal pra escolher outro lançamento existente
+  toast('Função de troca manual em breve. Por ora use "Ignorar" e concilie pelo lançamento.');
+}
+
+function ignoreConcil(txRid){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  DB.transacoes_extrato.push({ id: uid(), ...tx, conciliado_com_id: null, ignorado: true, conciliado_em: today() });
+  save('transacoes_extrato');
+  concilTransactions = concilTransactions.filter(t => t._rid !== txRid);
+  renderConcilResults();
+  toast('Transação registrada como ignorada.');
+}
+
+function createFromConcil(txRid){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  const isInflow = tx.tipo === 'entrada';
+  const reg = {
+    id: uid(), created: today(),
+    [isInflow ? 'client' : 'supplier']: tx.descricao || 'A definir',
+    desc: tx.descricao || 'Lançamento via conciliação',
+    value: Number(tx.valor_brl||tx.valor)||0,
+    due: tx.data,
+    status: isInflow ? 'Recebido' : 'Pago',
+    cat: '', subcat: '',
+    notes: `Criado via conciliação (${tx.origem.toUpperCase()})`,
+    moeda: tx.moeda || 'BRL',
+    valor_original: Number(tx.valor_original||tx.valor)||0,
+    cotacao_ptax: null, cotacao_tipo: null, data_cotacao: null,
+    conciliado: true,
+    data_conciliacao: today(),
+    extrato_ref: tx._rid
+  };
+  if(isInflow) DB.receivable.push(reg); else DB.payable.push(reg);
+  save(isInflow ? 'receivable' : 'payable');
+
+  DB.transacoes_extrato.push({
+    id: uid(), ...tx,
+    conciliado_com_id: reg.id,
+    conciliado_em: today()
+  });
+  save('transacoes_extrato');
+
+  concilTransactions = concilTransactions.filter(t => t._rid !== txRid);
+  renderConcilResults();
+  toast('✓ Lançamento criado e conciliado.');
+}
+
+function clearConcilResults(){
+  if(!concilTransactions.length){ return; }
+  if(!confirm(`Descartar ${concilTransactions.length} transação(ões) lida(s) sem conciliar?`)) return;
+  concilTransactions = [];
+  renderConcilResults();
+}
+
+function renderConcilHistory(){
+  const empty = document.getElementById('concil-history-empty');
+  const list = document.getElementById('concil-history-list');
+  const items = (DB.transacoes_extrato||[]).slice().sort((a,b)=>(b.conciliado_em||'').localeCompare(a.conciliado_em||''));
+  if(!items.length){ empty.style.display='block'; list.innerHTML=''; return; }
+  empty.style.display = 'none';
+  list.innerHTML = items.slice(0, 20).map(t => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--cream-dark);font-size:11px;">
+      <div>
+        <strong>${formatDateBR(t.data)}</strong> — ${(t.descricao||'').substring(0,70)}
+        <div style="color:var(--text-mid);font-size:10px;">${t.ignorado?'Ignorada':'Conciliada'} em ${formatDateBR(t.conciliado_em)} · origem ${t.origem||'?'}</div>
+      </div>
+      <div style="text-align:right;color:${t.tipo==='entrada'?'var(--green)':'var(--red)'};font-weight:600;">
+        ${fmtMoney(t.valor, t.moeda||'BRL')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// formatDateBR — usa today() existente. Se a função não estiver disponível, fallback.
+if(typeof formatDateBR === 'undefined'){
+  window.formatDateBR = function(d){
+    if(!d) return '-';
+    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+  };
+}
 
 
 
