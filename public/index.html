@@ -6340,3 +6340,118 @@ async function bootApp(){
 </script>
 </body>
 </html>
+    dd.style.display = 'none';
+  } else {
+    renderAlertsDropdownContent();
+    dd.style.display = 'block';
+    setTimeout(() => {
+      document.addEventListener('click', closeAlertsDropdownOnce);
+    }, 50);
+  }
+}
+
+function closeAlertsDropdownOnce(){
+  const dd = document.getElementById('alerts-dropdown');
+  if(dd) dd.style.display = 'none';
+  document.removeEventListener('click', closeAlertsDropdownOnce);
+}
+
+function renderAlertsDropdownContent(){
+  const dd = document.getElementById('alerts-dropdown');
+  if(!dd) return;
+  const alerts = getAlerts();
+  if(!alerts.length){
+    dd.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-mid);font-size:12px;"><div style="font-size:32px;margin-bottom:8px;">✓</div>Tudo em dia! Nenhum alerta.</div>';
+    return;
+  }
+  dd.innerHTML = `
+    <div style="padding:12px 14px;border-bottom:1px solid var(--cream-dark);font-size:11px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:1px;">
+      🔔 ${alerts.length} alerta(s)
+    </div>
+    ${alerts.map(a => `
+      <div onclick="closeAlertsDropdownOnce(); showView('${a.target}', null);" style="padding:12px 14px;border-bottom:1px solid var(--cream-dark);cursor:pointer;display:flex;gap:10px;align-items:flex-start;transition:background .15s;" onmouseover="this.style.background='var(--cream)';" onmouseout="this.style.background='transparent';">
+        <span style="font-size:18px;">${a.icon}</span>
+        <div style="flex:1;">
+          <div style="font-size:12px;font-weight:600;color:${a.cor};margin-bottom:2px;">${a.label}</div>
+          <div style="font-size:10px;color:var(--text-mid);">${a.desc}</div>
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+// =============================================
+// AUTH + BOOT
+// =============================================
+async function doLogin(ev){
+  ev.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+  errEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Entrando…';
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    currentUser = data.user;
+    await bootApp();
+  } catch(e){
+    errEl.textContent = e.message || 'Falha no login';
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+  return false;
+}
+
+async function doLogout(){
+  if(!confirm('Sair do sistema?')) return;
+  await supabase.auth.signOut();
+  location.reload();
+}
+
+async function bootApp(){
+  document.getElementById('login-overlay').classList.add('hidden');
+  document.getElementById('app-loading').classList.remove('hidden');
+  document.getElementById('user-email-label').textContent = currentUser.email;
+
+  try {
+    await loadAll();
+    await loadPlanoContas();
+  } catch(e){
+    console.error('Falha ao carregar dados:', e);
+    toast('⚠️ Erro ao carregar dados do servidor.');
+  }
+
+  document.getElementById('app-loading').classList.add('hidden');
+
+  try { renderDashboard && renderDashboard(); } catch(e){}
+  try { updateApiKeyStatus(); } catch(e){}
+  try { renderEmailsProcessados && renderEmailsProcessados(); } catch(e){}
+  try {
+    nfPending = (DB.nf_pending||[]).slice();
+    renderNFResults && renderNFResults();
+  } catch(e){ console.warn('Falha ao restaurar nfPending:', e); }
+  try { renderAlertsBadge && renderAlertsBadge(); } catch(e){}
+}
+
+(async function init(){
+  const { data: { session } } = await supabase.auth.getSession();
+  if(session && session.user){
+    currentUser = session.user;
+    await bootApp();
+  }
+})();
+</script>
+</body>
+</html>
+  const { data: { session } } = await supabase.auth.getSession();
+  if(session && session.user){
+    currentUser = session.user;
+    await bootApp();
+  }
+})();
+</script>
+</body>
+</html>

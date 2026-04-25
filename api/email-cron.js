@@ -26,15 +26,40 @@ function getSupabase() {
 
 export default async function handler(req, res) {
   try {
-    // ---- Auth ----
+    // CORS pra permitir chamada do frontend (mesma origem por padrão na Vercel)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+
+    // ---- Auth: aceita CRON_SECRET ou JWT do usuário Supabase ----
     const auth = req.headers.authorization || '';
     const cronSecret = process.env.CRON_SECRET;
     if (!cronSecret) {
-      console.error('CRON_SECRET não configurado no servidor');
       return res.status(500).json({ error: 'CRON_SECRET ausente no servidor' });
     }
-    if (!auth.startsWith('Bearer ') || auth.slice(7) !== cronSecret) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    if (!auth.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: missing Bearer token' });
+    }
+    const token = auth.slice(7);
+
+    let authedAsUser = false;
+    if (token === cronSecret) {
+      // OK — chamada do cron (GitHub Actions)
+    } else {
+      // Tenta validar como JWT de usuário Supabase
+      try {
+        const { data: { user }, error } = await getSupabase().auth.getUser(token);
+        if (error || !user) {
+          return res.status(401).json({ error: 'Unauthorized: invalid token' });
+        }
+        if (user.id !== process.env.POLIMATA_USER_ID) {
+          return res.status(403).json({ error: 'Forbidden: user not authorized' });
+        }
+        authedAsUser = true;
+      } catch (e) {
+        return res.status(401).json({ error: 'Unauthorized: token validation failed' });
+      }
     }
 
     // ---- Checagem de envs essenciais ----
@@ -46,11 +71,15 @@ export default async function handler(req, res) {
     if (!process.env.GOOGLE_CLIENT_SECRET) missing.push('GOOGLE_CLIENT_SECRET');
     if (!process.env.GOOGLE_REFRESH_TOKEN) missing.push('GOOGLE_REFRESH_TOKEN');
     if (missing.length) {
-      console.error('Env vars faltando:', missing);
       return res.status(500).json({ error: 'Env vars faltando', missing });
     }
 
-    const result = await processEmails();
+    // ---- Parâmetros opcionais (apenas via query string ou body) ----
+    const url = new URL(req.url, `https://${req.headers.host}`);
+    const days = Math.max(1, Math.min(365, parseInt(url.searchParams.get('days') || '30')));
+    const maxMsgs = Math.max(1, Math.min(10, parseInt(url.searchParams.get('max') || String(MAX_MESSAGES_PER_RUN))));
+
+    const result = await processEmails({ days, maxMsgs, mode: authedAsUser ? 'manual' : 'cron' });
     return res.status(200).json(result);
   } catch (e) {
     console.error('Erro no email-cron:', e);
@@ -61,13 +90,16 @@ export default async function handler(req, res) {
 // ============================================================================
 // Pipeline principal
 // ============================================================================
-async function processEmails() {
+async function processEmails(opts) {
+  const days = (opts && opts.days) || 30;
+  const maxMsgs = (opts && opts.maxMsgs) || MAX_MESSAGES_PER_RUN;
+  const mode = (opts && opts.mode) || 'cron';
   const startedAt = new Date().toISOString();
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
 
-  const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:30d`;
-  const messages = await listMessages(accessToken, query, MAX_MESSAGES_PER_RUN);
+  const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:${days}d`;
+  const messages = await listMessages(accessToken, query, maxMsgs);
 
   const summary = {
     started_at: startedAt,
