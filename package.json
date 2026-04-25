@@ -12,6 +12,4 @@
     "deploy": "vercel --prod"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4"
-  }
-}
+    "@
