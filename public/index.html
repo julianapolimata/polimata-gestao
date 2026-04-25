@@ -761,6 +761,9 @@ tbody tr:last-child td{border-bottom:none;}
         <button id="tab-funcionario" onclick="switchPessoaTab('funcionario')" style="flex:1;padding:14px;border:none;background:var(--cream);color:var(--text-mid);font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;">
           👷 Funcionários
         </button>
+        <button id="tab-orgao" onclick="switchPessoaTab('orgao')" style="flex:1;padding:14px;border:none;background:var(--cream);color:var(--text-mid);font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;border-left:1px solid var(--cream-dark);">
+          🏛️ Órgãos Públicos
+        </button>
       </div>
       <div class="toolbar">
         <div class="search-wrap">
@@ -1366,6 +1369,7 @@ tbody tr:last-child td{border-bottom:none;}
             <option value="Fornecedor">Fornecedor</option>
             <option value="Cliente">Cliente</option>
             <option value="Funcionário">Funcionário</option>
+            <option value="Órgão Público">Órgão Público</option>
           </select>
         </div>
         <div class="form-group">
@@ -3600,11 +3604,13 @@ async function confirmSelected(){
         recCount++;
       } else {
         // Terceiro emitiu → Polímata paga → Contas a Pagar
-        // Cadastrar emitente como Fornecedor
+        // Detecta se é guia fiscal (DAS/DARF/GPS/GNRE) → cadastra como Órgão Público
+        const _td = (nf.tipo_documento||'').toUpperCase();
+        const _isGuia = ['DAS','DARF','GPS','GNRE'].includes(_td) || (nf.categoria||'').toLowerCase().includes('imposto');
         cadastrarPessoa(
           String(nf.emitente_nome || nf.parte || '').trim(),
           nf.emitente_cnpj || '',
-          'Fornecedor'
+          _isGuia ? 'Órgão Público' : 'Fornecedor'
         );
 
         const reg = {
@@ -3744,7 +3750,7 @@ let editPessoaId = null;
 // --- TABS ---
 function switchPessoaTab(tab){
   currentPessoaTab = tab;
-  ['fornecedor','cliente','funcionario'].forEach(t => {
+  ['fornecedor','cliente','funcionario','orgao'].forEach(t => {
     const btn = document.getElementById('tab-'+t);
     if(!btn) return;
     if(t === tab){
@@ -3768,7 +3774,8 @@ function openPessoaModal(tipo){
   });
   document.getElementById('pessoa-tipo').value = tipo || (
     currentPessoaTab === 'fornecedor' ? 'Fornecedor' :
-    currentPessoaTab === 'cliente' ? 'Cliente' : 'Funcionário'
+    currentPessoaTab === 'cliente' ? 'Cliente' :
+    currentPessoaTab === 'orgao' ? 'Órgão Público' : 'Funcionário'
   );
   document.getElementById('pessoa-status').value = 'Ativo';
   document.getElementById('pessoa-pj-pf').value = 'PJ';
@@ -3924,7 +3931,7 @@ function renderPessoas(){
   const q = (document.getElementById('pessoas-search')?.value||'').toLowerCase();
   const st = document.getElementById('pessoas-filter-status')?.value||'';
 
-  const tipoMap = {fornecedor:'Fornecedor', cliente:'Cliente', funcionario:'Funcionário'};
+  const tipoMap = {fornecedor:'Fornecedor', cliente:'Cliente', funcionario:'Funcionário', orgao:'Órgão Público'};
   const tipoFiltro = tipoMap[currentPessoaTab];
 
   let data = DB.pessoas.filter(p => {
@@ -4011,10 +4018,15 @@ function autoRegistrarFornecedor(nf){
 
   if(jaExiste) return; // Already registered
 
-  // Auto-register as Fornecedor
+  // Detecta se é guia fiscal → Órgão Público; senão Fornecedor
+  const td = (nf.tipo_documento||'').toUpperCase();
+  const isGuia = ['DAS','DARF','GPS','GNRE'].includes(td) || (nf.categoria||'').toLowerCase().includes('imposto');
+  const tipoPessoa = isGuia ? 'Órgão Público' : 'Fornecedor';
+
+  // Auto-register
   const novo = {
     id: uid(), created: today(),
-    tipo: 'Fornecedor', pjpf: 'PJ', status: 'Ativo',
+    tipo: tipoPessoa, pjpf: 'PJ', status: 'Ativo',
     nome: nome,
     doc: cnpj ? cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5') : '',
     fantasia: '', segmento: '', porte: '', situacao: 'Não verificada',
