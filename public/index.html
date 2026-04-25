@@ -273,6 +273,7 @@ tbody tr:last-child td{border-bottom:none;}
 .concil-action-btns{display:flex;gap:5px;flex-wrap:wrap;}
 .concil-action-btns .btn{padding:5px 10px;font-size:10px;letter-spacing:.6px;}
 .badge-conciliado{background:rgba(39,174,96,0.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.badge-sem-doc{background:rgba(204,145,94,0.15);color:var(--gold-dark);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-pendente{background:rgba(230,126,34,0.12);color:var(--orange);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .moeda-badge{display:inline-block;background:var(--cream);color:var(--navy);font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;font-weight:600;letter-spacing:.5px;}
 
@@ -578,6 +579,7 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="Pendente">Pendente</option>
           <option value="Recebido">Recebido</option>
           <option value="Atrasado">Atrasado</option>
+          <option value="__sem_doc__">📎 Sem documento fiscal</option>
         </select>
       </div>
       <div class="tbl-wrap">
@@ -602,6 +604,7 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="Pendente">Pendente</option>
           <option value="Pago">Pago</option>
           <option value="Atrasado">Atrasado</option>
+          <option value="__sem_doc__">📎 Sem documento fiscal</option>
         </select>
       </div>
       <div class="tbl-wrap">
@@ -1814,6 +1817,14 @@ async function renderDashboard(){
   const alerts = [];
   if(overdueRec.length) alerts.push(`<div class="alert alert-danger">⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a,r)=>a+Number(r.value),0))}</div>`);
   if(overduePay.length) alerts.push(`<div class="alert alert-danger">🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a,r)=>a+Number(r.value),0))}</div>`);
+  const semDocList = [
+    ...DB.receivable.filter(r=>r.sem_documento),
+    ...DB.payable.filter(r=>r.sem_documento)
+  ];
+  if(semDocList.length){
+    const totalSemDoc = semDocList.reduce((a,r)=>a+Number(r.value||0), 0);
+    alerts.push(`<div class="alert alert-warning" style="background:rgba(204,145,94,0.10);border-left:3px solid var(--gold);color:var(--navy);">📎 ${semDocList.length} lançamento(s) sem documento fiscal — ${fmtMoney(totalSemDoc)} (atenção contábil)</div>`);
+  }
   document.getElementById('dash-alerts').innerHTML = alerts.join('');
 
   // ── Bloco 1: Mês atual ──
@@ -1906,15 +1917,17 @@ function renderReceivable(){
   const st = document.getElementById('rec-filter-status').value;
   let data = DB.receivable.filter(r=>{
     const mq = !q||r.client?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
-    const ms = !st||r.status===st;
-    return mq&&ms;
+    let ms;
+    if(st === '__sem_doc__') ms = !!r.sem_documento;
+    else ms = !st || r.status === st;
+    return mq && ms;
   });
   const tbody = document.getElementById('rec-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(6,'Nenhuma conta a receber cadastrada.'); return; }
   tbody.innerHTML = data.map(r=>`<tr>
     <td style="font-weight:500;">${r.client||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}</td>
+    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}${r.sem_documento?'<br><span class="badge-sem-doc">📎 Sem doc</span>':''}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Recebido'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -1996,15 +2009,17 @@ function renderPayable(){
   const st = document.getElementById('pay-filter-status').value;
   let data = DB.payable.filter(r=>{
     const mq = !q||r.supplier?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
-    const ms = !st||r.status===st;
-    return mq&&ms;
+    let ms;
+    if(st === '__sem_doc__') ms = !!r.sem_documento;
+    else ms = !st || r.status === st;
+    return mq && ms;
   });
   const tbody = document.getElementById('pay-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(7,'Nenhuma conta a pagar cadastrada.'); return; }
   tbody.innerHTML = data.map(r=>`<tr>
     <td style="font-weight:500;">${r.supplier||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}</td>
+    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}${r.sem_documento?"<br><span class=\"badge-sem-doc\">📎 Sem doc</span>":""}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Pago'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -3585,6 +3600,39 @@ async function confirmSelected(){
 
       const descFull = num ? `${tipo_doc} ${num} — ${desc}` : `${tipo_doc} — ${desc}`;
 
+      // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
+      const isSaidaCheck = nf.tipo === 'saida';
+      const collCheck = isSaidaCheck ? DB.receivable : DB.payable;
+      const matchSemDoc = collCheck.find(item => {
+        if(!item.sem_documento) return false;
+        const itemValue = Number(item.value || 0);
+        if(Math.abs(itemValue - val) > 0.02) return false;
+        const partyMatch = isSaidaCheck
+          ? (item.client||'').toLowerCase() === (parte||'').toLowerCase()
+          : (item.supplier||'').toLowerCase() === (parte||'').toLowerCase();
+        if(!partyMatch){
+          // Tolerar parte diferente se data próxima (±10 dias)
+          const itemDate = new Date((item.due||item.created||today()) + 'T12:00:00');
+          const txDate = new Date(due + 'T12:00:00');
+          const diffDays = Math.abs(itemDate - txDate) / (1000*60*60*24);
+          if(diffDays > 10) return false;
+        }
+        return true;
+      });
+      if(matchSemDoc){
+        // Atualiza lançamento existente: anexa documento, remove flag, atualiza descrição
+        matchSemDoc.desc = descFull;
+        matchSemDoc.anexo = nf.fileBase64 || matchSemDoc.anexo || null;
+        matchSemDoc.anexoNome = nf.fileName || matchSemDoc.anexoNome || null;
+        matchSemDoc.anexoTipo = nf.fileMediaType || matchSemDoc.anexoTipo || null;
+        matchSemDoc.sem_documento = false;
+        matchSemDoc.notes = (matchSemDoc.notes||'') + ` · Doc anexado em ${today()} via importação NF`;
+        if(isSaidaCheck) recCount++; else payCount++;
+        confirmadas.push(nf._rid);
+        toast(`📎 NF anexada ao lançamento existente "${(matchSemDoc.desc||'').substring(0,40)}…"`);
+        continue;
+      }
+
       // ── Função auxiliar de cadastro ──────────────────────────────────────
       function cadastrarPessoa(nome, cnpjRaw, tipoPessoa){
         if(!nome || nome === 'Não identificado') return;
@@ -4630,13 +4678,14 @@ function createFromConcil(txRid){
     due: tx.data,
     status: isInflow ? 'Recebido' : 'Pago',
     cat: '', subcat: '',
-    notes: `Criado via conciliação (${tx.origem.toUpperCase()})`,
+    notes: `Criado via conciliação (${tx.origem.toUpperCase()}) — falta documento fiscal`,
     moeda: tx.moeda || 'BRL',
     valor_original: Number(tx.valor_original||tx.valor)||0,
     cotacao_ptax: null, cotacao_tipo: null, data_cotacao: null,
     conciliado: true,
     data_conciliacao: today(),
-    extrato_ref: tx._rid
+    extrato_ref: tx._rid,
+    sem_documento: true
   };
   if(isInflow) DB.receivable.push(reg); else DB.payable.push(reg);
   save(isInflow ? 'receivable' : 'payable');

@@ -238,8 +238,30 @@ async function processMessage(accessToken, messageId, labelId) {
 }
 
 // ============================================================================
-// Anthropic — parse do documento
+// Anthropic — parse do documento (com retry em overload)
 // ============================================================================
+async function fetchAnthropicWithRetry(url, options, maxAttempts = 4) {
+  const backoffs = [0, 2000, 5000, 10000];
+  let lastErr = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, backoffs[attempt]));
+    try {
+      const r = await fetch(url, options);
+      if (r.ok) return r;
+      if ([429, 503, 504, 529].includes(r.status)) {
+        lastErr = new Error(`Anthropic HTTP ${r.status} (tentativa ${attempt + 1}/${maxAttempts})`);
+        console.warn(lastErr.message);
+        continue;
+      }
+      return r;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === maxAttempts - 1) throw e;
+    }
+  }
+  throw lastErr || new Error('Anthropic falhou após múltiplas tentativas');
+}
+
 async function parseDocumentWithAI(base64, mimeType) {
   const isPdf = mimeType === 'application/pdf';
   const messages = [{
@@ -283,7 +305,7 @@ Responda APENAS com JSON válido, sem markdown:
     ]
   }];
 
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+  const aiRes = await fetchAnthropicWithRetry('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -313,7 +335,7 @@ Responda APENAS com JSON válido, sem markdown:
 }
 
 // ============================================================================
-// Cria Lançamento (Conta a Pagar/Receber + nf_history + auto-cadastro pessoa)
+// Cria Lançamento (com auto-vinculação reversa em "sem_documento")
 // ============================================================================
 async function createLancamento(parsed, att, base64) {
   const today = new Date().toISOString().slice(0, 10);
@@ -326,7 +348,6 @@ async function createLancamento(parsed, att, base64) {
   const moeda = (parsed.moeda || 'BRL').toUpperCase();
   const valorOrig = parseFloat(parsed.valor_original || parsed.valor_total) || 0;
 
-  // PTAX se moeda estrangeira
   let cotacao = null;
   if (moeda !== 'BRL' && valorOrig > 0) {
     try {
@@ -349,6 +370,51 @@ async function createLancamento(parsed, att, base64) {
   // Auto-cadastro pessoa
   await ensurePessoa(parsed, isSaida);
 
+  const targetTable = isSaida ? 'receivable' : 'payable';
+
+  // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
+  const { data: candidates } = await supabase
+    .from(targetTable)
+    .select('id, data')
+    .eq('user_id', POLIMATA_USER_ID);
+
+  const matchSemDoc = (candidates || []).find(c => {
+    const item = c.data || {};
+    if (!item.sem_documento) return false;
+    if (Math.abs(Number(item.value || 0) - val) > 0.02) return false;
+    const partyMatch = isSaida
+      ? (item.client || '').toLowerCase() === (parte || '').toLowerCase()
+      : (item.supplier || '').toLowerCase() === (parte || '').toLowerCase();
+    if (!partyMatch) {
+      const itemDate = new Date((item.due || item.created || today) + 'T12:00:00');
+      const txDate = new Date(due + 'T12:00:00');
+      const diffDays = Math.abs(itemDate - txDate) / (1000 * 60 * 60 * 24);
+      if (diffDays > 10) return false;
+    }
+    return true;
+  });
+
+  if (matchSemDoc) {
+    const updated = {
+      ...matchSemDoc.data,
+      desc: descFull,
+      anexo: base64,
+      anexoNome: att.filename,
+      anexoTipo: att.mimeType,
+      sem_documento: false,
+      notes: (matchSemDoc.data.notes || '') + ` · Doc anexado em ${today} via email automático`
+    };
+    const { error: updErr } = await supabase
+      .from(targetTable)
+      .update({ data: updated })
+      .eq('id', matchSemDoc.id)
+      .eq('user_id', POLIMATA_USER_ID);
+    if (updErr) throw new Error(`Update ${targetTable}: ${updErr.message}`);
+    console.log(`[auto-vínculo] NF anexada ao lançamento existente ${matchSemDoc.id}`);
+    return matchSemDoc.id;
+  }
+
+  // Sem match → cria novo lançamento
   const lancamentoId = crypto.randomUUID();
   const reg = {
     id: lancamentoId,
@@ -367,12 +433,12 @@ async function createLancamento(parsed, att, base64) {
     cotacao_tipo: cotacao ? (isSaida ? 'compra' : 'venda') : null,
     data_cotacao: cotacao ? cotacao.dataCotacao : null,
     conciliado: false,
+    sem_documento: false,
     anexo: base64,
     anexoNome: att.filename,
     anexoTipo: att.mimeType
   };
 
-  const targetTable = isSaida ? 'receivable' : 'payable';
   const { error } = await supabase.from(targetTable).insert({
     id: lancamentoId, user_id: POLIMATA_USER_ID, data: reg
   });
@@ -496,6 +562,67 @@ async function fetchPTAX(moeda, dataYYYYMMDD) {
 // ============================================================================
 // Persistência do histórico de processamento
 // ============================================================================
+async function persistEmailHistory(data) {
+  await supabase.from('emails_processados').insert({
+    id: crypto.randomUUID(),
+    user_id: POLIMATA_USER_ID,
+    data
+  });
+}
+
+  await supabase.from('pessoas').insert({
+    id: novoId, user_id: POLIMATA_USER_ID, data: novo
+  });
+}
+
+function mapNFCategoria(nf) {
+  const td = (nf.tipo_documento || '').toUpperCase();
+  if (['DAS', 'DARF', 'GPS', 'GNRE'].includes(td)) return 'Impostos';
+  return nf.categoria || 'Operacional';
+}
+
+const _ptaxCache = {};
+async function fetchPTAX(moeda, dataYYYYMMDD) {
+  const moedaUpper = (moeda || 'USD').toUpperCase();
+  if (moedaUpper === 'BRL') return null;
+  const cacheKey = `${moedaUpper}|${dataYYYYMMDD}`;
+  if (_ptaxCache[cacheKey]) return _ptaxCache[cacheKey];
+
+  const startDate = new Date(dataYYYYMMDD + 'T12:00:00');
+  for (let i = 0; i < 10; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() - i);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const dataStr = `${mm}-${dd}-${yyyy}`;
+
+    const url = moedaUpper === 'USD'
+      ? `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='${dataStr}'&$format=json`
+      : `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)?@moeda='${moedaUpper}'&@dataCotacao='${dataStr}'&$format=json`;
+
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.value?.length) {
+        const v = j.value[0];
+        const result = {
+          compra: v.cotacaoCompra,
+          venda: v.cotacaoVenda,
+          dataCotacao: `${yyyy}-${mm}-${dd}`,
+          moeda: moedaUpper
+        };
+        _ptaxCache[cacheKey] = result;
+        return result;
+      }
+    } catch (e) {
+      console.warn('PTAX erro:', e.message);
+    }
+  }
+  throw new Error(`PTAX nao encontrada para ${moedaUpper} em ${dataYYYYMMDD}`);
+}
+
 async function persistEmailHistory(data) {
   await supabase.from('emails_processados').insert({
     id: crypto.randomUUID(),
