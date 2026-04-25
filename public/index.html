@@ -326,6 +326,28 @@ tbody tr:last-child td{border-bottom:none;}
       Painel Financeiro
     </div>
 
+    <span class="nav-section">CRM</span>
+    <div class="nav-item" onclick="showView('clients',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Clientes & Prospects
+    </div>
+
+    <span class="nav-section">Gestão de Projetos</span>
+    <div class="nav-item" onclick="showView('projects',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      Projetos
+    </div>
+    <div class="nav-item" onclick="showView('contracts',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Contratos
+    </div>
+
+    <span class="nav-section">Cadastros</span>
+    <div class="nav-item" onclick="showView('pessoas',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Fornecedores · Func. · Órgãos
+    </div>
+
     <span class="nav-section">Financeiro</span>
     <div class="nav-item" onclick="showView('receivable',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
@@ -339,44 +361,36 @@ tbody tr:last-child td{border-bottom:none;}
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Fluxo de Caixa
     </div>
+    <div class="nav-item" onclick="showView('dre',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="3" x2="3" y2="21"/><line x1="3" y1="21" x2="21" y2="21"/><polyline points="7 14 11 10 14 13 19 7"/></svg>
+      DRE Gerencial
+    </div>
     <div class="nav-item" onclick="showView('conciliacao',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z"/><polyline points="9 12 11 14 15 10"/></svg>
       Conciliação
     </div>
-    <div class="nav-item" onclick="showView('contracts',this)">
-      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-      Contratos
-    </div>
 
-    <span class="nav-section">Administrativo</span>
-    <div class="nav-item" onclick="showView('pessoas',this)">
-      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-      Cadastro
+    <span class="nav-section">Notas Fiscais</span>
+    <div class="nav-item" onclick="showView('nfemitir',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      Emitir NF
     </div>
-    <div class="nav-item" onclick="showView('clients',this)">
-      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-      Clientes & Prospects
-    </div>
-    <div class="nav-item" onclick="showView('projects',this)">
-      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-      Projetos & Entregas
-    </div>
-
-
-
-    <span class="nav-section">Importar</span>
     <div class="nav-item" onclick="showView('nfimport',this)">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      Importar Notas Fiscais
+      Importar NFs
+    </div>
+    <div class="nav-item" onclick="showView('recorrencias',this)">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      Recorrências
     </div>
 
-    <span class="nav-section">Exportar</span>
+    <span class="nav-section">Relatórios</span>
     <div class="nav-item" onclick="openExportModal()">
       <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Exportar Relatório
     </div>
   </div>
-  <div class="sidebar-footer">© 2025 Polímata GRC</div>
+  <div class="sidebar-footer">© 2026 Polímata GRC</div>
 </nav>
 
 <!-- MAIN -->
@@ -724,6 +738,48 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="card-body">
           <div id="concil-history-empty" style="text-align:center;color:var(--text-mid);font-size:12px;padding:18px;">Nenhuma conciliação realizada ainda.</div>
           <div id="concil-history-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== DRE GERENCIAL (placeholder Fase 7) ===== -->
+    <div class="view" id="view-dre">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">DRE Gerencial — em construção</span>
+        </div>
+        <div class="card-body" style="text-align:center;padding:48px 24px;color:var(--text-mid);">
+          <div style="font-size:42px;margin-bottom:14px;">📊</div>
+          <h3 style="font-family:'Cormorant Garamond',serif;font-weight:300;font-size:22px;color:var(--navy);margin-bottom:8px;">Demonstrativo do Resultado</h3>
+          <p style="font-size:13px;max-width:520px;margin:0 auto;line-height:1.6;">Em breve aqui você verá receitas, despesas e resultado agrupados conforme o seu plano de contas (já carregado no sistema com 82 categorias).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== EMITIR NF (placeholder Fase NFS-e) ===== -->
+    <div class="view" id="view-nfemitir">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Emissão de NFS-e — em construção</span>
+        </div>
+        <div class="card-body" style="text-align:center;padding:48px 24px;color:var(--text-mid);">
+          <div style="font-size:42px;margin-bottom:14px;">🧾</div>
+          <h3 style="font-family:'Cormorant Garamond',serif;font-weight:300;font-size:22px;color:var(--navy);margin-bottom:8px;">Emissão automática para Valinhos</h3>
+          <p style="font-size:13px;max-width:520px;margin:0 auto;line-height:1.6;">Integração direta com a API Nacional de NFS-e (Receita Federal) usando o A1 da Polímata. Permitirá emissão sob demanda e mensal recorrente baseada em contratos.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== RECORRÊNCIAS (placeholder Fase 5) ===== -->
+    <div class="view" id="view-recorrencias">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Recorrências — em construção</span>
+        </div>
+        <div class="card-body" style="text-align:center;padding:48px 24px;color:var(--text-mid);">
+          <div style="font-size:42px;margin-bottom:14px;">🔄</div>
+          <h3 style="font-family:'Cormorant Garamond',serif;font-weight:300;font-size:22px;color:var(--navy);margin-bottom:8px;">Receitas e despesas recorrentes</h3>
+          <p style="font-size:13px;max-width:520px;margin:0 auto;line-height:1.6;">Lista única de tudo que se repete (assinaturas, contratos, despesas fixas). Base para o Fluxo de Caixa Projetado.</p>
         </div>
       </div>
     </div>
@@ -1661,6 +1717,9 @@ function showView(v, el){
   if(v==='pessoas'){ switchPessoaTab(currentPessoaTab); }
   if(v==='conciliacao') renderConciliacao();
   if(v==='nfimport') renderEmailsProcessados();
+  if(v==='dre') renderDRE();
+  if(v==='nfemitir') renderEmitirNF();
+  if(v==='recorrencias') renderRecorrencias();
 }
 
 // Re-renderiza o dashboard sempre que o usuário navega até ele,
@@ -3876,6 +3935,15 @@ addLabels['nfimport'] = 'Selecionar Arquivos';
 viewTitles['conciliacao'] = 'Conciliação Bancária';
 addLabels['conciliacao'] = 'Importar Extrato';
 
+viewTitles['dre'] = 'DRE Gerencial';
+addLabels['dre'] = 'Período';
+
+viewTitles['nfemitir'] = 'Emitir Nota Fiscal';
+addLabels['nfemitir'] = 'Nova Emissão';
+
+viewTitles['recorrencias'] = 'Recorrências (Receitas e Despesas)';
+addLabels['recorrencias'] = 'Nova Recorrência';
+
 
 // =============================================
 // CADASTRO DE PESSOAS (Fornecedor / Cliente / Funcionário)
@@ -4738,6 +4806,13 @@ if(typeof formatDateBR === 'undefined'){
 }
 
 
+
+// =============================================
+// PLACEHOLDERS (Fases futuras)
+// =============================================
+function renderDRE(){ /* Fase 7 — implementação a partir de plano_contas no Supabase */ }
+function renderEmitirNF(){ /* Fase NFS-e — integração API Nacional */ }
+function renderRecorrencias(){ /* Fase 5 — receitas + despesas recorrentes */ }
 
 // =============================================
 // AUTH + BOOT
