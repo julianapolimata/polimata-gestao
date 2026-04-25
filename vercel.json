@@ -5,6 +5,9 @@
   "functions": {
     "api/email-cron.js": {
       "maxDuration": 60
+    },
+    "api/anthropic.js": {
+      "maxDuration": 60
     }
   },
   "rewrites": [

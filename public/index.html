@@ -3126,7 +3126,11 @@ async function handleNFFiles(files){
   const queueList = document.getElementById('nf-queue-list');
   queue.style.display = 'block';
 
+  const total = Array.from(files).length;
+  let okCount = 0, errCount = 0, dupCount = 0, idx = 0;
+
   for(const file of Array.from(files)){
+    idx++;
     const itemId = 'nf-'+uid();
 
     // CHECK DUPLICATE
@@ -3140,7 +3144,8 @@ async function handleNFFiles(files){
           </div>
           <div style="font-size:11px;color:var(--orange);">⚠️ Já importado anteriormente — ignorado</div>
         </div>`;
-      toast('⚠️ "'+file.name+'" já foi importado antes — ignorado.');
+      dupCount++;
+      toast(`⚠️ (${idx}/${total}) "${file.name}" já foi importado — ignorado.`);
       continue;
     }
 
@@ -3161,7 +3166,8 @@ async function handleNFFiles(files){
       ]);
       const ext = file.name.split('.').pop().toLowerCase();
       const mediaType = ext === 'pdf' ? 'application/pdf' : ext === 'xml' ? 'text/xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
-      document.getElementById(itemId+'-status').innerHTML = '<span style="color:var(--green);">✓ Lido com sucesso</span>';
+      okCount++;
+      document.getElementById(itemId+'-status').innerHTML = `<span style="color:var(--green);">✓ Lido (${idx}/${total})</span>`;
       nfPending.push({ ...result, _rid: uid(),
         fileName: file.name,
         fingerprint: fileFingerprint(file),
@@ -3171,12 +3177,47 @@ async function handleNFFiles(files){
       });
       renderNFResults();
     } catch(err){
-      document.getElementById(itemId+'-status').innerHTML = `<span style="color:var(--red);">✗ Erro: ${err.message}</span>`;
+      errCount++;
+      document.getElementById(itemId+'-status').innerHTML = `<span style="color:var(--red);">✗ (${idx}/${total}) ${err.message}</span>`;
     }
   }
+
+  // Resumo final
+  const partes = [];
+  if(okCount) partes.push(`${okCount} lido(s)`);
+  if(errCount) partes.push(`${errCount} com erro`);
+  if(dupCount) partes.push(`${dupCount} ignorado(s)`);
+  toast(`📋 Lote concluído: ${partes.join(' · ')}`);
 }
 
 // --- AI READER ---
+// Wrapper com retry automático para 529 (overloaded), 503, 504, 429 (rate limit)
+async function fetchAnthropicWithRetry(url, options, maxAttempts = 4){
+  const backoffs = [0, 2000, 5000, 10000]; // ms entre tentativas
+  let lastErr = null;
+  for(let attempt = 0; attempt < maxAttempts; attempt++){
+    if(attempt > 0) await new Promise(r => setTimeout(r, backoffs[attempt]));
+    try {
+      const r = await fetch(url, options);
+      // Sucesso
+      if(r.ok) return r;
+      // Erros que vale a pena tentar de novo
+      if([429, 503, 504, 529].includes(r.status)){
+        lastErr = new Error(`HTTP ${r.status} — servidor ocupado, tentativa ${attempt+1}/${maxAttempts}`);
+        console.warn(lastErr.message);
+        continue;
+      }
+      // Outros erros: não tenta de novo
+      return r;
+    } catch(e){
+      lastErr = e;
+      // Só faz retry se for erro de rede; outros erros propagam
+      if(attempt === maxAttempts - 1) throw e;
+    }
+  }
+  throw lastErr || new Error('Falha após múltiplas tentativas');
+}
+
 async function readNFWithAI(file, apiKey){
   // Convert file to base64
   const base64 = await fileToBase64(file);
@@ -3286,7 +3327,7 @@ Responda APENAS com JSON válido, sem markdown, sem explicações:
     }];
   }
 
-  const response = await fetch('/api/anthropic', {
+  const response = await fetchAnthropicWithRetry('/api/anthropic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages })
@@ -4266,41 +4307,60 @@ function renderConciliacao(){
 async function handleConcilFiles(files){
   if(!files || !files.length) return;
   const status = document.getElementById('concil-status');
-  status.textContent = `Lendo ${files.length} arquivo(s)…`;
   concilTransactions = [];
 
-  for(const file of files){
+  const total = files.length;
+  let okFiles = 0, errFiles = 0;
+  const errors = [];
+
+  for(let i = 0; i < total; i++){
+    const file = files[i];
+    const idx = i + 1;
     try {
       const ext = (file.name.split('.').pop()||'').toLowerCase();
       let txs = [];
       if(ext === 'ofx'){
+        status.innerHTML = `<span style="color:var(--gold);">⏳</span> ${idx}/${total} — lendo OFX <strong>${file.name}</strong>`;
         const text = await file.text();
         txs = parseOFX(text, file.name);
       } else if(ext === 'csv'){
+        status.innerHTML = `<span style="color:var(--gold);">⏳</span> ${idx}/${total} — lendo CSV <strong>${file.name}</strong>`;
         const text = await file.text();
         txs = parseCSV(text, file.name);
       } else if(ext === 'pdf'){
-        status.textContent = `Lendo PDF "${file.name}" via IA (pode demorar 10-20s)…`;
+        status.innerHTML = `<span style="color:var(--gold);">⏳</span> ${idx}/${total} — lendo PDF <strong>${file.name}</strong> via IA (pode demorar 10-30s)…`;
         txs = await parsePDFExtract(file);
       } else if(ext === 'xlsx' || ext === 'xls'){
+        status.innerHTML = `<span style="color:var(--gold);">⏳</span> ${idx}/${total} — lendo Excel <strong>${file.name}</strong>`;
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, {type:'array'});
         const ws = wb.Sheets[wb.SheetNames[0]];
         const csv = XLSX.utils.sheet_to_csv(ws);
         txs = parseCSV(csv, file.name);
       } else {
-        toast(`⚠️ Formato não suportado: .${ext}`);
+        errFiles++;
+        errors.push({ file: file.name, msg: `Formato não suportado: .${ext}` });
         continue;
       }
       concilTransactions.push(...txs);
+      okFiles++;
     } catch(e){
       console.error('Erro lendo', file.name, e);
-      toast(`⚠️ Falha ao ler ${file.name}: ${e.message}`);
+      errFiles++;
+      errors.push({ file: file.name, msg: e.message });
     }
   }
 
-  status.textContent = `${concilTransactions.length} transação(ões) lida(s).`;
+  // Status final
+  let resumo = `<span style="color:var(--green);">✓</span> ${okFiles}/${total} arquivo(s) processado(s) — ${concilTransactions.length} transação(ões)`;
+  if(errFiles){
+    resumo += `<br><span style="color:var(--red);">✗ ${errFiles} com erro:</span> `;
+    resumo += errors.map(e => `<em>${e.file}</em> (${e.msg})`).join(', ');
+  }
+  status.innerHTML = resumo;
+
   renderConcilResults();
+  if(errFiles) toast(`⚠️ ${errFiles} arquivo(s) falharam — confira o detalhe acima.`);
 }
 
 // --- OFX Parser ---
@@ -4408,7 +4468,7 @@ Responda APENAS com um JSON array, sem markdown:
     ]
   }];
 
-  const r = await fetch('/api/anthropic', {
+  const r = await fetchAnthropicWithRetry('/api/anthropic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages })
