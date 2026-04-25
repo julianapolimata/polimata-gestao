@@ -5680,7 +5680,232 @@ if(typeof formatDateBR === 'undefined'){
 // =============================================
 // PLACEHOLDERS (Fases futuras)
 // =============================================
-function renderDRE(){ /* Fase 7 — implementação a partir de plano_contas no Supabase */ }
+// =============================================
+// PLANO DE CONTAS + DRE GERENCIAL
+// =============================================
+window.PLANO_CONTAS = [];
+
+async function loadPlanoContas(){
+  const { data, error } = await supabase.from('plano_contas').select('*').order('ordem');
+  if(error){ console.warn('plano_contas falhou:', error); return; }
+  window.PLANO_CONTAS = data || [];
+}
+
+function getClassificacaoDRE(categoria, subcategoria){
+  if(!window.PLANO_CONTAS || !window.PLANO_CONTAS.length) return null;
+  const cat = (categoria||'').toLowerCase();
+  const sub = (subcategoria||'').toLowerCase();
+  // Match por subcategoria primeiro (mais específico)
+  let row = window.PLANO_CONTAS.find(p => (p.subcategoria||'').toLowerCase() === sub && (p.categoria||'').toLowerCase() === cat);
+  if(!row) row = window.PLANO_CONTAS.find(p => (p.categoria||'').toLowerCase() === cat);
+  return row;
+}
+
+// Ordem canônica de classificações na DRE
+const DRE_ORDEM = [
+  { classe: 'Receita Bruta',          tipo: 'positivo', secao: 'A. Receita Bruta' },
+  { classe: 'Outras Receitas',        tipo: 'positivo', secao: 'A. Receita Bruta' },
+  { classe: 'Impostos sobre Vendas',  tipo: 'negativo', secao: 'B. Deduções' },
+  // (= Receita Líquida)
+  { classe: 'CSP',                    tipo: 'negativo', secao: 'C. Custos dos Serviços' },
+  // (= Lucro Bruto)
+  { classe: 'Despesas Operacionais',  tipo: 'negativo', secao: 'D. Despesas Operacionais' },
+  { classe: 'Despesas Comerciais',    tipo: 'negativo', secao: 'D. Despesas Operacionais' },
+  { classe: 'Despesas de Viagens',    tipo: 'misto',    secao: 'D. Despesas Operacionais' },
+  // (= Resultado Operacional)
+  { classe: 'Receita Financeira',     tipo: 'positivo', secao: 'E. Resultado Financeiro' },
+  { classe: 'Despesas Financeiras',   tipo: 'negativo', secao: 'E. Resultado Financeiro' },
+  { classe: 'Outras Despesas',        tipo: 'negativo', secao: 'F. Outros' },
+  { classe: 'Antecipação de Lucro',   tipo: 'negativo', secao: 'G. Distribuição' }
+];
+
+function renderDRE(){
+  const container = document.getElementById('view-dre');
+  if(!container) return;
+
+  if(!window._dreFilter) window._dreFilter = { tipo: 'mes', mes: new Date().getMonth(), ano: new Date().getFullYear() };
+  const f = window._dreFilter;
+
+  const dataInicio = (() => {
+    if(f.tipo === 'mes') return `${f.ano}-${String(f.mes+1).padStart(2,'0')}-01`;
+    if(f.tipo === 'trimestre'){
+      const trimMes = Math.floor(f.mes/3)*3;
+      return `${f.ano}-${String(trimMes+1).padStart(2,'0')}-01`;
+    }
+    return `${f.ano}-01-01`;
+  })();
+  const dataFim = (() => {
+    if(f.tipo === 'mes'){
+      const last = new Date(f.ano, f.mes+1, 0).getDate();
+      return `${f.ano}-${String(f.mes+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
+    }
+    if(f.tipo === 'trimestre'){
+      const trimEndMes = Math.floor(f.mes/3)*3 + 2;
+      const last = new Date(f.ano, trimEndMes+1, 0).getDate();
+      return `${f.ano}-${String(trimEndMes+1).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
+    }
+    return `${f.ano}-12-31`;
+  })();
+
+  function noPeriodo(item){
+    const d = item.due || item.created;
+    if(!d) return false;
+    return d >= dataInicio && d <= dataFim;
+  }
+
+  const recebimentos = DB.receivable.filter(noPeriodo);
+  const pagamentos = DB.payable.filter(noPeriodo);
+
+  const dreAgg = {};
+  const patrimonioAgg = {};
+
+  function classificar(item){
+    const cls = getClassificacaoDRE(item.cat, item.subcat);
+    const valor = Number(item.value||0);
+    if(!cls){
+      dreAgg['Outras Despesas'] = (dreAgg['Outras Despesas']||0) + valor;
+      return;
+    }
+    const target = cls.na_dre ? dreAgg : patrimonioAgg;
+    target[cls.classificacao] = (target[cls.classificacao]||0) + valor;
+  }
+
+  recebimentos.forEach(classificar);
+  pagamentos.forEach(classificar);
+
+  const receitaBruta = (dreAgg['Receita Bruta']||0) + (dreAgg['Outras Receitas']||0);
+  const deducoes = dreAgg['Impostos sobre Vendas']||0;
+  const receitaLiquida = receitaBruta - deducoes;
+  const csp = dreAgg['CSP']||0;
+  const lucroBruto = receitaLiquida - csp;
+  const despesasOp = (dreAgg['Despesas Operacionais']||0) + (dreAgg['Despesas Comerciais']||0) + (dreAgg['Despesas de Viagens']||0);
+  const resultadoOperacional = lucroBruto - despesasOp;
+  const recFin = dreAgg['Receita Financeira']||0;
+  const despFin = dreAgg['Despesas Financeiras']||0;
+  const outrasDesp = dreAgg['Outras Despesas']||0;
+  const resultadoLiquido = resultadoOperacional + recFin - despFin - outrasDesp;
+  const margemLiq = receitaBruta > 0 ? (resultadoLiquido / receitaBruta * 100) : null;
+  const antecipLucro = dreAgg['Antecipação de Lucro']||0;
+  const resultadoAposDistribuicao = resultadoLiquido - antecipLucro;
+
+  function row(label, valor, opts){
+    opts = opts || {};
+    const isHeader = opts.header;
+    const isResultado = opts.resultado;
+    const isNegativo = opts.negativo;
+    const indent = opts.indent || 0;
+    const valStr = valor === null ? '' : fmtMoney(Math.abs(valor||0));
+    const sinal = (valor||0) < 0 ? '-' : (isNegativo ? '−' : '');
+    const corValor = isNegativo ? 'var(--red)' : ((valor||0)>=0 ? 'var(--navy)' : 'var(--red)');
+    const cls = isResultado ? 'background:rgba(0,32,62,0.06);font-weight:700;border-top:2px solid var(--navy);' : (isHeader ? 'background:rgba(204,145,94,0.08);font-weight:700;color:var(--gold-dark);text-transform:uppercase;letter-spacing:1px;font-size:10px;' : '');
+    return `<tr style="${cls}"><td style="padding:8px 12px;padding-left:${12+indent*16}px;font-size:${isHeader?10:12}px;">${label}</td><td style="padding:8px 12px;text-align:right;font-size:12px;color:${corValor};font-weight:${isResultado?700:400};">${valor===null?'':sinal+valStr}</td></tr>`;
+  }
+
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const periodoLabel = f.tipo === 'mes' ? `${meses[f.mes]} ${f.ano}` : f.tipo === 'trimestre' ? `${Math.floor(f.mes/3)+1}º Trimestre ${f.ano}` : `Ano ${f.ano}`;
+
+  const patrimoniaisLinhas = Object.keys(patrimonioAgg)
+    .filter(k => Math.abs(patrimonioAgg[k]) > 0.01)
+    .map(k => ({ classe: k, valor: patrimonioAgg[k] }));
+
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header">
+        <span class="card-title">DRE Gerencial — ${periodoLabel}</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select class="filter-select" id="dre-tipo-periodo" onchange="onDREFilterChange()" style="font-size:11px;padding:6px 10px;">
+            <option value="mes" ${f.tipo==='mes'?'selected':''}>Mês</option>
+            <option value="trimestre" ${f.tipo==='trimestre'?'selected':''}>Trimestre</option>
+            <option value="ano" ${f.tipo==='ano'?'selected':''}>Ano</option>
+          </select>
+          ${f.tipo!=='ano'?`<select class="filter-select" id="dre-mes" onchange="onDREFilterChange()" style="font-size:11px;padding:6px 10px;">
+            ${meses.map((m,i)=>`<option value="${i}" ${f.mes===i?'selected':''}>${m}</option>`).join('')}
+          </select>`:''}
+          <select class="filter-select" id="dre-ano" onchange="onDREFilterChange()" style="font-size:11px;padding:6px 10px;">
+            ${Array.from({length:5},(_,i)=>new Date().getFullYear()-i).map(y=>`<option value="${y}" ${f.ano===y?'selected':''}>${y}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody>
+            ${row('1. RECEITA BRUTA', null, {header:true})}
+            ${row('Receita de Serviços', dreAgg['Receita Bruta']||0, {indent:1})}
+            ${row('Outras Receitas', dreAgg['Outras Receitas']||0, {indent:1})}
+            ${row('= Receita Bruta', receitaBruta, {resultado:true})}
+
+            ${row('2. (−) DEDUÇÕES DA RECEITA', null, {header:true})}
+            ${row('Impostos sobre Vendas (DAS, ISS, IRRF)', deducoes, {indent:1, negativo:true})}
+            ${row('= RECEITA LÍQUIDA', receitaLiquida, {resultado:true})}
+
+            ${row('3. (−) CUSTO DOS SERVIÇOS PRESTADOS (CSP)', null, {header:true})}
+            ${row('Pessoal / Mão de Obra direta', csp, {indent:1, negativo:true})}
+            ${row('= LUCRO BRUTO', lucroBruto, {resultado:true})}
+
+            ${row('4. (−) DESPESAS OPERACIONAIS', null, {header:true})}
+            ${row('Despesas Operacionais (gerais, depreciação, amortização)', dreAgg['Despesas Operacionais']||0, {indent:1, negativo:true})}
+            ${row('Despesas Comerciais', dreAgg['Despesas Comerciais']||0, {indent:1, negativo:true})}
+            ${row('Despesas de Viagens (líquido de reembolsos)', dreAgg['Despesas de Viagens']||0, {indent:1, negativo:true})}
+            ${row('= RESULTADO OPERACIONAL', resultadoOperacional, {resultado:true})}
+
+            ${row('5. RESULTADO FINANCEIRO', null, {header:true})}
+            ${row('(+) Receita Financeira (juros recebidos, descontos)', recFin, {indent:1})}
+            ${row('(−) Despesa Financeira (juros, IOF, tarifas, multas)', despFin, {indent:1, negativo:true})}
+
+            ${row('6. OUTRAS', null, {header:true})}
+            ${row('(−) Outras Despesas', outrasDesp, {indent:1, negativo:true})}
+
+            <tr style="background:${resultadoLiquido>=0?'rgba(39,174,96,0.10)':'rgba(231,76,60,0.10)'};border-top:3px solid ${resultadoLiquido>=0?'var(--green)':'var(--red)'};">
+              <td style="padding:14px 12px;font-size:14px;font-weight:700;color:${resultadoLiquido>=0?'var(--green)':'var(--red)'};">= RESULTADO LÍQUIDO DO PERÍODO ${margemLiq!==null?'· Margem '+margemLiq.toFixed(1)+'%':''}</td>
+              <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;color:${resultadoLiquido>=0?'var(--green)':'var(--red)'};">${fmtMoney(resultadoLiquido)}</td>
+            </tr>
+
+            ${antecipLucro > 0 ? `
+            ${row('* DISTRIBUIÇÃO (informativo, não compõe DRE)', null, {header:true})}
+            ${row('(−) Antecipação de Lucro / Pró-labore Adiantado', antecipLucro, {indent:1, negativo:true})}
+            ${row('= Resultado após Distribuição', resultadoAposDistribuicao, {resultado:true})}
+            ` : ''}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    ${patrimoniaisLinhas.length > 0 ? `
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header">
+        <span class="card-title">Movimentação Patrimonial — fora da DRE</span>
+        <span style="font-size:10px;color:var(--text-mid);">Itens que afetam Balanço Patrimonial / Fluxo de Caixa</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody>
+            ${patrimoniaisLinhas.map(p => `<tr>
+              <td style="padding:8px 12px;font-size:12px;">${p.classe}</td>
+              <td style="padding:8px 12px;text-align:right;font-size:12px;color:${p.valor>=0?'var(--navy)':'var(--red)'};">${fmtMoney(p.valor)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : ''}
+
+    <div style="font-size:10px;color:var(--text-mid);text-align:center;padding:8px;line-height:1.5;">
+      📊 ${recebimentos.length} entrada(s) · ${pagamentos.length} saída(s) · plano com ${(window.PLANO_CONTAS||[]).length} subcategorias<br>
+      <em>Estrutura conforme art. 187 da Lei 6.404/76 e CPC 26. Imobilizado, Investimentos, Empréstimos (principal), Parcelamentos (principal) e Transferências aparecem em "Movimentação Patrimonial".</em>
+    </div>
+  `;
+}
+
+function onDREFilterChange(){
+  const f = window._dreFilter || { tipo: 'mes' };
+  const tipoEl = document.getElementById('dre-tipo-periodo');
+  const mesEl = document.getElementById('dre-mes');
+  const anoEl = document.getElementById('dre-ano');
+  if(tipoEl) f.tipo = tipoEl.value;
+  if(mesEl) f.mes = parseInt(mesEl.value);
+  if(anoEl) f.ano = parseInt(anoEl.value);
+  window._dreFilter = f;
+  renderDRE();
+}
 function renderEmitirNF(){ /* Fase NFS-e — integração API Nacional */ }
 function getRecorrenciaProximaData(item){
   if(!item.due || !item.rec_frequencia) return null;
@@ -5833,6 +6058,7 @@ async function bootApp(){
 
   try {
     await loadAll();
+    await loadPlanoContas();
   } catch(e){
     console.error('Falha ao carregar dados:', e);
     toast('⚠️ Erro ao carregar dados do servidor.');
