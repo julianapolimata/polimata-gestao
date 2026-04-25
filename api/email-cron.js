@@ -6,37 +6,55 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const POLIMATA_USER_ID = process.env.POLIMATA_USER_ID;
 const POLIMATA_CNPJ = '48948776000164';
-const CRON_SECRET = process.env.CRON_SECRET;
 const GMAIL_TARGET_ALIAS = process.env.GMAIL_TARGET_ALIAS || 'financeiro@polimatagrc.com.br';
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 // Limita por execução para não estourar timeout (Vercel Hobby = 60s)
 const MAX_MESSAGES_PER_RUN = 3;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false }
-});
+// Lazy init do Supabase (só cria o client na primeira chamada autenticada)
+let _supabase = null;
+function getSupabase() {
+  if (_supabase) return _supabase;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY ausente');
+  _supabase = createClient(SUPABASE_URL, key, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+  return _supabase;
+}
 
 export default async function handler(req, res) {
-  // ---- Auth ----
-  const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ') || auth.slice(7) !== CRON_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  if (!POLIMATA_USER_ID || !SUPABASE_KEY || !ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'Variáveis de ambiente faltando no servidor' });
-  }
-
   try {
+    // ---- Auth ----
+    const auth = req.headers.authorization || '';
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      console.error('CRON_SECRET não configurado no servidor');
+      return res.status(500).json({ error: 'CRON_SECRET ausente no servidor' });
+    }
+    if (!auth.startsWith('Bearer ') || auth.slice(7) !== cronSecret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // ---- Checagem de envs essenciais ----
+    const missing = [];
+    if (!process.env.POLIMATA_USER_ID) missing.push('POLIMATA_USER_ID');
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+    if (!process.env.ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY');
+    if (!process.env.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
+    if (!process.env.GOOGLE_CLIENT_SECRET) missing.push('GOOGLE_CLIENT_SECRET');
+    if (!process.env.GOOGLE_REFRESH_TOKEN) missing.push('GOOGLE_REFRESH_TOKEN');
+    if (missing.length) {
+      console.error('Env vars faltando:', missing);
+      return res.status(500).json({ error: 'Env vars faltando', missing });
+    }
+
     const result = await processEmails();
     return res.status(200).json(result);
   } catch (e) {
     console.error('Erro no email-cron:', e);
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0, 5).join(' | ') });
   }
 }
 
@@ -309,7 +327,7 @@ Responda APENAS com JSON válido, sem markdown:
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
@@ -373,10 +391,10 @@ async function createLancamento(parsed, att, base64) {
   const targetTable = isSaida ? 'receivable' : 'payable';
 
   // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
-  const { data: candidates } = await supabase
+  const { data: candidates } = await getSupabase()
     .from(targetTable)
     .select('id, data')
-    .eq('user_id', POLIMATA_USER_ID);
+    .eq('user_id', process.env.POLIMATA_USER_ID);
 
   const matchSemDoc = (candidates || []).find(c => {
     const item = c.data || {};
@@ -404,11 +422,11 @@ async function createLancamento(parsed, att, base64) {
       sem_documento: false,
       notes: (matchSemDoc.data.notes || '') + ` · Doc anexado em ${today} via email automático`
     };
-    const { error: updErr } = await supabase
+    const { error: updErr } = await getSupabase()
       .from(targetTable)
       .update({ data: updated })
       .eq('id', matchSemDoc.id)
-      .eq('user_id', POLIMATA_USER_ID);
+      .eq('user_id', process.env.POLIMATA_USER_ID);
     if (updErr) throw new Error(`Update ${targetTable}: ${updErr.message}`);
     console.log(`[auto-vínculo] NF anexada ao lançamento existente ${matchSemDoc.id}`);
     return matchSemDoc.id;
@@ -439,15 +457,15 @@ async function createLancamento(parsed, att, base64) {
     anexoTipo: att.mimeType
   };
 
-  const { error } = await supabase.from(targetTable).insert({
-    id: lancamentoId, user_id: POLIMATA_USER_ID, data: reg
+  const { error } = await getSupabase().from(targetTable).insert({
+    id: lancamentoId, user_id: process.env.POLIMATA_USER_ID, data: reg
   });
   if (error) throw new Error(`Insert ${targetTable}: ${error.message}`);
 
   // nf_history
   const nfId = crypto.randomUUID();
-  await supabase.from('nf_history').insert({
-    id: nfId, user_id: POLIMATA_USER_ID,
+  await getSupabase().from('nf_history').insert({
+    id: nfId, user_id: process.env.POLIMATA_USER_ID,
     data: {
       id: nfId, date: today,
       fileName: att.filename,
@@ -468,8 +486,8 @@ async function ensurePessoa(parsed, isSaida) {
 
   const cnpj = String(cnpjRaw || '').replace(/\D/g, '');
 
-  const { data: existing } = await supabase
-    .from('pessoas').select('id, data').eq('user_id', POLIMATA_USER_ID);
+  const { data: existing } = await getSupabase()
+    .from('pessoas').select('id, data').eq('user_id', process.env.POLIMATA_USER_ID);
 
   const jaExiste = (existing || []).some(p => {
     const pData = p.data || {};
@@ -503,8 +521,8 @@ async function ensurePessoa(parsed, isSaida) {
     notes: `Auto-cadastrado via importação por email em ${today}`
   };
 
-  await supabase.from('pessoas').insert({
-    id: novoId, user_id: POLIMATA_USER_ID, data: novo
+  await getSupabase().from('pessoas').insert({
+    id: novoId, user_id: process.env.POLIMATA_USER_ID, data: novo
   });
 }
 
@@ -556,77 +574,16 @@ async function fetchPTAX(moeda, dataYYYYMMDD) {
       console.warn('PTAX erro:', e.message);
     }
   }
-  throw new Error(`PTAX não encontrada para ${moedaUpper} em ${dataYYYYMMDD}`);
+  throw new Error(`PTAX nao encontrada para ${moedaUpper} em ${dataYYYYMMDD}`);
 }
 
 // ============================================================================
 // Persistência do histórico de processamento
 // ============================================================================
 async function persistEmailHistory(data) {
-  await supabase.from('emails_processados').insert({
+  await getSupabase().from('emails_processados').insert({
     id: crypto.randomUUID(),
-    user_id: POLIMATA_USER_ID,
-    data
-  });
-}
-
-  await supabase.from('pessoas').insert({
-    id: novoId, user_id: POLIMATA_USER_ID, data: novo
-  });
-}
-
-function mapNFCategoria(nf) {
-  const td = (nf.tipo_documento || '').toUpperCase();
-  if (['DAS', 'DARF', 'GPS', 'GNRE'].includes(td)) return 'Impostos';
-  return nf.categoria || 'Operacional';
-}
-
-const _ptaxCache = {};
-async function fetchPTAX(moeda, dataYYYYMMDD) {
-  const moedaUpper = (moeda || 'USD').toUpperCase();
-  if (moedaUpper === 'BRL') return null;
-  const cacheKey = `${moedaUpper}|${dataYYYYMMDD}`;
-  if (_ptaxCache[cacheKey]) return _ptaxCache[cacheKey];
-
-  const startDate = new Date(dataYYYYMMDD + 'T12:00:00');
-  for (let i = 0; i < 10; i++) {
-    const d = new Date(startDate);
-    d.setDate(d.getDate() - i);
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    const dataStr = `${mm}-${dd}-${yyyy}`;
-
-    const url = moedaUpper === 'USD'
-      ? `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='${dataStr}'&$format=json`
-      : `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)?@moeda='${moedaUpper}'&@dataCotacao='${dataStr}'&$format=json`;
-
-    try {
-      const r = await fetch(url);
-      if (!r.ok) continue;
-      const j = await r.json();
-      if (j.value?.length) {
-        const v = j.value[0];
-        const result = {
-          compra: v.cotacaoCompra,
-          venda: v.cotacaoVenda,
-          dataCotacao: `${yyyy}-${mm}-${dd}`,
-          moeda: moedaUpper
-        };
-        _ptaxCache[cacheKey] = result;
-        return result;
-      }
-    } catch (e) {
-      console.warn('PTAX erro:', e.message);
-    }
-  }
-  throw new Error(`PTAX nao encontrada para ${moedaUpper} em ${dataYYYYMMDD}`);
-}
-
-async function persistEmailHistory(data) {
-  await supabase.from('emails_processados').insert({
-    id: crypto.randomUUID(),
-    user_id: POLIMATA_USER_ID,
+    user_id: process.env.POLIMATA_USER_ID,
     data
   });
 }
