@@ -1,13 +1,14 @@
 {
   "name": "polimata-gestao",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Polímata GRC — Sistema de gestão administrativa e financeira",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel --prod"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.0"
+    "@supabase/supabase-js": "^2.45.4"
   }
 }

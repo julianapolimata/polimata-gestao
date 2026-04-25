@@ -1,0 +1,28 @@
+name: Email Cron — Polímata Gestão
+
+on:
+  schedule:
+    # A cada 15 minutos
+    - cron: '*/15 * * * *'
+  workflow_dispatch:  # permite acionamento manual
+
+jobs:
+  trigger-cron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Acionar /api/email-cron na Vercel
+        run: |
+          response=$(curl -sS -X POST "https://polimata-gestao.vercel.app/api/email-cron" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -w "\n---HTTP_CODE---\n%{http_code}" \
+            --max-time 90)
+          status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
+          body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
+          echo "Status: $status"
+          echo "Body: $body"
+          if [ "$status" -ge 400 ] || [ -z "$status" ]; then
+            echo "::error::Cron falhou com HTTP $status"
+            exit 1
+          fi

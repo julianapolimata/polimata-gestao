@@ -990,6 +990,23 @@ tbody tr:last-child td{border-bottom:none;}
         </div>
       </div>
 
+      <!-- HISTÓRICO DE EMAILS PROCESSADOS -->
+      <div class="card" style="margin-top:20px;" id="email-history-card">
+        <div class="card-header">
+          <span class="card-title">📧 Emails processados automaticamente</span>
+          <span style="font-size:10px;color:var(--text-mid);">Cron a cada 15 min · alias <strong>financeiro@polimatagrc.com.br</strong></span>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div id="email-history-empty" style="text-align:center;color:var(--text-mid);font-size:12px;padding:24px;">Nenhum email processado ainda. Encaminhe NFs ou guias para <strong>financeiro@polimatagrc.com.br</strong> e em até 15 min elas viram lançamentos automaticamente.</div>
+          <table id="email-history-table" style="display:none;">
+            <thead><tr>
+              <th>Quando</th><th>De</th><th>Assunto</th><th>Status</th><th>Lançamentos</th>
+            </tr></thead>
+            <tbody id="email-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
 
 
@@ -1496,7 +1513,7 @@ let currentUser = null;
 const DB = {
   receivable: [], payable: [], contracts: [], clients: [],
   projects: [], tasks: [], documents: [], pessoas: [], nf_history: [],
-  transacoes_extrato: []
+  transacoes_extrato: [], emails_processados: []
 };
 const DB_TABLES = Object.keys(DB);
 
@@ -1640,6 +1657,7 @@ function showView(v, el){
   if(v==='documents') renderDocuments();
   if(v==='pessoas'){ switchPessoaTab(currentPessoaTab); }
   if(v==='conciliacao') renderConciliacao();
+  if(v==='nfimport') renderEmailsProcessados();
 }
 
 // Re-renderiza o dashboard sempre que o usuário navega até ele,
@@ -3704,6 +3722,35 @@ function clearResults(){
 }
 
 // --- HISTORY ---
+function renderEmailsProcessados(){
+  const tbody = document.getElementById('email-history-tbody');
+  const empty = document.getElementById('email-history-empty');
+  const table = document.getElementById('email-history-table');
+  if(!tbody) return;
+  const items = (DB.emails_processados||[]).slice().sort((a,b)=>(b.processed_at||'').localeCompare(a.processed_at||''));
+  if(!items.length){ empty.style.display='block'; table.style.display='none'; tbody.innerHTML=''; return; }
+  empty.style.display='none'; table.style.display='table';
+  tbody.innerHTML = items.slice(0,30).map(e => {
+    const status = e.status || '?';
+    let badge = '';
+    if(status === 'ok') badge = '<span class="badge badge-green">OK</span>';
+    else if(status === 'error') badge = `<span class="badge badge-red" title="${(e.error_message||'').replace(/"/g,'&quot;')}">Erro</span>`;
+    else if(status === 'sem_anexo') badge = '<span class="badge badge-gray">Sem anexo</span>';
+    else if(status === 'sem_lancamento') badge = '<span class="badge badge-orange">Sem lançamento</span>';
+    else badge = `<span class="badge badge-gray">${status}</span>`;
+    const nLanc = (e.lancamentos_ids||[]).length;
+    const fromShort = (e.from||'').replace(/<.*?>/g,'').trim().substring(0,40);
+    const subjShort = (e.subject||'').substring(0,60);
+    return `<tr>
+      <td style="font-size:11px;">${formatDateBR(e.processed_at)}</td>
+      <td style="font-size:11px;">${fromShort||'—'}</td>
+      <td style="font-size:11px;">${subjShort||'—'}</td>
+      <td>${badge}</td>
+      <td style="font-size:11px;text-align:center;">${nLanc>0?nLanc:'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
 function renderNFHistory(){
   const tbody = document.getElementById('nf-history-tbody');
   if(!tbody) return;
@@ -4631,6 +4678,7 @@ async function bootApp(){
   // Dispara render inicial
   try { renderDashboard && renderDashboard(); } catch(e){}
   try { updateApiKeyStatus(); } catch(e){}
+  try { renderEmailsProcessados && renderEmailsProcessados(); } catch(e){}
 }
 
 (async function init(){
