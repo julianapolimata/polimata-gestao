@@ -287,7 +287,8 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
 .toolbar-multifilter{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;}
 .toolbar-multifilter > *{flex:0 0 auto;}
 .toolbar-multifilter .search-wrap{flex:1 1 200px;min-width:180px;}
-.toolbar-multifilter input,.toolbar-multifilter select{font-size:11px;padding:6px 10px;border:1px solid var(--cream-dark);border-radius:5px;background:#fff;}
+.toolbar-multifilter input,.toolbar-multifilter select{font-size:11px;padding:6px 10px;border:1px solid var(--cream-dark);border-radius:5px;background:#fff;font-family:inherit;color:var(--navy);}
+.toolbar-multifilter input::placeholder{color:var(--text-mid);font-family:inherit;}
 .toolbar-multifilter input[type=number]{width:90px;}
 .toolbar-multifilter .filtro-grupo{display:flex;gap:4px;align-items:center;font-size:10px;color:var(--text-mid);}
 .toolbar-multifilter .filtro-grupo label{font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text-mid);text-transform:uppercase;}
@@ -462,26 +463,28 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
     <!-- ===== DASHBOARD ===== -->
     <div class="view active" id="view-dashboard">
       <!-- INDICADORES ESTRATÉGICOS (topo) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px;">
-        <div class="card" id="estr-icc-card" style="cursor:default;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px;align-items:stretch;">
+        <div class="card" id="estr-icc-card" style="cursor:default;height:200px;display:flex;flex-direction:column;overflow:hidden;">
           <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">ICC · Cobertura de caixa</div>
           <div id="estr-icc-valor" style="font-size:28px;font-weight:700;color:var(--navy);line-height:1;">—</div>
           <div id="estr-icc-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">aguardando dados</div>
         </div>
-        <div class="card" id="estr-saldo-card" style="cursor:default;">
+        <div class="card" id="estr-saldo-card" style="cursor:default;height:200px;display:flex;flex-direction:column;overflow:hidden;">
           <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Saldo projetado · 30/60/90d</div>
           <div id="estr-saldo-valor" style="font-size:18px;font-weight:700;color:var(--navy);line-height:1.2;">—</div>
           <div id="estr-saldo-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">a receber − a pagar</div>
         </div>
-        <div class="card" style="cursor:pointer;" onclick="showView('cashflow')">
+        <div class="card" style="cursor:pointer;height:200px;display:flex;flex-direction:column;overflow:hidden;" onclick="showView('cashflow')">
           <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Faturamento mensal</div>
           <div id="estr-fat-valor" style="font-size:24px;font-weight:700;color:var(--green);line-height:1;">—</div>
           <div id="estr-fat-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">vs mês passado</div>
-          <canvas id="estr-fat-chart" style="margin-top:10px;height:50px;display:block;width:100%;"></canvas>
+          <div style="flex:1;position:relative;margin-top:10px;min-height:60px;">
+            <canvas id="estr-fat-chart" style="position:absolute;top:0;left:0;width:100%!important;height:100%!important;"></canvas>
+          </div>
         </div>
-        <div class="card" style="cursor:pointer;" onclick="navegarComFiltro('payable', { 'pay-filter-status': 'Pendente', 'pay-filter-period': 'mes' })">
+        <div class="card" style="cursor:pointer;height:200px;display:flex;flex-direction:column;overflow:hidden;" onclick="navegarComFiltro('payable', { 'pay-filter-status': 'Pendente', 'pay-filter-period': 'mes' })">
           <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Próximas a pagar</div>
-          <div id="estr-prox-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--navy);">—</div>
+          <div id="estr-prox-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--navy);overflow-y:auto;">—</div>
         </div>
       </div>
 
@@ -692,7 +695,7 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
             <th class="sortable" onclick="sortTable('rec','client','string')">Cliente <span class="sort-arrow">▾</span></th>
             <th>Descrição</th>
             <th class="sortable" onclick="sortTable('rec','value','number')">Valor <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTable('rec','due','date')">Vencimento <span class="sort-arrow">▾</span></th>
+            <th>Datas <span style="font-size:9px;color:var(--text-mid);font-weight:400;">(emiss · lanç · venc)</span></th>
             <th>Categoria</th>
             <th class="sortable" onclick="sortTable('rec','status','string')">Status <span class="sort-arrow">▾</span></th>
             <th>Ações</th>
@@ -746,7 +749,7 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
             <th class="sortable" onclick="sortTable('pay','supplier','string')">Fornecedor <span class="sort-arrow">▾</span></th>
             <th>Descrição</th>
             <th class="sortable" onclick="sortTable('pay','value','number')">Valor <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTable('pay','due','date')">Vencimento <span class="sort-arrow">▾</span></th>
+            <th>Datas <span style="font-size:9px;color:var(--text-mid);font-weight:400;">(emiss · lanç · venc)</span></th>
             <th>Categoria</th>
             <th class="sortable" onclick="sortTable('pay','status','string')">Status <span class="sort-arrow">▾</span></th>
             <th>Ações</th>
@@ -2848,14 +2851,20 @@ function limparFiltros(prefix){
 }
 
 function _populateFilters(prefix){
-  // Parte (cliente ou fornecedor)
+  // Parte (cliente ou fornecedor) — UNION de cadastrados em pessoas + os que aparecem nos lançamentos
   const tipoFiltro = prefix === 'rec' ? 'Cliente' : 'Fornecedor';
   const parteEl = document.getElementById(`${prefix}-filter-parte`);
   if(parteEl){
     const valSel = parteEl.value;
-    const partes = (DB.pessoas||[])
-      .filter(p => p.tipo === tipoFiltro || (prefix === 'rec' && p.tipo === 'Cliente'))
-      .map(p => p.nome).sort();
+    const dePessoas = (DB.pessoas||[])
+      .filter(p => p.tipo === tipoFiltro)
+      .map(p => p.nome);
+    const colecao = prefix === 'rec' ? (DB.receivable||[]) : (DB.payable||[]);
+    const campo = prefix === 'rec' ? 'client' : 'supplier';
+    const deLancamentos = colecao.map(r => r[campo]).filter(Boolean);
+    const partes = Array.from(new Set([...dePessoas, ...deLancamentos]))
+      .filter(n => n && n.trim())
+      .sort((a,b) => a.localeCompare(b, 'pt-BR'));
     parteEl.innerHTML = `<option value="">Todos ${prefix==='rec'?'clientes':'fornecedores'}</option>` +
       partes.map(n => `<option value="${n.replace(/"/g,'&quot;')}"${n===valSel?' selected':''}>${n}</option>`).join('');
   }
@@ -2902,12 +2911,20 @@ function renderReceivable(){
   _markSortHeaders('rec');
   const tbody = document.getElementById('rec-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(8,'Nenhuma conta encontrada com esses filtros.'); return; }
-  tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
+  tbody.innerHTML = data.map(r=>{
+    const venc = isOverdue(r.due) && r.status !== 'Recebido';
+    const dataEmissao = r.data_competencia || r.data_emissao || ''; // virá em A2
+    const dataLanc = r.created || '';
+    return `<tr>
     <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${r.codigo||'—'}</td>
     <td style="font-weight:500;">${r.client||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}${docB?'<br>'+docB:''}</td>
-    <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Recebido'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
+    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}</td>
+    <td style="font-size:10px;line-height:1.5;">
+      <div style="color:var(--text-mid);"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;">📄 emiss</span>${dataEmissao?fmtDate(dataEmissao):'—'}</div>
+      <div style="color:var(--text-mid);"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;">📥 lanç</span>${dataLanc?fmtDate(dataLanc):'—'}</div>
+      <div style="font-weight:600;color:${venc?'var(--red)':'var(--navy)'};"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;font-weight:400;">📅 venc</span>${fmtDate(r.due)} ${venc?'<span title="Vencida" style="color:var(--red);">⚠️</span>':''}</div>
+    </td>
     <td>
       <div><span class="badge badge-gray" style="font-size:9px;">${r.cat||'—'}</span></div>
       ${r.subcat?`<div style="font-size:9px;color:var(--text-mid);margin-top:2px;">${r.subcat}</div>`:''}
@@ -3057,12 +3074,20 @@ function renderPayable(){
   _markSortHeaders('pay');
   const tbody = document.getElementById('pay-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(8,'Nenhuma conta encontrada com esses filtros.'); return; }
-  tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
+  tbody.innerHTML = data.map(r=>{
+    const venc = isOverdue(r.due) && r.status !== 'Pago';
+    const dataEmissao = r.data_competencia || r.data_emissao || '';
+    const dataLanc = r.created || '';
+    return `<tr>
     <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${r.codigo||'—'}</td>
     <td style="font-weight:500;">${r.supplier||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}${docB?'<br>'+docB:''}</td>
-    <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Pago'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
+    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}</td>
+    <td style="font-size:10px;line-height:1.5;">
+      <div style="color:var(--text-mid);"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;">📄 emiss</span>${dataEmissao?fmtDate(dataEmissao):'—'}</div>
+      <div style="color:var(--text-mid);"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;">📥 lanç</span>${dataLanc?fmtDate(dataLanc):'—'}</div>
+      <div style="font-weight:600;color:${venc?'var(--red)':'var(--navy)'};"><span style="display:inline-block;width:50px;color:var(--text-mid);font-size:9px;font-weight:400;">📅 venc</span>${fmtDate(r.due)} ${venc?'<span title="Vencida" style="color:var(--red);">⚠️</span>':''}</div>
+    </td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
       ${r.subcat?`<div style="font-size:10px;color:var(--text-mid);margin-top:3px;">${r.subcat}</div>`:''}
