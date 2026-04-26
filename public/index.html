@@ -461,6 +461,29 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
 
     <!-- ===== DASHBOARD ===== -->
     <div class="view active" id="view-dashboard">
+      <!-- INDICADORES ESTRATÉGICOS (topo) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px;">
+        <div class="card" id="estr-icc-card" style="cursor:default;">
+          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">ICC · Cobertura de caixa</div>
+          <div id="estr-icc-valor" style="font-size:28px;font-weight:700;color:var(--navy);line-height:1;">—</div>
+          <div id="estr-icc-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">aguardando dados</div>
+        </div>
+        <div class="card" id="estr-saldo-card" style="cursor:default;">
+          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Saldo projetado · 30/60/90d</div>
+          <div id="estr-saldo-valor" style="font-size:18px;font-weight:700;color:var(--navy);line-height:1.2;">—</div>
+          <div id="estr-saldo-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">a receber − a pagar</div>
+        </div>
+        <div class="card" style="cursor:pointer;" onclick="showView('cashflow')">
+          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Faturamento mensal</div>
+          <div id="estr-fat-valor" style="font-size:24px;font-weight:700;color:var(--green);line-height:1;">—</div>
+          <div id="estr-fat-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">vs mês passado</div>
+          <canvas id="estr-fat-chart" style="margin-top:10px;height:50px;display:block;width:100%;"></canvas>
+        </div>
+        <div class="card" style="cursor:pointer;" onclick="navegarComFiltro('payable', { 'pay-filter-status': 'Pendente', 'pay-filter-period': 'mes' })">
+          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Próximas a pagar</div>
+          <div id="estr-prox-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--navy);">—</div>
+        </div>
+      </div>
 
       <!-- ROW 1: KPIs principais -->
       <div class="stats-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px;">
@@ -1866,6 +1889,27 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
   </div>
 </div>
 
+<!-- MODAL MOTIVO DE DISPENSA DE NF -->
+<div class="modal-overlay" id="modal-motivo-dispensa">
+  <div class="modal" style="width:520px;">
+    <div class="modal-header">
+      <span class="modal-title">Motivo da dispensa de NF</span>
+      <button class="modal-close" onclick="closeModal('modal-motivo-dispensa')">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:11px;color:var(--text-mid);margin-bottom:14px;">Lançamentos sem documento fiscal precisam de um motivo registrado para auditoria contábil. Selecione um:</p>
+      <div id="motivo-options-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;"></div>
+      <hr class="divider" style="margin:14px 0;">
+      <label class="form-label">Outro motivo (descreva)</label>
+      <input class="form-input" id="motivo-outro-input" placeholder="Ex: Reembolso, Brindes, etc.">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-motivo-dispensa')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarMotivoOutro()">Usar texto digitado</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL EXPORTAR -->
 <div class="modal-overlay" id="modal-export">
   <div class="modal" style="width:560px;max-height:85vh;overflow-y:auto;">
@@ -2099,6 +2143,26 @@ const addLabels = {
   projects:'Novo Projeto', tasks:'Nova Tarefa', documents:'Novo Documento'
 };
 
+// Estado de filtro pré-aplicado (cards clicáveis do dashboard)
+let _filtroPreAplicado = null;
+
+function navegarComFiltro(view, filtros){
+  _filtroPreAplicado = { view, filtros: filtros||{} };
+  showView(view);
+}
+
+function _aplicarFiltroPreAplicado(v){
+  if(!_filtroPreAplicado || _filtroPreAplicado.view !== v) return;
+  const filtros = _filtroPreAplicado.filtros;
+  Object.entries(filtros).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if(el){ el.value = val; }
+  });
+  _filtroPreAplicado = null;
+  if(v === 'receivable' && typeof renderReceivable === 'function') renderReceivable();
+  else if(v === 'payable' && typeof renderPayable === 'function') renderPayable();
+}
+
 function showView(v, el){
   currentView = v;
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
@@ -2113,6 +2177,8 @@ function showView(v, el){
   if(v==='cashflow') renderCashflow();
   if(v==='contracts') renderContracts();
   if(v==='clients') renderClients();
+  // Aplica filtro pré-selecionado se vier de card clicado no dashboard
+  setTimeout(() => _aplicarFiltroPreAplicado(v), 50);
   if(v==='projects') renderProjects();
   if(v==='tasks') renderTasks();
   if(v==='documents') renderDocuments();
@@ -2363,9 +2429,127 @@ function emptyRow(cols, msg='Nenhum registro encontrado.'){
 // =============================================
 // DASHBOARD
 // =============================================
+function renderEstrategicos(){
+  // ICC — Índice de Cobertura de Caixa
+  // Caixa = total recebido — total pago (histórico, valor atual em conta)
+  const totalRecebido = (DB.receivable||[]).filter(r => r.status === 'Recebido').reduce((a,r) => a + Number(r.value||0), 0);
+  const totalPago = (DB.payable||[]).filter(r => r.status === 'Pago').reduce((a,r) => a + Number(r.value||0), 0);
+  const caixaAtual = totalRecebido - totalPago;
+  // Despesa fixa mensal média = média de despesas pagas nos últimos 3 meses
+  const hoje = new Date();
+  const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
+  const despUltimos3 = (DB.payable||[]).filter(r => {
+    if(r.status !== 'Pago') return false;
+    const d = new Date((r.due||r.created||today())+'T12:00:00');
+    return d >= tresMesesAtras;
+  }).reduce((a,r) => a + Number(r.value||0), 0);
+  const despFixaMensal = despUltimos3 / 3;
+  const iccEl = document.getElementById('estr-icc-valor');
+  const iccSubEl = document.getElementById('estr-icc-sub');
+  const iccCardEl = document.getElementById('estr-icc-card');
+  if(iccEl){
+    if(despFixaMensal > 0){
+      const meses = caixaAtual / despFixaMensal;
+      iccEl.textContent = `${meses.toFixed(1)} meses`;
+      iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
+      let cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)');
+      iccEl.style.color = cor;
+      if(iccCardEl) iccCardEl.style.borderTop = `3px solid ${cor}`;
+    } else {
+      iccEl.textContent = '—';
+      iccSubEl.textContent = 'sem despesas pagas pra calcular';
+    }
+  }
+
+  // Saldo projetado 30/60/90d
+  const saldoEl = document.getElementById('estr-saldo-valor');
+  if(saldoEl){
+    function projetar(dias){
+      const limite = new Date(hoje); limite.setDate(limite.getDate() + dias);
+      const limiteStr = limite.toISOString().slice(0,10);
+      const hojeStr = hoje.toISOString().slice(0,10);
+      const recProj = (DB.receivable||[]).filter(r => r.status !== 'Recebido' && r.due >= hojeStr && r.due <= limiteStr).reduce((a,r) => a + Number(r.value||0), 0);
+      const payProj = (DB.payable||[]).filter(r => r.status !== 'Pago' && r.due >= hojeStr && r.due <= limiteStr).reduce((a,r) => a + Number(r.value||0), 0);
+      return recProj - payProj;
+    }
+    const s30 = projetar(30), s60 = projetar(60), s90 = projetar(90);
+    saldoEl.innerHTML = `
+      <div>30d: <span style="color:${s30>=0?'var(--green)':'var(--red)'};">${fmtMoney(s30)}</span></div>
+      <div>60d: <span style="color:${s60>=0?'var(--green)':'var(--red)'};">${fmtMoney(s60)}</span></div>
+      <div>90d: <span style="color:${s90>=0?'var(--green)':'var(--red)'};">${fmtMoney(s90)}</span></div>
+    `;
+  }
+
+  // Faturamento mensal: este mês vs mês passado
+  const fatEl = document.getElementById('estr-fat-valor');
+  const fatSubEl = document.getElementById('estr-fat-sub');
+  if(fatEl){
+    const mesAtual = hoje.getMonth(), anoAtual = hoje.getFullYear();
+    function fatMes(year, month){
+      return (DB.receivable||[]).filter(r => {
+        if(r.status !== 'Recebido') return false;
+        const d = new Date((r.due||r.created||today())+'T12:00:00');
+        return d.getFullYear() === year && d.getMonth() === month;
+      }).reduce((a,r) => a + Number(r.value||0), 0);
+    }
+    const atual = fatMes(anoAtual, mesAtual);
+    const passado = fatMes(mesAtual === 0 ? anoAtual-1 : anoAtual, mesAtual === 0 ? 11 : mesAtual-1);
+    fatEl.textContent = fmtMoney(atual);
+    if(passado > 0){
+      const variacao = ((atual - passado)/passado * 100);
+      const sinal = variacao >= 0 ? '+' : '';
+      const cor = variacao >= 0 ? 'var(--green)' : 'var(--red)';
+      fatSubEl.innerHTML = `<span style="color:${cor};">${sinal}${variacao.toFixed(1)}%</span> vs ${fmtMoney(passado)} no mês passado`;
+    } else {
+      fatSubEl.textContent = passado === 0 ? 'sem comparação (1º mês)' : 'vs mês passado';
+    }
+    // Mini-chart: últimos 6 meses
+    try {
+      const c = document.getElementById('estr-fat-chart');
+      if(c && window.Chart){
+        if(c._chart) c._chart.destroy();
+        const meses = [];
+        const valores = [];
+        for(let i = 5; i >= 0; i--){
+          const dt = new Date(anoAtual, mesAtual - i, 1);
+          meses.push(dt.toLocaleDateString('pt-BR', { month: 'short' }));
+          valores.push(fatMes(dt.getFullYear(), dt.getMonth()));
+        }
+        c._chart = new Chart(c, {
+          type:'bar',
+          data:{ labels: meses, datasets:[{ data: valores, backgroundColor:'rgba(204,145,94,0.5)', borderColor:'var(--gold)', borderWidth:1 }] },
+          options:{ plugins:{ legend:{ display:false } }, scales:{ x:{ display:false }, y:{ display:false } }, responsive:true, maintainAspectRatio:false }
+        });
+      }
+    } catch(e){ /* chart opcional */ }
+  }
+
+  // Próximas a pagar (top 5 por vencimento)
+  const proxEl = document.getElementById('estr-prox-list');
+  if(proxEl){
+    const hojeStr = hoje.toISOString().slice(0,10);
+    const proximas = (DB.payable||[])
+      .filter(r => r.status !== 'Pago')
+      .sort((a,b) => (a.due||'9999').localeCompare(b.due||'9999'))
+      .slice(0, 5);
+    if(!proximas.length){
+      proxEl.innerHTML = '<span style="color:var(--text-mid);font-size:11px;">Nenhuma conta pendente</span>';
+    } else {
+      proxEl.innerHTML = proximas.map(p => {
+        const venc = isOverdue(p.due) ? '<span style="color:var(--red);font-weight:700;">VENCIDA</span>' : fmtDate(p.due);
+        return `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--cream-dark);padding:3px 0;">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%;">${(p.supplier||'—').substring(0,18)}</span>
+          <span style="color:var(--red);font-weight:600;font-size:10px;">${fmtMoney(p.value)}</span>
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
 async function renderDashboard(){
   // Sincronizar DB com localStorage para garantir dados frescos após importações
   // Cache já está em memória; recarrega do Supabase para garantir freshness pós-import
+  try { renderEstrategicos(); } catch(e){ console.warn('renderEstrategicos:', e); }
   if(currentUser){
     await Promise.all(['receivable','payable','contracts','clients','projects','pessoas'].map(async k => {
       const { data } = await supabase.from(k).select('data').eq('user_id', currentUser.id);
@@ -6188,23 +6372,39 @@ function createFromConcil(txRid){
   toast('✓ Lançamento criado · pendente de NF.');
 }
 
+// Estado do modal de motivo
+let _motivoCallback = null;
+
+function abrirMotivoModal(callback){
+  _motivoCallback = callback;
+  const grid = document.getElementById('motivo-options-grid');
+  // Mostra todos exceto "Outro" (que vai pelo input livre)
+  const opcoes = MOTIVOS_DISPENSA_DOC.filter(m => m !== 'Outro');
+  grid.innerHTML = opcoes.map(m => `
+    <button class="btn btn-outline" style="padding:12px 10px;text-align:left;font-size:11px;" onclick="selecionarMotivo('${m.replace(/'/g,"&#39;")}')">${m}</button>
+  `).join('');
+  document.getElementById('motivo-outro-input').value = '';
+  document.getElementById('modal-motivo-dispensa').classList.add('open');
+}
+
+function selecionarMotivo(motivo){
+  closeModal('modal-motivo-dispensa');
+  if(_motivoCallback){ const cb = _motivoCallback; _motivoCallback = null; cb(motivo); }
+}
+
+function confirmarMotivoOutro(){
+  const outro = document.getElementById('motivo-outro-input').value.trim();
+  if(!outro){ toast('⚠️ Digite um motivo ou clique numa opção'); return; }
+  selecionarMotivo(outro);
+}
+
 function createFromConcilDispensado(txRid){
   const tx = concilTransactions.find(t => t._rid === txRid);
   if(!tx) return;
-  const opts = MOTIVOS_DISPENSA_DOC.map((m,i)=>`${i+1}. ${m}`).join('\n');
-  const escolha = prompt(`Selecione o motivo da dispensa de documento fiscal:\n\n${opts}\n\nDigite o número (1-${MOTIVOS_DISPENSA_DOC.length}) ou texto livre:`);
-  if(escolha === null) return;
-  let motivo = '';
-  const num = parseInt(escolha, 10);
-  if(!isNaN(num) && num >= 1 && num <= MOTIVOS_DISPENSA_DOC.length){
-    motivo = MOTIVOS_DISPENSA_DOC[num-1];
-  } else if(escolha.trim()) {
-    motivo = escolha.trim();
-  } else {
-    motivo = 'Outro';
-  }
-  _criarLancFromConcil(tx, { docStatus: 'dispensado', motivoDispensa: motivo });
-  toast(`✓ Lançamento criado · doc dispensado (${motivo}).`);
+  abrirMotivoModal((motivo) => {
+    _criarLancFromConcil(tx, { docStatus: 'dispensado', motivoDispensa: motivo });
+    toast(`✓ Lançamento criado · doc dispensado (${motivo}).`);
+  });
 }
 
 function excluirConcil(txRid){
