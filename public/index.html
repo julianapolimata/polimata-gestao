@@ -280,6 +280,19 @@ tbody tr:last-child td{border-bottom:none;}
 .badge-conciliado{background:rgba(39,174,96,0.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-sem-doc{background:rgba(204,145,94,0.15);color:var(--gold-dark);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-doc-dispensado{background:rgba(39,174,96,0.10);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+th.sortable{cursor:pointer;user-select:none;position:relative;padding-right:18px!important;}
+th.sortable:hover{background:rgba(204,145,94,0.08);}
+th.sortable .sort-arrow{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:9px;opacity:0.35;}
+th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;color:var(--gold-dark);}
+.toolbar-multifilter{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;}
+.toolbar-multifilter > *{flex:0 0 auto;}
+.toolbar-multifilter .search-wrap{flex:1 1 200px;min-width:180px;}
+.toolbar-multifilter input,.toolbar-multifilter select{font-size:11px;padding:6px 10px;border:1px solid var(--cream-dark);border-radius:5px;background:#fff;}
+.toolbar-multifilter input[type=number]{width:90px;}
+.toolbar-multifilter .filtro-grupo{display:flex;gap:4px;align-items:center;font-size:10px;color:var(--text-mid);}
+.toolbar-multifilter .filtro-grupo label{font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text-mid);text-transform:uppercase;}
+.btn-clear-filters{background:transparent;border:1px solid var(--cream-dark);color:var(--text-mid);font-size:10px;padding:6px 10px;border-radius:5px;cursor:pointer;}
+.btn-clear-filters:hover{background:var(--cream);color:var(--navy);}
 .badge-pendente{background:rgba(230,126,34,0.12);color:var(--orange);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .moeda-badge{display:inline-block;background:var(--cream);color:var(--navy);font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;font-weight:600;letter-spacing:.5px;}
 
@@ -614,24 +627,52 @@ tbody tr:last-child td{border-bottom:none;}
 
     <!-- ===== CONTAS A RECEBER ===== -->
     <div class="view" id="view-receivable">
-      <div class="toolbar">
+      <div class="toolbar-multifilter">
         <div class="search-wrap">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="search-input" placeholder="Buscar..." id="rec-search" oninput="renderReceivable()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-mid);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="search-input" placeholder="Buscar (cliente, descrição, código)..." id="rec-search" oninput="renderReceivable()" style="padding-left:30px;width:100%;">
         </div>
-        <select class="filter-select" id="rec-filter-status" onchange="renderReceivable()">
-          <option value="">Todos os status</option>
+        <select id="rec-filter-period" onchange="onChangeFiltroPeriodo('rec')" title="Período">
+          <option value="">Todos períodos</option>
+          <option value="hoje">Hoje</option>
+          <option value="semana">Esta semana</option>
+          <option value="mes">Este mês</option>
+          <option value="mes_passado">Mês passado</option>
+          <option value="ano">Este ano</option>
+          <option value="custom">Personalizado</option>
+        </select>
+        <input type="date" id="rec-filter-from" onchange="renderReceivable()" style="display:none;" title="De">
+        <input type="date" id="rec-filter-to" onchange="renderReceivable()" style="display:none;" title="Até">
+        <select id="rec-filter-parte" onchange="renderReceivable()" title="Cliente"><option value="">Todos clientes</option></select>
+        <select id="rec-filter-cat" onchange="renderReceivable()" title="Categoria"><option value="">Todas categorias</option></select>
+        <input type="number" id="rec-filter-vmin" placeholder="Valor min" oninput="renderReceivable()" step="0.01">
+        <input type="number" id="rec-filter-vmax" placeholder="Valor max" oninput="renderReceivable()" step="0.01">
+        <select id="rec-filter-status" onchange="renderReceivable()" title="Status">
+          <option value="">Todos status</option>
           <option value="Pendente">Pendente</option>
           <option value="Recebido">Recebido</option>
           <option value="Atrasado">Atrasado</option>
           <option value="__sem_doc__">📎 NF pendente</option>
           <option value="__doc_dispensado__">✓ Doc dispensado</option>
         </select>
+        <select id="rec-filter-concil" onchange="renderReceivable()" title="Conciliação">
+          <option value="">Conciliação: todos</option>
+          <option value="sim">✓ Conciliado</option>
+          <option value="nao">⨯ Não conciliado</option>
+        </select>
+        <button class="btn-clear-filters" onclick="limparFiltros('rec')">↻ Limpar</button>
       </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>Cliente</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ações</th>
+            <th class="sortable" onclick="sortTable('rec','codigo','string')">Cód. <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTable('rec','client','string')">Cliente <span class="sort-arrow">▾</span></th>
+            <th>Descrição</th>
+            <th class="sortable" onclick="sortTable('rec','value','number')">Valor <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTable('rec','due','date')">Vencimento <span class="sort-arrow">▾</span></th>
+            <th>Categoria</th>
+            <th class="sortable" onclick="sortTable('rec','status','string')">Status <span class="sort-arrow">▾</span></th>
+            <th>Ações</th>
           </tr></thead>
           <tbody id="rec-tbody"></tbody>
         </table>
@@ -640,24 +681,52 @@ tbody tr:last-child td{border-bottom:none;}
 
     <!-- ===== CONTAS A PAGAR ===== -->
     <div class="view" id="view-payable">
-      <div class="toolbar">
+      <div class="toolbar-multifilter">
         <div class="search-wrap">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="search-input" placeholder="Buscar..." id="pay-search" oninput="renderPayable()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-mid);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="search-input" placeholder="Buscar (fornecedor, descrição, código)..." id="pay-search" oninput="renderPayable()" style="padding-left:30px;width:100%;">
         </div>
-        <select class="filter-select" id="pay-filter-status" onchange="renderPayable()">
-          <option value="">Todos os status</option>
+        <select id="pay-filter-period" onchange="onChangeFiltroPeriodo('pay')" title="Período">
+          <option value="">Todos períodos</option>
+          <option value="hoje">Hoje</option>
+          <option value="semana">Esta semana</option>
+          <option value="mes">Este mês</option>
+          <option value="mes_passado">Mês passado</option>
+          <option value="ano">Este ano</option>
+          <option value="custom">Personalizado</option>
+        </select>
+        <input type="date" id="pay-filter-from" onchange="renderPayable()" style="display:none;" title="De">
+        <input type="date" id="pay-filter-to" onchange="renderPayable()" style="display:none;" title="Até">
+        <select id="pay-filter-parte" onchange="renderPayable()" title="Fornecedor"><option value="">Todos fornecedores</option></select>
+        <select id="pay-filter-cat" onchange="renderPayable()" title="Categoria"><option value="">Todas categorias</option></select>
+        <input type="number" id="pay-filter-vmin" placeholder="Valor min" oninput="renderPayable()" step="0.01">
+        <input type="number" id="pay-filter-vmax" placeholder="Valor max" oninput="renderPayable()" step="0.01">
+        <select id="pay-filter-status" onchange="renderPayable()" title="Status">
+          <option value="">Todos status</option>
           <option value="Pendente">Pendente</option>
           <option value="Pago">Pago</option>
           <option value="Atrasado">Atrasado</option>
           <option value="__sem_doc__">📎 NF pendente</option>
           <option value="__doc_dispensado__">✓ Doc dispensado</option>
         </select>
+        <select id="pay-filter-concil" onchange="renderPayable()" title="Conciliação">
+          <option value="">Conciliação: todos</option>
+          <option value="sim">✓ Conciliado</option>
+          <option value="nao">⨯ Não conciliado</option>
+        </select>
+        <button class="btn-clear-filters" onclick="limparFiltros('pay')">↻ Limpar</button>
       </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th>Fornecedor</th><th>Descrição</th><th>Valor</th><th>Vencimento</th><th>Categoria</th><th>Status</th><th>Ações</th>
+            <th class="sortable" onclick="sortTable('pay','codigo','string')">Cód. <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTable('pay','supplier','string')">Fornecedor <span class="sort-arrow">▾</span></th>
+            <th>Descrição</th>
+            <th class="sortable" onclick="sortTable('pay','value','number')">Valor <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTable('pay','due','date')">Vencimento <span class="sort-arrow">▾</span></th>
+            <th>Categoria</th>
+            <th class="sortable" onclick="sortTable('pay','status','string')">Status <span class="sort-arrow">▾</span></th>
+            <th>Ações</th>
           </tr></thead>
           <tbody id="pay-tbody"></tbody>
         </table>
@@ -2438,29 +2507,163 @@ async function renderDashboard(){
 }
 
 // =============================================
+// FILTROS / ORDENAÇÃO HELPERS
+// =============================================
+const _sortState = { rec: { col: 'due', dir: 'desc' }, pay: { col: 'due', dir: 'desc' } };
+
+function onChangeFiltroPeriodo(prefix){
+  const periodo = document.getElementById(`${prefix}-filter-period`).value;
+  const from = document.getElementById(`${prefix}-filter-from`);
+  const to = document.getElementById(`${prefix}-filter-to`);
+  if(periodo === 'custom'){ from.style.display = ''; to.style.display = ''; }
+  else { from.style.display = 'none'; to.style.display = 'none'; }
+  if(prefix === 'rec') renderReceivable(); else renderPayable();
+}
+
+function _resolveDateRange(periodo, customFrom, customTo){
+  if(!periodo) return null;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  const fmt = dt => dt.toISOString().slice(0,10);
+  if(periodo === 'hoje'){
+    const t = fmt(now);
+    return { from: t, to: t };
+  }
+  if(periodo === 'semana'){
+    const dow = now.getDay();
+    const ini = new Date(y, m, d - dow);
+    const fim = new Date(y, m, d - dow + 6);
+    return { from: fmt(ini), to: fmt(fim) };
+  }
+  if(periodo === 'mes'){
+    return { from: fmt(new Date(y, m, 1)), to: fmt(new Date(y, m+1, 0)) };
+  }
+  if(periodo === 'mes_passado'){
+    return { from: fmt(new Date(y, m-1, 1)), to: fmt(new Date(y, m, 0)) };
+  }
+  if(periodo === 'ano'){
+    return { from: fmt(new Date(y, 0, 1)), to: fmt(new Date(y, 11, 31)) };
+  }
+  if(periodo === 'custom'){
+    return { from: customFrom||'1900-01-01', to: customTo||'2999-12-31' };
+  }
+  return null;
+}
+
+function sortTable(prefix, col, type){
+  const st = _sortState[prefix];
+  if(st.col === col) st.dir = (st.dir === 'asc') ? 'desc' : 'asc';
+  else { st.col = col; st.dir = 'asc'; }
+  if(prefix === 'rec') renderReceivable(); else renderPayable();
+}
+
+function applySort(data, prefix, type='string'){
+  const st = _sortState[prefix];
+  const dir = st.dir === 'asc' ? 1 : -1;
+  return [...data].sort((a,b) => {
+    let va = a[st.col], vb = b[st.col];
+    if(type === 'number'){ va = Number(va||0); vb = Number(vb||0); }
+    else if(type === 'date'){ va = va || ''; vb = vb || ''; }
+    else { va = (va||'').toString().toLowerCase(); vb = (vb||'').toString().toLowerCase(); }
+    if(va < vb) return -1*dir;
+    if(va > vb) return 1*dir;
+    return 0;
+  });
+}
+
+function _getSortType(col){
+  if(['value','valor'].includes(col)) return 'number';
+  if(['due','data','data_competencia','data_pagamento','created'].includes(col)) return 'date';
+  return 'string';
+}
+
+function _markSortHeaders(prefix){
+  const st = _sortState[prefix];
+  document.querySelectorAll(`th.sortable[onclick*="'${prefix}'"]`).forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    if(th.getAttribute('onclick')?.includes(`'${st.col}'`)){
+      th.classList.add(st.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      const arrow = th.querySelector('.sort-arrow');
+      if(arrow) arrow.textContent = st.dir === 'asc' ? '▴' : '▾';
+    } else {
+      const arrow = th.querySelector('.sort-arrow');
+      if(arrow) arrow.textContent = '▾';
+    }
+  });
+}
+
+function limparFiltros(prefix){
+  ['search','filter-period','filter-from','filter-to','filter-parte','filter-cat','filter-vmin','filter-vmax','filter-status','filter-concil'].forEach(id => {
+    const el = document.getElementById(`${prefix}-${id}`);
+    if(el){ el.value = ''; if(id.includes('from')||id.includes('to')) el.style.display='none'; }
+  });
+  if(prefix === 'rec') renderReceivable(); else renderPayable();
+}
+
+function _populateFilters(prefix){
+  // Parte (cliente ou fornecedor)
+  const tipoFiltro = prefix === 'rec' ? 'Cliente' : 'Fornecedor';
+  const parteEl = document.getElementById(`${prefix}-filter-parte`);
+  if(parteEl){
+    const valSel = parteEl.value;
+    const partes = (DB.pessoas||[])
+      .filter(p => p.tipo === tipoFiltro || (prefix === 'rec' && p.tipo === 'Cliente'))
+      .map(p => p.nome).sort();
+    parteEl.innerHTML = `<option value="">Todos ${prefix==='rec'?'clientes':'fornecedores'}</option>` +
+      partes.map(n => `<option value="${n.replace(/"/g,'&quot;')}"${n===valSel?' selected':''}>${n}</option>`).join('');
+  }
+  // Categoria
+  const catEl = document.getElementById(`${prefix}-filter-cat`);
+  if(catEl && typeof buildCatOptions === 'function'){
+    const valSel = catEl.value;
+    const tipo = prefix === 'rec' ? 'entrada' : 'saida';
+    catEl.innerHTML = `<option value="">Todas categorias</option>` + buildCatOptions(tipo).replace(/<option value="">Selecione[^<]*<\/option>/,'');
+    catEl.value = valSel;
+  }
+}
+
+// =============================================
 // CONTAS A RECEBER
 // =============================================
 function renderReceivable(){
-  const q = document.getElementById('rec-search').value.toLowerCase();
-  const st = document.getElementById('rec-filter-status').value;
+  _populateFilters('rec');
+  const q = (document.getElementById('rec-search')?.value||'').toLowerCase();
+  const st = document.getElementById('rec-filter-status')?.value||'';
+  const periodo = document.getElementById('rec-filter-period')?.value||'';
+  const dateRange = _resolveDateRange(periodo, document.getElementById('rec-filter-from')?.value, document.getElementById('rec-filter-to')?.value);
+  const parte = document.getElementById('rec-filter-parte')?.value||'';
+  const cat = document.getElementById('rec-filter-cat')?.value||'';
+  const vmin = parseFloat(document.getElementById('rec-filter-vmin')?.value)||null;
+  const vmax = parseFloat(document.getElementById('rec-filter-vmax')?.value)||null;
+  const concil = document.getElementById('rec-filter-concil')?.value||'';
+
   let data = DB.receivable.filter(r=>{
-    const mq = !q||r.client?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
+    const mq = !q || r.client?.toLowerCase().includes(q) || r.desc?.toLowerCase().includes(q) || (r.codigo||'').toLowerCase().includes(q);
     let ms;
     if(st === '__sem_doc__') ms = getDocStatus(r) === 'pendente';
     else if(st === '__doc_dispensado__') ms = getDocStatus(r) === 'dispensado';
     else ms = !st || r.status === st;
-    return mq && ms;
+    const mp = !dateRange || (r.due && r.due >= dateRange.from && r.due <= dateRange.to);
+    const mparte = !parte || r.client === parte;
+    const mc = !cat || r.cat === cat;
+    const mvmin = vmin === null || Number(r.value||0) >= vmin;
+    const mvmax = vmax === null || Number(r.value||0) <= vmax;
+    const mcon = !concil || (concil === 'sim' ? !!r.conciliado : !r.conciliado);
+    return mq && ms && mp && mparte && mc && mvmin && mvmax && mcon;
   });
+  data = applySort(data, 'rec', _getSortType(_sortState.rec.col));
+  _markSortHeaders('rec');
   const tbody = document.getElementById('rec-tbody');
-  if(!data.length){ tbody.innerHTML=emptyRow(6,'Nenhuma conta a receber cadastrada.'); return; }
+  if(!data.length){ tbody.innerHTML=emptyRow(8,'Nenhuma conta encontrada com esses filtros.'); return; }
   tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
+    <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${r.codigo||'—'}</td>
     <td style="font-weight:500;">${r.client||'—'}</td>
     <td>${r.desc||'—'}</td>
     <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}${docB?'<br>'+docB:''}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Recebido'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
-      <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
-      ${r.subcat?`<div style="font-size:10px;color:var(--text-mid);margin-top:3px;">${r.subcat}</div>`:''}
+      <div><span class="badge badge-gray" style="font-size:9px;">${r.cat||'—'}</span></div>
+      ${r.subcat?`<div style="font-size:9px;color:var(--text-mid);margin-top:2px;">${r.subcat}</div>`:''}
     </td>
     <td>${statusBadge(r.status)}</td>
     <td><div class="action-btns">
@@ -2578,19 +2781,37 @@ function deleteRec(id){
 // CONTAS A PAGAR
 // =============================================
 function renderPayable(){
-  const q = document.getElementById('pay-search').value.toLowerCase();
-  const st = document.getElementById('pay-filter-status').value;
+  _populateFilters('pay');
+  const q = (document.getElementById('pay-search')?.value||'').toLowerCase();
+  const st = document.getElementById('pay-filter-status')?.value||'';
+  const periodo = document.getElementById('pay-filter-period')?.value||'';
+  const dateRange = _resolveDateRange(periodo, document.getElementById('pay-filter-from')?.value, document.getElementById('pay-filter-to')?.value);
+  const parte = document.getElementById('pay-filter-parte')?.value||'';
+  const cat = document.getElementById('pay-filter-cat')?.value||'';
+  const vmin = parseFloat(document.getElementById('pay-filter-vmin')?.value)||null;
+  const vmax = parseFloat(document.getElementById('pay-filter-vmax')?.value)||null;
+  const concil = document.getElementById('pay-filter-concil')?.value||'';
+
   let data = DB.payable.filter(r=>{
-    const mq = !q||r.supplier?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
+    const mq = !q || r.supplier?.toLowerCase().includes(q) || r.desc?.toLowerCase().includes(q) || (r.codigo||'').toLowerCase().includes(q);
     let ms;
     if(st === '__sem_doc__') ms = getDocStatus(r) === 'pendente';
     else if(st === '__doc_dispensado__') ms = getDocStatus(r) === 'dispensado';
     else ms = !st || r.status === st;
-    return mq && ms;
+    const mp = !dateRange || (r.due && r.due >= dateRange.from && r.due <= dateRange.to);
+    const mparte = !parte || r.supplier === parte;
+    const mc = !cat || r.cat === cat;
+    const mvmin = vmin === null || Number(r.value||0) >= vmin;
+    const mvmax = vmax === null || Number(r.value||0) <= vmax;
+    const mcon = !concil || (concil === 'sim' ? !!r.conciliado : !r.conciliado);
+    return mq && ms && mp && mparte && mc && mvmin && mvmax && mcon;
   });
+  data = applySort(data, 'pay', _getSortType(_sortState.pay.col));
+  _markSortHeaders('pay');
   const tbody = document.getElementById('pay-tbody');
-  if(!data.length){ tbody.innerHTML=emptyRow(7,'Nenhuma conta a pagar cadastrada.'); return; }
+  if(!data.length){ tbody.innerHTML=emptyRow(8,'Nenhuma conta encontrada com esses filtros.'); return; }
   tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
+    <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${r.codigo||'—'}</td>
     <td style="font-weight:500;">${r.supplier||'—'}</td>
     <td>${r.desc||'—'}</td>
     <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}${docB?'<br>'+docB:''}</td>
