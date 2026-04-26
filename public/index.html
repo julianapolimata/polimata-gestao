@@ -279,6 +279,7 @@ tbody tr:last-child td{border-bottom:none;}
 
 .badge-conciliado{background:rgba(39,174,96,0.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-sem-doc{background:rgba(204,145,94,0.15);color:var(--gold-dark);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.badge-doc-dispensado{background:rgba(39,174,96,0.10);color:var(--green);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .badge-pendente{background:rgba(230,126,34,0.12);color:var(--orange);padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
 .moeda-badge{display:inline-block;background:var(--cream);color:var(--navy);font-size:9px;padding:1px 5px;border-radius:3px;margin-right:5px;font-weight:600;letter-spacing:.5px;}
 
@@ -623,7 +624,8 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="Pendente">Pendente</option>
           <option value="Recebido">Recebido</option>
           <option value="Atrasado">Atrasado</option>
-          <option value="__sem_doc__">📎 Sem documento fiscal</option>
+          <option value="__sem_doc__">📎 NF pendente</option>
+          <option value="__doc_dispensado__">✓ Doc dispensado</option>
         </select>
       </div>
       <div class="tbl-wrap">
@@ -648,7 +650,8 @@ tbody tr:last-child td{border-bottom:none;}
           <option value="Pendente">Pendente</option>
           <option value="Pago">Pago</option>
           <option value="Atrasado">Atrasado</option>
-          <option value="__sem_doc__">📎 Sem documento fiscal</option>
+          <option value="__sem_doc__">📎 NF pendente</option>
+          <option value="__doc_dispensado__">✓ Doc dispensado</option>
         </select>
       </div>
       <div class="tbl-wrap">
@@ -1210,6 +1213,34 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="form-group"><label class="form-label">Observações</label><textarea class="form-textarea" id="rec-notes" placeholder="Informações adicionais..."></textarea></div>
       </div>
 
+      <!-- DOCUMENTO FISCAL -->
+      <div style="margin-top:14px;padding:12px;background:rgba(0,32,62,0.04);border-left:3px solid var(--navy);border-radius:6px;">
+        <label class="form-label" style="display:block;margin-bottom:8px;">📎 Documento Fiscal</label>
+        <div class="form-row form-row-2" style="margin-bottom:0;">
+          <div class="form-group" style="margin:0;">
+            <select class="form-select" id="rec-doc-status" onchange="document.getElementById('rec-doc-motivo-wrap').style.display = this.value==='dispensado' ? 'block' : 'none';">
+              <option value="vinculado">✓ Documento vinculado / não se aplica</option>
+              <option value="pendente">📎 NF pendente (vai chegar)</option>
+              <option value="dispensado">✓ Doc fiscal dispensado (sem NF possível)</option>
+            </select>
+          </div>
+          <div class="form-group" id="rec-doc-motivo-wrap" style="margin:0;display:none;">
+            <select class="form-select" id="rec-doc-motivo">
+              <option value="">— motivo —</option>
+              <option>Tarifa bancária</option>
+              <option>Anuidade de cartão</option>
+              <option>IOF / Imposto sobre operação</option>
+              <option>Juros / Multa</option>
+              <option>Rendimento de aplicação</option>
+              <option>Transferência entre contas próprias</option>
+              <option>Saque ou depósito próprio</option>
+              <option>Estorno / Cancelamento</option>
+              <option>Outro</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top:14px;padding:12px;background:rgba(204,145,94,0.06);border-left:3px solid var(--gold);border-radius:6px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;color:var(--navy);font-size:12px;">
           <input type="checkbox" id="rec-recorrente" onchange="document.getElementById('rec-recorrencia-fields').style.display=this.checked?'block':'none';" style="width:15px;height:15px;accent-color:var(--gold);">
@@ -1301,6 +1332,34 @@ tbody tr:last-child td{border-bottom:none;}
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Observações</label><textarea class="form-textarea" id="pay-notes" placeholder="Informações adicionais..."></textarea></div>
+      </div>
+
+      <!-- DOCUMENTO FISCAL -->
+      <div style="margin-top:14px;padding:12px;background:rgba(0,32,62,0.04);border-left:3px solid var(--navy);border-radius:6px;">
+        <label class="form-label" style="display:block;margin-bottom:8px;">📎 Documento Fiscal</label>
+        <div class="form-row form-row-2" style="margin-bottom:0;">
+          <div class="form-group" style="margin:0;">
+            <select class="form-select" id="pay-doc-status" onchange="document.getElementById('pay-doc-motivo-wrap').style.display = this.value==='dispensado' ? 'block' : 'none';">
+              <option value="vinculado">✓ Documento vinculado / não se aplica</option>
+              <option value="pendente">📎 NF pendente (vai chegar)</option>
+              <option value="dispensado">✓ Doc fiscal dispensado (sem NF possível)</option>
+            </select>
+          </div>
+          <div class="form-group" id="pay-doc-motivo-wrap" style="margin:0;display:none;">
+            <select class="form-select" id="pay-doc-motivo">
+              <option value="">— motivo —</option>
+              <option>Tarifa bancária</option>
+              <option>Anuidade de cartão</option>
+              <option>IOF / Imposto sobre operação</option>
+              <option>Juros / Multa</option>
+              <option>Rendimento de aplicação</option>
+              <option>Transferência entre contas próprias</option>
+              <option>Saque ou depósito próprio</option>
+              <option>Estorno / Cancelamento</option>
+              <option>Outro</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div style="margin-top:14px;padding:12px;background:rgba(204,145,94,0.06);border-left:3px solid var(--gold);border-radius:6px;">
@@ -2063,6 +2122,10 @@ function openModal(id){
     if(rCat){ rCat.innerHTML = buildCatOptions('entrada'); rCat.value=''; }
     const rSub = document.getElementById('rec-subcat');
     if(rSub){ rSub.innerHTML='<option value="">Selecione a categoria primeiro</option>'; rSub.value=''; rSub.disabled=true; }
+    // Reset documento fiscal
+    const rDocSt = document.getElementById('rec-doc-status'); if(rDocSt) rDocSt.value = 'vinculado';
+    const rDocM = document.getElementById('rec-doc-motivo'); if(rDocM) rDocM.value = '';
+    const rDocMW = document.getElementById('rec-doc-motivo-wrap'); if(rDocMW) rDocMW.style.display = 'none';
   }
   if(id==='modal-payable'){
     document.getElementById('pay-modal-title').textContent='Nova Conta a Pagar';
@@ -2077,6 +2140,10 @@ function openModal(id){
     if(pCat){ pCat.innerHTML = buildCatOptions('saida'); pCat.value=''; }
     const pSub = document.getElementById('pay-subcat');
     if(pSub){ pSub.innerHTML='<option value="">Selecione a categoria primeiro</option>'; pSub.value=''; pSub.disabled=true; }
+    // Reset documento fiscal
+    const pDocSt = document.getElementById('pay-doc-status'); if(pDocSt) pDocSt.value = 'vinculado';
+    const pDocM = document.getElementById('pay-doc-motivo'); if(pDocM) pDocM.value = '';
+    const pDocMW = document.getElementById('pay-doc-motivo-wrap'); if(pDocMW) pDocMW.style.display = 'none';
   }
   document.getElementById(id).classList.add('open');
 }
@@ -2095,6 +2162,24 @@ function fmtDate(d){
   return `${day}/${m}/${y}`;
 }
 function today(){ return new Date().toISOString().split('T')[0]; }
+
+// Status do documento fiscal
+function getDocStatus(reg){
+  if(!reg) return 'vinculado';
+  if(reg.doc_status) return reg.doc_status;
+  if(reg.sem_documento) return 'pendente';
+  return 'vinculado';
+}
+function badgeDoc(reg){
+  const s = getDocStatus(reg);
+  if(s === 'pendente') return '<span class="badge-sem-doc" title="Falta documento fiscal — pendente">📎 Sem doc</span>';
+  if(s === 'dispensado'){
+    const m = reg.doc_motivo_dispensa ? ` — ${reg.doc_motivo_dispensa}` : '';
+    return `<span class="badge-doc-dispensado" title="Documento fiscal dispensado${m}">✓ Doc dispensado</span>`;
+  }
+  return '';
+}
+
 function isOverdue(due){
   if(!due) return false;
   return new Date(due+'T23:59:59') < new Date();
@@ -2183,12 +2268,12 @@ async function renderDashboard(){
   if(overdueRec.length) alerts.push(`<div class="alert alert-danger">⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a,r)=>a+Number(r.value),0))}</div>`);
   if(overduePay.length) alerts.push(`<div class="alert alert-danger">🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a,r)=>a+Number(r.value),0))}</div>`);
   const semDocList = [
-    ...DB.receivable.filter(r=>r.sem_documento),
-    ...DB.payable.filter(r=>r.sem_documento)
+    ...DB.receivable.filter(r=>getDocStatus(r)==='pendente'),
+    ...DB.payable.filter(r=>getDocStatus(r)==='pendente')
   ];
   if(semDocList.length){
     const totalSemDoc = semDocList.reduce((a,r)=>a+Number(r.value||0), 0);
-    alerts.push(`<div class="alert alert-warning" style="background:rgba(204,145,94,0.10);border-left:3px solid var(--gold);color:var(--navy);">📎 ${semDocList.length} lançamento(s) sem documento fiscal — ${fmtMoney(totalSemDoc)} (atenção contábil)</div>`);
+    alerts.push(`<div class="alert alert-warning" style="background:rgba(204,145,94,0.10);border-left:3px solid var(--gold);color:var(--navy);">📎 ${semDocList.length} lançamento(s) com NF pendente — ${fmtMoney(totalSemDoc)} (atenção contábil)</div>`);
   }
   document.getElementById('dash-alerts').innerHTML = alerts.join('');
 
@@ -2283,16 +2368,17 @@ function renderReceivable(){
   let data = DB.receivable.filter(r=>{
     const mq = !q||r.client?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
     let ms;
-    if(st === '__sem_doc__') ms = !!r.sem_documento;
+    if(st === '__sem_doc__') ms = getDocStatus(r) === 'pendente';
+    else if(st === '__doc_dispensado__') ms = getDocStatus(r) === 'dispensado';
     else ms = !st || r.status === st;
     return mq && ms;
   });
   const tbody = document.getElementById('rec-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(6,'Nenhuma conta a receber cadastrada.'); return; }
-  tbody.innerHTML = data.map(r=>`<tr>
+  tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
     <td style="font-weight:500;">${r.client||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}${r.sem_documento?'<br><span class="badge-sem-doc">📎 Sem doc</span>':''}</td>
+    <td class="amount-pos">${(r.moeda&&r.moeda!=='BRL')?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,'BRL')}</span>`:fmtMoney(r.value,'BRL')}${r.conciliado?'<br><span class="badge-conciliado">✓ Conciliado</span>':''}${docB?'<br>'+docB:''}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Recebido'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -2309,7 +2395,7 @@ function renderReceivable(){
       <button class="icon-btn danger" title="Excluir" onclick="deleteRec('${r.id}')">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
     </div></td>
-  </tr>`).join('');
+  </tr>`;}).join('');
 }
 
 function saveReceivable(){
@@ -2341,13 +2427,21 @@ function saveReceivable(){
   const rec_frequencia = document.getElementById('rec-rec-frequencia')?.value || null;
   const rec_ate = document.getElementById('rec-rec-ate')?.value || null;
 
+  // Documento fiscal
+  const doc_status = document.getElementById('rec-doc-status')?.value || 'vinculado';
+  const doc_motivo_dispensa = doc_status === 'dispensado'
+    ? (document.getElementById('rec-doc-motivo')?.value || '')
+    : '';
+  const sem_documento = doc_status === 'pendente';
+
   if(editId){
     const i = DB.receivable.findIndex(r=>r.id===editId);
-    DB.receivable[i]={...DB.receivable[i],client,value:Number(value),desc,due,status,cat,subcat,notes,recorrente,rec_frequencia,rec_ate};
+    DB.receivable[i]={...DB.receivable[i],client,value:Number(value),desc,due,status,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,doc_status,doc_motivo_dispensa,sem_documento};
   } else {
-    DB.receivable.push({id:uid(),client,value:Number(value),desc,due,status,forma,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,created:today()});
+    DB.receivable.push({id:uid(),client,value:Number(value),desc,due,status,forma,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
   }
   save('receivable'); closeModal('modal-receivable'); renderReceivable(); renderDashboard();
+  if(typeof renderAlertsBadge === 'function') renderAlertsBadge();
   toast('✓ Conta salva com sucesso!');
 }
 
@@ -2376,6 +2470,15 @@ function editReceivable(id){
   if(rCatEl){ rCatEl.innerHTML = buildCatOptions('entrada'); rCatEl.value = r.cat||''; }
   const rSubEl = document.getElementById('rec-subcat');
   if(rSubEl){ rSubEl.innerHTML = buildSubOptions('entrada', r.cat||''); rSubEl.value = r.subcat||''; rSubEl.disabled = !r.cat; }
+  // Documento fiscal
+  const docStEl = document.getElementById('rec-doc-status');
+  if(docStEl){
+    docStEl.value = getDocStatus(r);
+    const motivoWrap = document.getElementById('rec-doc-motivo-wrap');
+    if(motivoWrap) motivoWrap.style.display = docStEl.value === 'dispensado' ? 'block' : 'none';
+    const motivoEl = document.getElementById('rec-doc-motivo');
+    if(motivoEl) motivoEl.value = r.doc_motivo_dispensa || '';
+  }
   document.getElementById('modal-receivable').classList.add('open');
 }
 
@@ -2401,16 +2504,17 @@ function renderPayable(){
   let data = DB.payable.filter(r=>{
     const mq = !q||r.supplier?.toLowerCase().includes(q)||r.desc?.toLowerCase().includes(q);
     let ms;
-    if(st === '__sem_doc__') ms = !!r.sem_documento;
+    if(st === '__sem_doc__') ms = getDocStatus(r) === 'pendente';
+    else if(st === '__doc_dispensado__') ms = getDocStatus(r) === 'dispensado';
     else ms = !st || r.status === st;
     return mq && ms;
   });
   const tbody = document.getElementById('pay-tbody');
   if(!data.length){ tbody.innerHTML=emptyRow(7,'Nenhuma conta a pagar cadastrada.'); return; }
-  tbody.innerHTML = data.map(r=>`<tr>
+  tbody.innerHTML = data.map(r=>{ const docB = badgeDoc(r); return `<tr>
     <td style="font-weight:500;">${r.supplier||'—'}</td>
     <td>${r.desc||'—'}</td>
-    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}${r.sem_documento?"<br><span class=\"badge-sem-doc\">📎 Sem doc</span>":""}</td>
+    <td class="amount-neg">${(r.moeda&&r.moeda!=="BRL")?`<span class="moeda-badge">${r.moeda}</span>${fmtMoney(r.valor_original||r.value, r.moeda)}<br><span style="font-size:9px;color:var(--text-mid);">≈ ${fmtMoney(r.value,"BRL")}</span>`:fmtMoney(r.value,"BRL")}${r.conciliado?"<br><span class=\"badge-conciliado\">✓ Conciliado</span>":""}${docB?'<br>'+docB:''}</td>
     <td>${fmtDate(r.due)}${isOverdue(r.due)&&r.status!=='Pago'?'<br><span style="font-size:9px;color:var(--red);">VENCIDA</span>':''}</td>
     <td>
       <div><span class="badge badge-gray">${r.cat||'—'}</span></div>
@@ -2427,7 +2531,7 @@ function renderPayable(){
       <button class="icon-btn danger" title="Excluir" onclick="deletePay('${r.id}')">
         <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
     </div></td>
-  </tr>`).join('');
+  </tr>`;}).join('');
 }
 
 function savePayable(){
@@ -2458,13 +2562,21 @@ function savePayable(){
   const pay_rec_freq = document.getElementById('pay-rec-frequencia')?.value || null;
   const pay_rec_ate = document.getElementById('pay-rec-ate')?.value || null;
 
+  // Documento fiscal
+  const doc_status = document.getElementById('pay-doc-status')?.value || 'vinculado';
+  const doc_motivo_dispensa = doc_status === 'dispensado'
+    ? (document.getElementById('pay-doc-motivo')?.value || '')
+    : '';
+  const sem_documento = doc_status === 'pendente';
+
   if(editId){
     const i = DB.payable.findIndex(r=>r.id===editId);
-    DB.payable[i]={...DB.payable[i],supplier,value:Number(value),desc,cat,subcat,due,status,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate};
+    DB.payable[i]={...DB.payable[i],supplier,value:Number(value),desc,cat,subcat,due,status,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,doc_status,doc_motivo_dispensa,sem_documento};
   } else {
-    DB.payable.push({id:uid(),supplier,value:Number(value),desc,cat,due,status,forma,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,created:today()});
+    DB.payable.push({id:uid(),supplier,value:Number(value),desc,cat,subcat,due,status,forma,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
   }
   save('payable'); closeModal('modal-payable'); renderPayable(); renderDashboard();
+  if(typeof renderAlertsBadge === 'function') renderAlertsBadge();
   toast('✓ Conta salva com sucesso!');
 }
 
@@ -2488,6 +2600,15 @@ function editPayable(id){
   if(payCatEl){ payCatEl.innerHTML = buildCatOptions('saida'); }
   const paySubEl = document.getElementById('pay-subcat');
   if(paySubEl){ paySubEl.innerHTML = '<option value="">Selecione a categoria primeiro</option>'; paySubEl.disabled = true; }
+  // Documento fiscal
+  const pdocStEl = document.getElementById('pay-doc-status');
+  if(pdocStEl){
+    pdocStEl.value = getDocStatus(r);
+    const motivoWrap = document.getElementById('pay-doc-motivo-wrap');
+    if(motivoWrap) motivoWrap.style.display = pdocStEl.value === 'dispensado' ? 'block' : 'none';
+    const motivoEl = document.getElementById('pay-doc-motivo');
+    if(motivoEl) motivoEl.value = r.doc_motivo_dispensa || '';
+  }
   document.getElementById('modal-payable').classList.add('open');
 }
 
@@ -3798,14 +3919,14 @@ function exportSection(key){
     },
     'receivable': () => {
       addSheet('Contas a Receber',
-        ['Cliente','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Status','Categoria','Subcategoria','Conciliado','Sem Doc','Observações'],
-        DB.receivable.map(r=>[r.client,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due),r.status, r.cat||'', r.subcat||'', r.conciliado?'Sim':'Não', r.sem_documento?'Sim':'Não', r.notes||'']));
+        ['Cliente','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Status','Categoria','Subcategoria','Conciliado','Status Doc','Motivo Dispensa','Observações'],
+        DB.receivable.map(r=>[r.client,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due),r.status, r.cat||'', r.subcat||'', r.conciliado?'Sim':'Não', getDocStatus(r), r.doc_motivo_dispensa||'', r.notes||'']));
       return 'ContasAReceber';
     },
     'payable': () => {
       addSheet('Contas a Pagar',
-        ['Fornecedor','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Categoria','Subcategoria','Status','Conciliado','Sem Doc','Observações'],
-        DB.payable.map(r=>[r.supplier,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due), r.cat||'', r.subcat||'', r.status, r.conciliado?'Sim':'Não', r.sem_documento?'Sim':'Não', r.notes||'']));
+        ['Fornecedor','Descrição','Valor (R$)','Moeda','Valor Original','Vencimento','Categoria','Subcategoria','Status','Conciliado','Status Doc','Motivo Dispensa','Observações'],
+        DB.payable.map(r=>[r.supplier,r.desc,r.value, r.moeda||'BRL', r.valor_original||r.value, fmtDate(r.due), r.cat||'', r.subcat||'', r.status, r.conciliado?'Sim':'Não', getDocStatus(r), r.doc_motivo_dispensa||'', r.notes||'']));
       return 'ContasAPagar';
     },
     'contracts': () => {
@@ -4580,11 +4701,12 @@ async function confirmSelected(){
         continue;
       }
 
-      // ── Auto-vinculação reversa: bate com lançamento "sem_documento" pré-existente?
+      // ── Auto-vinculação reversa: bate com lançamento com NF pendente?
+      // Não tenta vincular em lançamentos com doc_status='dispensado'
       const isSaidaCheck = nf.tipo === 'saida';
       const collCheck = isSaidaCheck ? DB.receivable : DB.payable;
       const matchSemDoc = collCheck.find(item => {
-        if(!item.sem_documento) return false;
+        if(getDocStatus(item) !== 'pendente') return false;
         const itemValue = Number(item.value || 0);
         if(Math.abs(itemValue - val) > 0.02) return false;
         const partyMatch = isSaidaCheck
@@ -4606,6 +4728,8 @@ async function confirmSelected(){
         matchSemDoc.anexoNome = nf.fileName || matchSemDoc.anexoNome || null;
         matchSemDoc.anexoTipo = nf.fileMediaType || matchSemDoc.anexoTipo || null;
         matchSemDoc.sem_documento = false;
+        matchSemDoc.doc_status = 'vinculado';
+        matchSemDoc.doc_motivo_dispensa = '';
         matchSemDoc.notes = (matchSemDoc.notes||'') + ` · Doc anexado em ${today()} via importação NF`;
         if(isSaidaCheck) recCount++; else payCount++;
         confirmadas.push(nf._rid);
@@ -5624,14 +5748,17 @@ function renderConcilResults(){
       : '<span class="concil-no-match">Sem correspondência</span>';
 
     const acoes = top
-      ? `<div class="concil-action-btns">
-          <button class="btn btn-primary btn-sm" onclick="confirmConcilMatch('${tx._rid}','${top.item.id}')">✓ Confirmar</button>
-          <button class="btn btn-outline btn-sm" onclick="rejectConcilMatch('${tx._rid}')">↻ Trocar</button>
-          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')">Ignorar</button>
+      ? `<div class="concil-action-btns" style="display:flex;flex-wrap:wrap;gap:4px;">
+          <button class="btn btn-primary btn-sm" onclick="confirmConcilMatch('${tx._rid}','${top.item.id}')" title="Vincular ao lançamento sugerido">✓ Confirmar</button>
+          <button class="btn btn-outline btn-sm" onclick="rejectConcilMatch('${tx._rid}')" title="Trocar por outro lançamento">↻ Trocar</button>
+          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')" title="Não gera lançamento, fica só no histórico">Ignorar</button>
+          <button class="btn btn-sm" style="border:1.5px solid var(--red);color:var(--red);background:transparent;" onclick="excluirConcil('${tx._rid}')" title="Apagar transação totalmente">✕ Excluir</button>
         </div>`
-      : `<div class="concil-action-btns">
-          <button class="btn btn-navy btn-sm" onclick="createFromConcil('${tx._rid}')">+ Criar lançamento</button>
-          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')">Ignorar</button>
+      : `<div class="concil-action-btns" style="display:flex;flex-wrap:wrap;gap:4px;">
+          <button class="btn btn-navy btn-sm" onclick="createFromConcil('${tx._rid}')" title="Cria lançamento + flag 'sem documento' (NF a chegar)">+ Criar lançamento</button>
+          <button class="btn btn-sm" style="background:var(--green);color:#fff;border:none;" onclick="createFromConcilDispensado('${tx._rid}')" title="Cria lançamento marcando que não terá documento fiscal (tarifa, anuidade, IOF, etc.)">+ Sem doc</button>
+          <button class="btn btn-outline btn-sm" onclick="ignoreConcil('${tx._rid}')" title="Não gera lançamento, fica só no histórico">Ignorar</button>
+          <button class="btn btn-sm" style="border:1.5px solid var(--red);color:var(--red);background:transparent;" onclick="excluirConcil('${tx._rid}')" title="Apagar transação totalmente">✕ Excluir</button>
         </div>`;
 
     return `<tr class="concil-row" id="concil-tr-${tx._rid}">
@@ -5692,10 +5819,27 @@ function ignoreConcil(txRid){
   toast('Transação registrada como ignorada.');
 }
 
-function createFromConcil(txRid){
-  const tx = concilTransactions.find(t => t._rid === txRid);
-  if(!tx) return;
+// Motivos pré-definidos de dispensa de documento fiscal
+const MOTIVOS_DISPENSA_DOC = [
+  'Tarifa bancária',
+  'Anuidade de cartão',
+  'IOF / Imposto sobre operação',
+  'Juros / Multa',
+  'Rendimento de aplicação',
+  'Transferência entre contas próprias',
+  'Saque ou depósito próprio',
+  'Estorno / Cancelamento',
+  'Outro'
+];
+
+function _criarLancFromConcil(tx, opts){
   const isInflow = tx.tipo === 'entrada';
+  const docStatus = opts.docStatus || 'pendente';
+  const motivo = opts.motivoDispensa || '';
+  const noteBase = `Criado via conciliação (${(tx.origem||'').toUpperCase()})`;
+  const note = docStatus === 'dispensado'
+    ? `${noteBase} — sem documento fiscal (${motivo})`
+    : `${noteBase} — falta documento fiscal`;
   const reg = {
     id: uid(), created: today(),
     [isInflow ? 'client' : 'supplier']: tx.descricao || 'A definir',
@@ -5704,14 +5848,16 @@ function createFromConcil(txRid){
     due: tx.data,
     status: isInflow ? 'Recebido' : 'Pago',
     cat: '', subcat: '',
-    notes: `Criado via conciliação (${tx.origem.toUpperCase()}) — falta documento fiscal`,
+    notes: note,
     moeda: tx.moeda || 'BRL',
     valor_original: Number(tx.valor_original||tx.valor)||0,
     cotacao_ptax: null, cotacao_tipo: null, data_cotacao: null,
     conciliado: true,
     data_conciliacao: today(),
     extrato_ref: tx._rid,
-    sem_documento: true
+    doc_status: docStatus,
+    doc_motivo_dispensa: docStatus === 'dispensado' ? motivo : '',
+    sem_documento: docStatus === 'pendente'
   };
   if(isInflow) DB.receivable.push(reg); else DB.payable.push(reg);
   save(isInflow ? 'receivable' : 'payable');
@@ -5723,9 +5869,44 @@ function createFromConcil(txRid){
   });
   save('transacoes_extrato');
 
+  concilTransactions = concilTransactions.filter(t => t._rid !== tx._rid);
+  renderConcilResults();
+  if(typeof renderAlertsBadge === 'function') renderAlertsBadge();
+}
+
+function createFromConcil(txRid){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  _criarLancFromConcil(tx, { docStatus: 'pendente' });
+  toast('✓ Lançamento criado · pendente de NF.');
+}
+
+function createFromConcilDispensado(txRid){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  const opts = MOTIVOS_DISPENSA_DOC.map((m,i)=>`${i+1}. ${m}`).join('\n');
+  const escolha = prompt(`Selecione o motivo da dispensa de documento fiscal:\n\n${opts}\n\nDigite o número (1-${MOTIVOS_DISPENSA_DOC.length}) ou texto livre:`);
+  if(escolha === null) return;
+  let motivo = '';
+  const num = parseInt(escolha, 10);
+  if(!isNaN(num) && num >= 1 && num <= MOTIVOS_DISPENSA_DOC.length){
+    motivo = MOTIVOS_DISPENSA_DOC[num-1];
+  } else if(escolha.trim()) {
+    motivo = escolha.trim();
+  } else {
+    motivo = 'Outro';
+  }
+  _criarLancFromConcil(tx, { docStatus: 'dispensado', motivoDispensa: motivo });
+  toast(`✓ Lançamento criado · doc dispensado (${motivo}).`);
+}
+
+function excluirConcil(txRid){
+  const tx = concilTransactions.find(t => t._rid === txRid);
+  if(!tx) return;
+  if(!confirm(`Excluir esta transação? Ela some totalmente — sem virar lançamento, sem ficar no histórico.\n\n"${(tx.descricao||'').substring(0,80)}"\nValor: ${fmtMoney(tx.valor, tx.moeda||'BRL')}\nData: ${formatDateBR(tx.data)}`)) return;
   concilTransactions = concilTransactions.filter(t => t._rid !== txRid);
   renderConcilResults();
-  toast('✓ Lançamento criado e conciliado.');
+  toast('Transação excluída.');
 }
 
 function clearConcilResults(){
@@ -6197,15 +6378,15 @@ function getAlerts(){
       count: nfPending.length
     });
   }
-  // 2. Lançamentos sem documento fiscal
+  // 2. Lançamentos com NF pendente (exclui os com doc dispensado)
   const semDoc = [
-    ...DB.receivable.filter(r => r.sem_documento),
-    ...DB.payable.filter(r => r.sem_documento)
+    ...DB.receivable.filter(r => getDocStatus(r) === 'pendente'),
+    ...DB.payable.filter(r => getDocStatus(r) === 'pendente')
   ];
   if(semDoc.length){
     alerts.push({
       tipo: 'semdoc', icon: '📎', cor: 'var(--gold)',
-      label: `${semDoc.length} lançamento(s) sem documento fiscal`,
+      label: `${semDoc.length} lançamento(s) com NF pendente`,
       desc: 'Atenção contábil — anexar NF/recibo',
       target: 'payable',
       count: semDoc.length
