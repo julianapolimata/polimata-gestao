@@ -464,6 +464,7 @@ async function createLancamento(parsed, att, base64) {
     const updated = {
       ...matchSemDoc.data,
       desc: descFull,
+      // NOTE: Base64 stored server-side; frontend migra pro Storage on-demand (transparent)
       anexo: base64,
       anexoNome: att.filename,
       anexoTipo: att.mimeType,

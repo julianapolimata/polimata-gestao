@@ -2316,6 +2316,69 @@ function badgeDoc(reg){
 }
 
 // =============================================
+// ANEXOS (Supabase Storage)
+// =============================================
+const STORAGE_BUCKET = 'anexos-fiscais';
+
+// Converte base64 dataURL para Blob — para migração de legados
+function _dataURLtoBlob(dataURL){
+  const arr = dataURL.split(',');
+  const mime = (arr[0].match(/:(.*?);/)||[])[1] || 'application/octet-stream';
+  const bstr = atob(arr[arr.length-1]);
+  const u8 = new Uint8Array(bstr.length);
+  for(let i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+  return new Blob([u8], { type: mime });
+}
+
+// Faz upload de um arquivo (File ou Blob) pro Storage e retorna o path
+async function uploadAnexoToStorage(fileOrBlob, opts){
+  if(!currentUser) throw new Error('Sessão expirada');
+  const tipo = opts.tipo;            // 'rec' ou 'pay'
+  const lancId = opts.lancamentoId;
+  const fileName = (opts.fileName || 'anexo.pdf').replace(/[^\w.\-]/g,'_');
+  const path = `${currentUser.id}/${tipo}/${lancId}/${Date.now()}_${fileName}`;
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, fileOrBlob, {
+    upsert: true,
+    contentType: fileOrBlob.type || 'application/octet-stream'
+  });
+  if(error) throw error;
+  return path;
+}
+
+// Gera URL temporária (assinada, válida 1 hora) para visualizar/baixar
+async function getAnexoSignedUrl(path){
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 3600);
+  if(error) throw error;
+  return data.signedUrl;
+}
+
+// Apaga anexo do Storage
+async function deleteAnexoFromStorage(path){
+  if(!path) return;
+  await supabase.storage.from(STORAGE_BUCKET).remove([path]);
+}
+
+// Migração on-demand: converte um lançamento legado (base64 → Storage) quando o user clica em ver
+async function _migrarAnexoLegado(rec, tipo){
+  if(!rec.anexo || rec.anexo_path) return rec.anexo_path;
+  try {
+    const blob = _dataURLtoBlob(rec.anexo);
+    const path = await uploadAnexoToStorage(blob, {
+      tipo,
+      lancamentoId: rec.id,
+      fileName: rec.anexoNome || 'anexo'
+    });
+    rec.anexo_path = path;
+    rec.anexo = null; // limpa base64
+    save(tipo === 'rec' ? 'receivable' : 'payable');
+    return path;
+  } catch(e){
+    console.warn('Falha ao migrar anexo legado:', e);
+    return null;
+  }
+}
+
+// =============================================
 // CÓDIGOS DE REFERÊNCIA
 // =============================================
 function _seqMax(items, regex){
@@ -5209,7 +5272,26 @@ async function confirmSelected(){
       if(matchSemDoc){
         // Atualiza lançamento existente: anexa documento, remove flag, atualiza descrição
         matchSemDoc.desc = descFull;
-        matchSemDoc.anexo = nf.fileBase64 || matchSemDoc.anexo || null;
+        // Upload do anexo pro Storage (assíncrono, não bloqueia)
+        if(nf.fileBase64){
+          (async function(){
+            try {
+              const blob = _dataURLtoBlob(nf.fileBase64);
+              const path = await uploadAnexoToStorage(blob, {
+                tipo: isSaidaCheck ? 'rec' : 'pay',
+                lancamentoId: matchSemDoc.id,
+                fileName: nf.fileName || 'nf.pdf'
+              });
+              matchSemDoc.anexo_path = path;
+              matchSemDoc.anexo = null; // não duplica
+              save(isSaidaCheck ? 'receivable' : 'payable');
+            } catch(e){
+              console.warn('Upload de anexo falhou, mantendo base64:', e);
+              matchSemDoc.anexo = nf.fileBase64; // fallback
+              save(isSaidaCheck ? 'receivable' : 'payable');
+            }
+          })();
+        }
         matchSemDoc.anexoNome = nf.fileName || matchSemDoc.anexoNome || null;
         matchSemDoc.anexoTipo = nf.fileMediaType || matchSemDoc.anexoTipo || null;
         matchSemDoc.sem_documento = false;
@@ -5861,10 +5943,29 @@ if(document.getElementById('pessoas-tbody')) renderPessoas();
 // --- VISUALIZAR ANEXO ---
 let currentAnexo = null;
 
-function viewAnexo(id, tipo){
+async function viewAnexo(id, tipo){
   const db = tipo === 'rec' ? DB.receivable : DB.payable;
   const rec = db.find(r => r.id === id);
-  if(!rec || !rec.anexo){ toast('Nenhum documento anexado.'); return; }
+  if(!rec){ toast('Lançamento não encontrado.'); return; }
+  
+  // 1) Se tem anexo_path → Storage
+  let path = rec.anexo_path;
+  let url = null;
+  
+  // 2) Se ainda é base64 legado → migra silenciosamente
+  if(!path && rec.anexo){
+    toast('⏳ Migrando anexo para o Storage...');
+    path = await _migrarAnexoLegado(rec, tipo);
+  }
+  if(!path){ toast('Nenhum documento anexado.'); return; }
+  
+  try {
+    url = await getAnexoSignedUrl(path);
+  } catch(e){
+    console.error('Erro ao gerar signed URL:', e);
+    toast(`Erro ao abrir anexo: ${e.message||e}`);
+    return;
+  }
 
   currentAnexo = rec;
   const title = rec.anexoNome || 'Documento';
@@ -5872,16 +5973,16 @@ function viewAnexo(id, tipo){
 
   const viewer = document.getElementById('anexo-viewer');
   const mediaType = rec.anexoTipo || '';
-  const dataUrl = `data:${mediaType};base64,${rec.anexo}`;
 
   if(mediaType === 'application/pdf'){
-    viewer.innerHTML = `<iframe src="${dataUrl}" style="width:100%;height:600px;border:none;border-radius:0 0 8px 8px;"></iframe>`;
+    viewer.innerHTML = `<iframe src="${url}" style="width:100%;height:600px;border:none;border-radius:0 0 8px 8px;"></iframe>`;
   } else if(mediaType.startsWith('image/')){
-    viewer.innerHTML = `<img src="${dataUrl}" style="max-width:100%;max-height:600px;object-fit:contain;padding:16px;">`;
+    viewer.innerHTML = `<img src="${url}" style="max-width:100%;max-height:600px;object-fit:contain;padding:16px;">`;
   } else if(mediaType === 'text/xml' || title.endsWith('.xml')){
-    // Decode base64 XML and show formatted
+    // Fetch XML from signed URL and show formatted
     try {
-      const xmlText = atob(rec.anexo);
+      const resp = await fetch(url);
+      const xmlText = await resp.text();
       viewer.innerHTML = `<pre style="padding:20px;font-size:11px;white-space:pre-wrap;word-break:break-all;text-align:left;width:100%;overflow:auto;">${xmlText.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
     } catch(e) {
       viewer.innerHTML = '<p style="color:var(--text-mid);padding:40px;">Não foi possível visualizar este arquivo.</p>';
@@ -5898,12 +5999,26 @@ function viewAnexo(id, tipo){
   document.getElementById('modal-anexo').classList.add('open');
 }
 
-function downloadAnexo(){
-  if(!currentAnexo || !currentAnexo.anexo) return;
-  const a = document.createElement('a');
-  a.href = `data:${currentAnexo.anexoTipo};base64,${currentAnexo.anexo}`;
-  a.download = currentAnexo.anexoNome || 'documento';
-  a.click();
+async function downloadAnexo(){
+  if(!currentAnexo) return;
+  // Se tem Storage path, faz download via signed URL
+  if(currentAnexo.anexo_path){
+    try {
+      const url = await getAnexoSignedUrl(currentAnexo.anexo_path);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = currentAnexo.anexoNome || 'documento';
+      a.click();
+    } catch(e){
+      toast(`Erro ao baixar: ${e.message||e}`);
+    }
+  } else if(currentAnexo.anexo){
+    // Fallback legado: base64
+    const a = document.createElement('a');
+    a.href = `data:${currentAnexo.anexoTipo};base64,${currentAnexo.anexo}`;
+    a.download = currentAnexo.anexoNome || 'documento';
+    a.click();
+  }
 }
 
 // ── IMPORTAR DA PASTA (File System Access API) ────────────────
