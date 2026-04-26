@@ -207,8 +207,8 @@ tbody tr:last-child td{border-bottom:none;}
 .cf-out{background:var(--red);}
 
 /* KANBAN */
-.kanban{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
-.kanban-col{background:var(--cream);border-radius:8px;padding:14px;}
+.kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:start;}
+.kanban-col{background:var(--cream);border-radius:8px;padding:12px;min-height:200px;}
 .kanban-col-title{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-mid);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
 .kanban-count{background:var(--white);border-radius:20px;padding:1px 8px;font-size:10px;font-weight:600;color:var(--navy);}
 .kanban-card{background:#fff;border-radius:6px;padding:12px;margin-bottom:8px;box-shadow:0 1px 6px rgba(0,32,62,.08);border-left:3px solid var(--cream-dark);cursor:pointer;transition:box-shadow .2s,transform .2s;}
@@ -3422,6 +3422,19 @@ function renderProjects(){
     if(p.status === 'Em andamento') p.status = 'Em execução';
   });
 
+  // Estado vazio: nenhum projeto cadastrado
+  if(!DB.projects.length){
+    kanban.style.display = 'block';
+    kanban.innerHTML = `<div class="empty-state" style="text-align:center;padding:60px 20px;background:var(--cream);border-radius:8px;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="color:var(--text-mid);margin-bottom:14px;"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+      <h3 style="font-size:14px;color:var(--navy);margin-bottom:6px;">Nenhum projeto ainda</h3>
+      <p style="font-size:12px;color:var(--text-mid);margin-bottom:14px;">Comece criando seu primeiro projeto ou converta um prospect "Fechado" do CRM.</p>
+      <button class="btn btn-primary" onclick="openProjectModal()">+ Novo Projeto</button>
+    </div>`;
+    return;
+  }
+  kanban.style.display = '';
+
   kanban.innerHTML = cols.map(col=>{
     const allItems = DB.projects.filter(p=>p.status===col);
     const displayItems = f ? (f===col ? allItems : []) : allItems;
@@ -3451,7 +3464,7 @@ function renderProjects(){
           </div>
         </div>
       `;
-      }).join('') : `<p style="font-size:11px;color:var(--text-mid);text-align:center;padding:16px 0;">—</p>`}
+      }).join('') : ''}
     </div>`;
   }).join('');
 }
@@ -6352,7 +6365,7 @@ async function bootApp(){
     await loadPlanoContas();
   } catch(e){
     console.error('Falha ao carregar dados:', e);
-    toast('⚠️ Erro ao carregar dados do servidor.');
+    toast('⚠️ Erro ao carregardados do servidor.');
   }
 
   document.getElementById('app-loading').classList.add('hidden');
