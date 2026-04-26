@@ -2180,6 +2180,84 @@ function badgeDoc(reg){
   return '';
 }
 
+// =============================================
+// CÓDIGOS DE REFERÊNCIA
+// =============================================
+function _seqMax(items, regex){
+  let max = 0;
+  (items||[]).forEach(i => {
+    const m = (i && i.codigo || '').match(regex);
+    if(m){
+      const n = parseInt(m[1], 10);
+      if(!isNaN(n) && n > max) max = n;
+    }
+  });
+  return max;
+}
+
+function gerarCodigoRef(tipo){
+  const ano = new Date().getFullYear();
+  switch(tipo){
+    case 'cliente': {
+      const lst = (DB.pessoas||[]).filter(p => p.tipo === 'Cliente');
+      return `CLI-${String(_seqMax(lst, /^CLI-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+    case 'fornecedor': {
+      const lst = (DB.pessoas||[]).filter(p => p.tipo === 'Fornecedor');
+      return `FOR-${String(_seqMax(lst, /^FOR-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+    case 'funcionario': {
+      const lst = (DB.pessoas||[]).filter(p => p.tipo === 'Funcionário');
+      return `FUN-${String(_seqMax(lst, /^FUN-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+    case 'orgao': {
+      const lst = (DB.pessoas||[]).filter(p => p.tipo === 'Órgão Público');
+      return `ORG-${String(_seqMax(lst, /^ORG-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+    case 'receivable': {
+      const next = _seqMax(DB.receivable, /^1(\d{5})$/) + 1;
+      return `1${String(next).padStart(5,'0')}`;
+    }
+    case 'payable': {
+      const next = _seqMax(DB.payable, /^2(\d{5})$/) + 1;
+      return `2${String(next).padStart(5,'0')}`;
+    }
+    case 'contrato': {
+      const lst = (DB.contracts||[]).filter(c => (c.codigo||'').startsWith(`CTR-${ano}-`));
+      return `CTR-${ano}-${String(_seqMax(lst, /^CTR-\d+-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+    case 'projeto': {
+      const lst = (DB.projects||[]).filter(p => (p.codigo||'').startsWith(`PRJ-${ano}-`));
+      return `PRJ-${ano}-${String(_seqMax(lst, /^PRJ-\d+-(\d+)$/) + 1).padStart(3,'0')}`;
+    }
+  }
+  return '';
+}
+
+// Atribui código a registros antigos sem codigo (uma vez na carga)
+function migrarCodigosRef(){
+  let mudou = false;
+  // Pessoas
+  (DB.pessoas||[]).forEach(p => {
+    if(!p.codigo){
+      const tipo = p.tipo === 'Cliente' ? 'cliente'
+                 : p.tipo === 'Fornecedor' ? 'fornecedor'
+                 : p.tipo === 'Funcionário' ? 'funcionario'
+                 : p.tipo === 'Órgão Público' ? 'orgao' : null;
+      if(tipo){ p.codigo = gerarCodigoRef(tipo); mudou = true; }
+    }
+  });
+  (DB.receivable||[]).forEach(r => { if(!r.codigo){ r.codigo = gerarCodigoRef('receivable'); mudou = true; } });
+  (DB.payable||[]).forEach(r => { if(!r.codigo){ r.codigo = gerarCodigoRef('payable'); mudou = true; } });
+  (DB.contracts||[]).forEach(c => { if(!c.codigo){ c.codigo = gerarCodigoRef('contrato'); mudou = true; } });
+  (DB.projects||[]).forEach(pr => { if(!pr.codigo){ pr.codigo = gerarCodigoRef('projeto'); mudou = true; } });
+  if(mudou){
+    save('pessoas'); save('receivable'); save('payable');
+    save('contracts'); save('projects');
+  }
+  return mudou;
+}
+
 function isOverdue(due){
   if(!due) return false;
   return new Date(due+'T23:59:59') < new Date();
@@ -2438,7 +2516,8 @@ function saveReceivable(){
     const i = DB.receivable.findIndex(r=>r.id===editId);
     DB.receivable[i]={...DB.receivable[i],client,value:Number(value),desc,due,status,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,doc_status,doc_motivo_dispensa,sem_documento};
   } else {
-    DB.receivable.push({id:uid(),client,value:Number(value),desc,due,status,forma,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
+    const codigo = gerarCodigoRef('receivable');
+    DB.receivable.push({id:uid(),codigo,client,value:Number(value),desc,due,status,forma,cat,subcat,notes,recorrente,rec_frequencia,rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
   }
   save('receivable'); closeModal('modal-receivable'); renderReceivable(); renderDashboard();
   if(typeof renderAlertsBadge === 'function') renderAlertsBadge();
@@ -2573,7 +2652,8 @@ function savePayable(){
     const i = DB.payable.findIndex(r=>r.id===editId);
     DB.payable[i]={...DB.payable[i],supplier,value:Number(value),desc,cat,subcat,due,status,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,doc_status,doc_motivo_dispensa,sem_documento};
   } else {
-    DB.payable.push({id:uid(),supplier,value:Number(value),desc,cat,subcat,due,status,forma,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
+    const codigo = gerarCodigoRef('payable');
+    DB.payable.push({id:uid(),codigo,supplier,value:Number(value),desc,cat,subcat,due,status,forma,notes,recorrente:pay_recorrente,rec_frequencia:pay_rec_freq,rec_ate:pay_rec_ate,doc_status,doc_motivo_dispensa,sem_documento,created:today()});
   }
   save('payable'); closeModal('modal-payable'); renderPayable(); renderDashboard();
   if(typeof renderAlertsBadge === 'function') renderAlertsBadge();
@@ -5203,8 +5283,14 @@ function savePessoa(){
              (p.nome||'').trim().toLowerCase() === nome.toLowerCase();
     });
     if(dup){ toast(`⚠️ Cadastro duplicado! Já existe "${dup.nome}" (${dup.tipo}) na base.`); return; }
-    DB.pessoas.push({id: uid(), created: today(), ...d});
-    toast('✓ Cadastro salvo com sucesso!');
+    // Gera código de referência por tipo
+    const tipoCod = tipo === 'Cliente' ? 'cliente'
+                  : tipo === 'Fornecedor' ? 'fornecedor'
+                  : tipo === 'Funcionário' ? 'funcionario'
+                  : tipo === 'Órgão Público' ? 'orgao' : null;
+    const codigo = tipoCod ? gerarCodigoRef(tipoCod) : '';
+    DB.pessoas.push({id: uid(), codigo, created: today(), ...d});
+    toast(`✓ Cadastro ${codigo} salvo com sucesso!`);
   }
 
   save('pessoas');
@@ -6544,6 +6630,8 @@ async function bootApp(){
   try {
     await loadAll();
     await loadPlanoContas();
+    // Atribui códigos a registros antigos (idempotente)
+    try { migrarCodigosRef(); } catch(e){ console.warn('migrarCodigosRef falhou:', e); }
   } catch(e){
     console.error('Falha ao carregar dados:', e);
     toast('⚠️ Erro ao carregardados do servidor.');
