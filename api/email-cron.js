@@ -577,4 +577,62 @@ async function ensurePessoa(parsed, isSaida) {
 
 function mapNFCategoria(nf) {
   const td = (nf.tipo_documento || '').toUpperCase();
-  if (['DAS', 'DARF', 'GPS', 'GNRE'].includes(td)) return '
+  if (['DAS', 'DARF', 'GPS', 'GNRE'].includes(td)) return 'Impostos';
+  return nf.categoria || 'Operacional';
+}
+
+// ============================================================================
+// PTAX BCB
+// ============================================================================
+const _ptaxCache = {};
+async function fetchPTAX(moeda, dataYYYYMMDD) {
+  const moedaUpper = (moeda || 'USD').toUpperCase();
+  if (moedaUpper === 'BRL') return null;
+  const cacheKey = `${moedaUpper}|${dataYYYYMMDD}`;
+  if (_ptaxCache[cacheKey]) return _ptaxCache[cacheKey];
+
+  const startDate = new Date(dataYYYYMMDD + 'T12:00:00');
+  for (let i = 0; i < 10; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() - i);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const dataStr = `${mm}-${dd}-${yyyy}`;
+
+    const url = moedaUpper === 'USD'
+      ? `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='${dataStr}'&$format=json`
+      : `https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoMoedaDia(moeda=@moeda,dataCotacao=@dataCotacao)?@moeda='${moedaUpper}'&@dataCotacao='${dataStr}'&$format=json`;
+
+    try {
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.value?.length) {
+        const v = j.value[0];
+        const result = {
+          compra: v.cotacaoCompra,
+          venda: v.cotacaoVenda,
+          dataCotacao: `${yyyy}-${mm}-${dd}`,
+          moeda: moedaUpper
+        };
+        _ptaxCache[cacheKey] = result;
+        return result;
+      }
+    } catch (e) {
+      console.warn('PTAX erro:', e.message);
+    }
+  }
+  throw new Error(`PTAX nao encontrada para ${moedaUpper} em ${dataYYYYMMDD}`);
+}
+
+// ============================================================================
+// Persistência do histórico de processamento
+// ============================================================================
+async function persistEmailHistory(data) {
+  await getSupabase().from('emails_processados').insert({
+    id: crypto.randomUUID(),
+    user_id: process.env.POLIMATA_USER_ID,
+    data
+  });
+}
