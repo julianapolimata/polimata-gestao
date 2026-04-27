@@ -495,11 +495,13 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
           <div>
             <div style="font-size:14px;font-weight:600;color:var(--navy);">Evolução do Caixa</div>
-            <div style="font-size:11px;color:var(--text-mid);margin-top:2px;">12 meses realizados (linha cheia) + 6 meses projetados (linha tracejada)</div>
+            <div style="font-size:11px;color:var(--text-mid);margin-top:2px;">Janeiro a dezembro do ano corrente · barras saturadas = realizado · barras claras = projetado</div>
           </div>
-          <div style="display:flex;gap:14px;font-size:11px;color:var(--text-mid);">
-            <div><span style="display:inline-block;width:14px;height:3px;background:var(--green);vertical-align:middle;margin-right:5px;"></span>Realizado</div>
-            <div><span style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--gold);vertical-align:middle;margin-right:5px;"></span>Projetado</div>
+          <div style="display:flex;gap:16px;font-size:11px;color:var(--text-mid);flex-wrap:wrap;">
+            <div><span style="display:inline-block;width:12px;height:12px;background:rgba(39,174,96,0.85);vertical-align:middle;margin-right:5px;border-radius:2px;"></span>Entradas</div>
+            <div><span style="display:inline-block;width:12px;height:12px;background:rgba(204,145,94,0.85);vertical-align:middle;margin-right:5px;border-radius:2px;"></span>Saídas</div>
+            <div><span style="display:inline-block;width:14px;height:3px;background:var(--navy);vertical-align:middle;margin-right:5px;"></span>Saldo Acumulado</div>
+            <div style="color:var(--text-mid);font-style:italic;">· cores claras = projetado</div>
           </div>
         </div>
         <div style="height:280px;position:relative;">
@@ -2480,16 +2482,18 @@ function renderDashboard(){
     }
   }
 
-  // ── Gráfico + Tabela mês a mês ──
+  // ── Gráfico + Tabela mês a mês: ano calendário inteiro (jan-dez do ano atual) ──
   const meses = [];
-  for(let i = -11; i <= 6; i++){
-    const dt = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+  const anoAtual = hoje.getFullYear();
+  const mesAtualIdx = hoje.getMonth();
+  for(let m = 0; m <= 11; m++){
+    const dt = new Date(anoAtual, m, 1);
     meses.push({
-      ano: dt.getFullYear(),
-      mes: dt.getMonth(),
-      label: dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.',''),
-      futuro: i > 0,
-      atual: i === 0
+      ano: anoAtual,
+      mes: m,
+      label: dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.','').toLowerCase(),
+      futuro: m > mesAtualIdx,
+      atual: m === mesAtualIdx
     });
   }
   function inMonth(dateStr, ano, mes){
@@ -2512,28 +2516,82 @@ function renderDashboard(){
     return { ...m, entradas, saidas, saldoMes, saldoAcum };
   });
 
-  // Gráfico
+  // Gráfico misto: barras (entradas/saídas) + linha (saldo acumulado)
   const c = document.getElementById('dash-chart-saldo');
   if(c && window.Chart){
     if(c._chart) c._chart.destroy();
-    const labels = dados.map(d => d.label);
-    const realizado = dados.map(d => d.futuro ? null : d.saldoAcum);
-    const projetado = dados.map(d => (d.futuro || d.atual) ? d.saldoAcum : null);
+    const labels = dados.map(d => d.label.charAt(0).toUpperCase() + d.label.slice(1));
+    // Cores: real saturado, projetado mais claro/translúcido
+    const corEntrada = (d) => d.futuro ? 'rgba(39,174,96,0.35)' : 'rgba(39,174,96,0.85)';
+    const corSaida   = (d) => d.futuro ? 'rgba(204,145,94,0.35)' : 'rgba(204,145,94,0.85)';
     c._chart = new Chart(c, {
-      type: 'line',
       data: {
         labels,
         datasets: [
-          { label: 'Realizado', data: realizado, borderColor: 'rgba(39,174,96,1)', backgroundColor: 'rgba(39,174,96,0.10)', borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointBackgroundColor: 'rgba(39,174,96,1)', fill: true, spanGaps: false },
-          { label: 'Projetado', data: projetado, borderColor: 'rgba(204,145,94,1)', backgroundColor: 'rgba(204,145,94,0.06)', borderWidth: 2.5, borderDash: [6, 4], tension: 0.3, pointRadius: 3, pointBackgroundColor: 'rgba(204,145,94,1)', fill: true, spanGaps: true }
+          {
+            type: 'bar',
+            label: 'Entradas',
+            data: dados.map(d => d.entradas),
+            backgroundColor: dados.map(corEntrada),
+            borderColor: 'rgba(39,174,96,1)',
+            borderWidth: 1,
+            order: 2
+          },
+          {
+            type: 'bar',
+            label: 'Saídas',
+            data: dados.map(d => d.saidas),
+            backgroundColor: dados.map(corSaida),
+            borderColor: 'rgba(204,145,94,1)',
+            borderWidth: 1,
+            order: 2
+          },
+          {
+            type: 'line',
+            label: 'Saldo Acumulado',
+            data: dados.map(d => d.saldoAcum),
+            borderColor: 'rgba(0,32,62,1)',
+            backgroundColor: 'rgba(0,32,62,0.05)',
+            borderWidth: 2.5,
+            tension: 0.3,
+            pointRadius: 4,
+            pointBackgroundColor: dados.map(d => d.futuro ? 'rgba(0,32,62,0.4)' : 'rgba(0,32,62,1)'),
+            pointBorderColor: 'rgba(0,32,62,1)',
+            pointBorderWidth: 1.5,
+            fill: false,
+            order: 1,
+            segment: {
+              borderDash: ctx => {
+                const i = ctx.p1DataIndex;
+                return (dados[i] && dados[i].futuro) ? [6,4] : undefined;
+              }
+            }
+          }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                return `${ctx.dataset.label}: R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              }
+            }
+          }
+        },
         scales: {
-          y: { ticks: { callback: (v) => 'R$ '+(v/1000).toFixed(1)+'k', font:{size:10} } },
-          x: { ticks: { font:{size:10} } }
+          y: {
+            ticks: { callback: (v) => 'R$ '+(v/1000).toFixed(1)+'k', font:{size:10} },
+            grid: { color: 'rgba(0,0,0,0.05)' }
+          },
+          x: {
+            ticks: { font:{size:11} },
+            grid: { display: false }
+          }
         }
       }
     });
