@@ -2541,36 +2541,59 @@ function renderEstrategicos(){
   const iccSubEl = document.getElementById('estr-icc-sub');
   const iccCardEl = document.getElementById('estr-icc-card');
   if(iccEl){
-    if(despFixaMensal > 0){
+    if(despFixaMensal > 0 && caixaAtual >= 0){
       const meses = caixaAtual / despFixaMensal;
-      iccEl.textContent = `${meses.toFixed(1)} meses`;
-      iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
-      let cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)');
-      iccEl.style.color = cor;
-      if(iccCardEl) iccCardEl.style.borderTop = `3px solid ${cor}`;
+      // Cap visual em 24+ pra não mostrar números absurdos quando amostra é pequena
+      if(meses > 24){
+        iccEl.textContent = '24+ meses';
+        iccSubEl.textContent = despFixaMensal < 500
+          ? `amostra pequena · ${fmtMoney(despFixaMensal)}/mês (vai estabilizar com mais dados)`
+          : `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
+        iccEl.style.color = 'var(--green)';
+        if(iccCardEl) iccCardEl.style.borderTop = '3px solid var(--green)';
+      } else {
+        iccEl.textContent = `${meses.toFixed(1)} meses`;
+        iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
+        let cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)');
+        iccEl.style.color = cor;
+        if(iccCardEl) iccCardEl.style.borderTop = `3px solid ${cor}`;
+      }
+    } else if(caixaAtual < 0){
+      iccEl.textContent = 'Negativo';
+      iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} — em déficit`;
+      iccEl.style.color = 'var(--red)';
+      if(iccCardEl) iccCardEl.style.borderTop = '3px solid var(--red)';
     } else {
       iccEl.textContent = '—';
       iccSubEl.textContent = 'sem despesas pagas pra calcular';
     }
   }
 
-  // Saldo projetado 30/60/90d
+  // Saldo projetado: faixas incrementais (próx 30d, 30-60d, 60-90d)
   const saldoEl = document.getElementById('estr-saldo-valor');
+  const saldoSubEl = document.getElementById('estr-saldo-sub');
   if(saldoEl){
-    function projetar(dias){
-      const limite = new Date(hoje); limite.setDate(limite.getDate() + dias);
-      const limiteStr = limite.toISOString().slice(0,10);
-      const hojeStr = hoje.toISOString().slice(0,10);
-      const recProj = (DB.receivable||[]).filter(r => r.status !== 'Recebido' && r.due >= hojeStr && r.due <= limiteStr).reduce((a,r) => a + Number(r.value||0), 0);
-      const payProj = (DB.payable||[]).filter(r => r.status !== 'Pago' && r.due >= hojeStr && r.due <= limiteStr).reduce((a,r) => a + Number(r.value||0), 0);
+    function projetarFaixa(diasIni, diasFim){
+      const ini = new Date(hoje); ini.setDate(ini.getDate() + diasIni);
+      const fim = new Date(hoje); fim.setDate(fim.getDate() + diasFim);
+      const iniStr = ini.toISOString().slice(0,10);
+      const fimStr = fim.toISOString().slice(0,10);
+      const recProj = (DB.receivable||[]).filter(r => r.status !== 'Recebido' && r.due >= iniStr && r.due <= fimStr).reduce((a,r) => a + Number(r.value||0), 0);
+      const payProj = (DB.payable||[]).filter(r => r.status !== 'Pago' && r.due >= iniStr && r.due <= fimStr).reduce((a,r) => a + Number(r.value||0), 0);
       return recProj - payProj;
     }
-    const s30 = projetar(30), s60 = projetar(60), s90 = projetar(90);
+    const f1 = projetarFaixa(0, 30);
+    const f2 = projetarFaixa(31, 60);
+    const f3 = projetarFaixa(61, 90);
+    const total = f1 + f2 + f3;
     saldoEl.innerHTML = `
-      <div>30d: <span style="color:${s30>=0?'var(--green)':'var(--red)'};">${fmtMoney(s30)}</span></div>
-      <div>60d: <span style="color:${s60>=0?'var(--green)':'var(--red)'};">${fmtMoney(s60)}</span></div>
-      <div>90d: <span style="color:${s90>=0?'var(--green)':'var(--red)'};">${fmtMoney(s90)}</span></div>
+      <div style="font-size:13px;">Próx 30d: <span style="color:${f1>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f1)}</span></div>
+      <div style="font-size:13px;">30 a 60d: <span style="color:${f2>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f2)}</span></div>
+      <div style="font-size:13px;">60 a 90d: <span style="color:${f3>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f3)}</span></div>
     `;
+    if(saldoSubEl){
+      saldoSubEl.innerHTML = `Total 90d: <strong style="color:${total>=0?'var(--green)':'var(--red)'};">${fmtMoney(total)}</strong>`;
+    }
   }
 
   // Faturamento mensal: este mês vs mês passado
@@ -2580,7 +2603,8 @@ function renderEstrategicos(){
     const mesAtual = hoje.getMonth(), anoAtual = hoje.getFullYear();
     function fatMes(year, month){
       return (DB.receivable||[]).filter(r => {
-        if(r.status !== 'Recebido') return false;
+        // Conta tudo que foi emitido no mês (NF gerou a conta a receber).
+        // Usa created como fallback se due não existir, e ignora status.
         const d = new Date((r.due||r.created||today())+'T12:00:00');
         return d.getFullYear() === year && d.getMonth() === month;
       }).reduce((a,r) => a + Number(r.value||0), 0);
