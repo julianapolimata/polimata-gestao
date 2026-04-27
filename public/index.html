@@ -910,7 +910,24 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
           <option value="Cancelado">Cancelado</option>
         </select>
       </div>
-      <div class="kanban" id="proj-kanban"></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th class="sortable" onclick="sortTableProjetos('codigo','string')">Cód. <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('name','string')">Projeto <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('client','string')">Cliente <span class="sort-arrow">▾</span></th>
+            <th>Responsável</th>
+            <th class="sortable" onclick="sortTableProjetos('start','date')">Início <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('deadline','date')">Entrega <span class="sort-arrow">▾</span></th>
+            <th>Etapas</th>
+            <th class="sortable" onclick="sortTableProjetos('value','number')">Valor <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('progress','number')">% <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('status','string')">Status <span class="sort-arrow">▾</span></th>
+            <th>Ações</th>
+          </tr></thead>
+          <tbody id="proj-tbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ===== TAREFAS ===== -->
@@ -3970,60 +3987,107 @@ function deleteCli(id){
 // PROJETOS (KANBAN)
 // =============================================
 function renderProjects(){
-  const f = document.getElementById('proj-filter').value;
-  const cols = ['Em planejamento','Em execução','Pausado','Concluído','Cancelado'];
-  const kanban = document.getElementById('proj-kanban');
+  const f = document.getElementById('proj-filter')?.value || '';
   // Migração silenciosa: status antigos -> novos
-  DB.projects.forEach(p => {
+  (DB.projects||[]).forEach(p => {
     if(p.status === 'Aguardando') p.status = 'Em planejamento';
     if(p.status === 'Em andamento') p.status = 'Em execução';
   });
+  let data = (DB.projects||[]).filter(p => !f || p.status === f);
+  data = applySortProjetos(data);
+  _markSortHeadersProjetos();
 
-  // Estado vazio: nenhum projeto cadastrado
-  if(!DB.projects.length){
-    kanban.style.display = 'block';
-    kanban.innerHTML = `<div class="empty-state" style="text-align:center;padding:60px 20px;background:var(--cream);border-radius:8px;">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="color:var(--text-mid);margin-bottom:14px;"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-      <h3 style="font-size:14px;color:var(--navy);margin-bottom:6px;">Nenhum projeto ainda</h3>
-      <p style="font-size:12px;color:var(--text-mid);margin-bottom:14px;">Comece criando seu primeiro projeto ou converta um prospect "Fechado" do CRM.</p>
+  const tbody = document.getElementById('proj-tbody');
+  if(!tbody) return;
+  if(!data.length){
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state" style="text-align:center;padding:40px 20px;">
+      <h3 style="font-size:14px;color:var(--navy);margin-bottom:6px;">Nenhum projeto encontrado</h3>
+      <p style="font-size:12px;color:var(--text-mid);margin-bottom:14px;">${f ? 'Tente outro filtro de status.' : 'Comece criando seu primeiro projeto.'}</p>
       <button class="btn btn-primary" onclick="openProjectModal()">+ Novo Projeto</button>
-    </div>`;
+    </div></td></tr>`;
     return;
   }
-  kanban.style.display = '';
 
-  kanban.innerHTML = cols.map(col=>{
-    const allItems = DB.projects.filter(p=>p.status===col);
-    const displayItems = f ? (f===col ? allItems : []) : allItems;
-    return `<div class="kanban-col">
-      <div class="kanban-col-title">
-        ${col}
-        <span class="kanban-count">${displayItems.length}</span>
-      </div>
-      ${displayItems.length ? displayItems.map(p=>{
-        const etapas = p.etapas || [];
-        const concluidas = etapas.filter(e => e.status === 'concluida').length;
-        const totalEtapas = etapas.length;
-        const contratosLink = DB.contracts.filter(c => (c.party||'').toLowerCase() === (p.client||'').toLowerCase());
-        const valorTotalContratos = contratosLink.reduce((a,c) => a + Number(c.value||0), 0);
-        return `
-        <div class="kanban-card" style="border-left:4px solid ${colColor(col)};padding:12px;">
-          <div class="kanban-card-client" style="font-size:10px;color:var(--text-mid);text-transform:uppercase;letter-spacing:1px;">${p.client||'Sem cliente'}</div>
-          <div class="kanban-card-title" style="font-weight:600;color:var(--navy);font-size:13px;margin:4px 0;">${p.name}</div>
-          ${p.responsavel?`<div style="font-size:10px;color:var(--text-mid);">👤 ${p.responsavel}</div>`:''}
-          <div class="kanban-card-meta" style="font-size:10px;color:var(--text-mid);">📅 Entrega: ${fmtDate(p.deadline)||'—'}</div>
-          ${totalEtapas > 0 ? `<div style="font-size:10px;color:var(--text-mid);">📍 ${concluidas}/${totalEtapas} etapas</div>` : ''}
-          ${contratosLink.length ? `<div style="font-size:10px;color:var(--gold-dark);">📜 ${contratosLink.length} contrato(s) — ${fmtMoney(valorTotalContratos)}</div>` : ''}
-          ${p.progress!=null?`<div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${p.progress}%;background:${colColor(col)};"></div></div>`:''}
-          <div style="display:flex;gap:5px;margin-top:10px;">
-            <button class="btn btn-outline btn-xs" onclick="editProject('${p.id}')">Editar</button>
-            <button class="btn btn-xs" style="border:1.5px solid var(--red);color:var(--red);background:transparent;" onclick="deleteProj('${p.id}')">×</button>
+  tbody.innerHTML = data.map(p => {
+    const etapas = p.etapas || [];
+    const concluidas = etapas.filter(e => e.status === 'concluida').length;
+    const totalEtapas = etapas.length;
+    const corStatus = colColor(p.status);
+    const progresso = p.progress != null ? Number(p.progress) : 0;
+    return `<tr>
+      <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${p.codigo||'—'}</td>
+      <td style="font-weight:500;color:var(--navy);">${p.name||'—'}</td>
+      <td>${p.client||'—'}</td>
+      <td style="font-size:11px;color:var(--text-mid);">${p.responsavel||'—'}</td>
+      <td style="font-size:11px;">${fmtDate(p.start)||'—'}</td>
+      <td style="font-size:11px;">${fmtDate(p.deadline)||'—'}</td>
+      <td style="font-size:11px;color:var(--text-mid);">${totalEtapas > 0 ? `${concluidas}/${totalEtapas}` : '—'}</td>
+      <td style="font-weight:600;color:var(--gold-dark);">${p.value ? fmtMoney(p.value) : '—'}</td>
+      <td style="min-width:90px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div class="progress-bar" style="flex:1;height:6px;background:var(--cream-dark);border-radius:3px;overflow:hidden;">
+            <div class="progress-fill" style="width:${progresso}%;height:100%;background:${corStatus};"></div>
           </div>
+          <span style="font-size:10px;font-weight:600;color:var(--navy);">${progresso}%</span>
         </div>
-      `;
-      }).join('') : ''}
-    </div>`;
+      </td>
+      <td><span class="badge" style="background:${corStatus}20;color:${corStatus};padding:3px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:0.5px;">${p.status||'—'}</span></td>
+      <td><div class="action-btns">
+        <button class="icon-btn" title="Editar" onclick="editProject('${p.id}')">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="icon-btn danger" title="Excluir" onclick="deleteProj('${p.id}')">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+        </button>
+      </div></td>
+    </tr>`;
   }).join('');
+}
+
+// Estado de ordenação da tabela de Projetos
+const _sortStateProjetos = { col: 'deadline', dir: 'asc' };
+
+function sortTableProjetos(col, type){
+  if(_sortStateProjetos.col === col){
+    _sortStateProjetos.dir = _sortStateProjetos.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _sortStateProjetos.col = col;
+    _sortStateProjetos.dir = 'asc';
+  }
+  renderProjects();
+}
+
+function applySortProjetos(data){
+  const st = _sortStateProjetos;
+  const dir = st.dir === 'asc' ? 1 : -1;
+  const col = st.col;
+  return [...data].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if(['value', 'progress'].includes(col)){
+      va = Number(va||0); vb = Number(vb||0);
+    } else if(['start', 'deadline'].includes(col)){
+      va = va || ''; vb = vb || '';
+    } else {
+      va = (va||'').toString().toLowerCase();
+      vb = (vb||'').toString().toLowerCase();
+    }
+    if(va < vb) return -1*dir;
+    if(va > vb) return 1*dir;
+    return 0;
+  });
+}
+
+function _markSortHeadersProjetos(){
+  document.querySelectorAll('th.sortable[onclick*="sortTableProjetos"]').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    const arrow = th.querySelector('.sort-arrow');
+    if(th.getAttribute('onclick')?.includes(`'${_sortStateProjetos.col}'`)){
+      th.classList.add(_sortStateProjetos.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      if(arrow) arrow.textContent = _sortStateProjetos.dir === 'asc' ? '▴' : '▾';
+    } else {
+      if(arrow) arrow.textContent = '▾';
+    }
+  });
 }
 
 function colColor(col){
