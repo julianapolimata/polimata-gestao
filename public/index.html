@@ -465,192 +465,69 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
 
     <!-- ===== DASHBOARD ===== -->
     <div class="view active" id="view-dashboard">
-      <!-- INDICADORES ESTRATÉGICOS (topo) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:24px;align-items:stretch;">
-        <div class="card" id="estr-icc-card" style="cursor:default;height:200px;display:flex;flex-direction:column;overflow:hidden;">
-          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">ICC · Cobertura de caixa</div>
-          <div id="estr-icc-valor" style="font-size:28px;font-weight:700;color:var(--navy);line-height:1;">—</div>
-          <div id="estr-icc-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">aguardando dados</div>
-        </div>
-        <div class="card" id="estr-saldo-card" style="cursor:default;height:200px;display:flex;flex-direction:column;overflow:hidden;">
-          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Saldo projetado · 30/60/90d</div>
-          <div id="estr-saldo-valor" style="font-size:18px;font-weight:700;color:var(--navy);line-height:1.2;">—</div>
-          <div id="estr-saldo-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">a receber − a pagar</div>
-        </div>
-        <div class="card" style="cursor:pointer;height:200px;display:flex;flex-direction:column;overflow:hidden;" onclick="showView('cashflow')">
-          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Faturamento mensal</div>
-          <div id="estr-fat-valor" style="font-size:24px;font-weight:700;color:var(--green);line-height:1;">—</div>
-          <div id="estr-fat-sub" style="font-size:11px;color:var(--text-mid);margin-top:6px;">vs mês passado</div>
-          <div style="flex:1;position:relative;margin-top:10px;min-height:60px;">
-            <canvas id="estr-fat-chart" style="position:absolute;top:0;left:0;width:100%!important;height:100%!important;"></canvas>
+      <!-- BANNER DE ALERTAS -->
+      <div id="dash-alerts"></div>
+
+      <!-- 3 KPIs ESSENCIAIS -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px;">
+        <div class="card" id="kpi-contratos" style="cursor:pointer;padding:24px;border-top:3px solid var(--gold);" onclick="showView('contracts')">
+          <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-mid);margin-bottom:10px;">Contratos Ativos</div>
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <div id="kpi-contratos-num" style="font-size:42px;font-weight:700;color:var(--navy);line-height:1;">0</div>
+            <div style="font-size:11px;color:var(--text-mid);">contrato(s)</div>
           </div>
+          <div id="kpi-contratos-val" style="font-size:13px;color:var(--gold-dark);margin-top:8px;font-weight:600;">R$ 0,00 em valor total</div>
         </div>
-        <div class="card" style="cursor:pointer;height:200px;display:flex;flex-direction:column;overflow:hidden;" onclick="navegarComFiltro('payable', { 'pay-filter-status': 'Pendente', 'pay-filter-period': 'mes' })">
-          <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-mid);margin-bottom:8px;">Próximas a pagar</div>
-          <div id="estr-prox-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--navy);overflow-y:auto;">—</div>
+        <div class="card" id="kpi-caixa" style="padding:24px;border-top:3px solid var(--green);">
+          <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-mid);margin-bottom:10px;">Caixa Atual</div>
+          <div id="kpi-caixa-val" style="font-size:32px;font-weight:700;color:var(--green);line-height:1;">R$ 0,00</div>
+          <div id="kpi-caixa-sub" style="font-size:11px;color:var(--text-mid);margin-top:8px;">recebido − pago</div>
+        </div>
+        <div class="card" id="kpi-icc" style="padding:24px;border-top:3px solid var(--gold);">
+          <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-mid);margin-bottom:10px;">ICC · Cobertura de Caixa</div>
+          <div id="kpi-icc-val" style="font-size:32px;font-weight:700;color:var(--navy);line-height:1;">—</div>
+          <div id="kpi-icc-sub" style="font-size:11px;color:var(--text-mid);margin-top:8px;">aguardando dados</div>
         </div>
       </div>
 
-      <!-- ROW 1: KPIs principais -->
-      <div class="stats-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px;">
-        <div class="stat-card green">
-          <div class="stat-label">Total a Receber</div>
-          <div class="stat-value" id="dash-receivable">R$ 0</div>
-          <div class="stat-sub" id="dash-receivable-count">0 pendentes</div>
+      <!-- GRÁFICO DE EVOLUÇÃO DO CAIXA -->
+      <div class="card" style="padding:24px;margin-bottom:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:var(--navy);">Evolução do Caixa</div>
+            <div style="font-size:11px;color:var(--text-mid);margin-top:2px;">12 meses realizados (linha cheia) + 6 meses projetados (linha tracejada)</div>
+          </div>
+          <div style="display:flex;gap:14px;font-size:11px;color:var(--text-mid);">
+            <div><span style="display:inline-block;width:14px;height:3px;background:var(--green);vertical-align:middle;margin-right:5px;"></span>Realizado</div>
+            <div><span style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--gold);vertical-align:middle;margin-right:5px;"></span>Projetado</div>
+          </div>
         </div>
-        <div class="stat-card red">
-          <div class="stat-label">Total a Pagar</div>
-          <div class="stat-value" id="dash-payable">R$ 0</div>
-          <div class="stat-sub" id="dash-payable-count">0 pendentes</div>
-        </div>
-        <div class="stat-card gold">
-          <div class="stat-label">Saldo Projetado</div>
-          <div class="stat-value" id="dash-balance">R$ 0</div>
-          <div class="stat-sub" id="dash-balance-sub">Receber − Pagar</div>
-        </div>
-        <div class="stat-card" id="dash-acum-card" style="border-top:3px solid var(--navy);background:var(--cream);">
-          <div class="stat-label">Saldo Acumulado</div>
-          <div class="stat-value" id="dash-acumulado">R$ 0</div>
-          <div class="stat-sub" id="dash-acumulado-sub">Recebido − Pago</div>
-        </div>
-        <div class="stat-card navy">
-          <div class="stat-label">Contratos Ativos</div>
-          <div class="stat-value" id="dash-contracts">0</div>
-          <div class="stat-sub" id="dash-contracts-val">R$ 0 em contratos</div>
+        <div style="height:280px;position:relative;">
+          <canvas id="dash-chart-saldo" style="position:absolute;top:0;left:0;width:100%!important;height:100%!important;"></canvas>
         </div>
       </div>
 
-      <!-- ALERTAS -->
-      <div id="dash-alerts" style="margin-bottom:20px;"></div>
-
-      <!-- ROW 2: Mês atual + Alertas operacionais + Top categorias -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
-
-        <!-- Bloco: Saúde do Mês -->
-        <div class="card" style="margin:0;">
-          <div class="card-header" style="border-bottom:2px solid var(--cream-dark);">
-            <span class="card-title">📅 Mês Atual</span>
-            <span id="dash-mes-label" style="font-size:10px;color:var(--text-mid);font-weight:500;"></span>
-          </div>
-          <div class="card-body" style="padding:16px 18px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
-              <div style="background:rgba(39,174,96,0.07);border-radius:8px;padding:12px;border-left:3px solid var(--green);">
-                <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--green);margin-bottom:4px;">Receita</div>
-                <div id="dash-mes-rec" style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:var(--green);">R$ 0</div>
-              </div>
-              <div style="background:rgba(231,76,60,0.07);border-radius:8px;padding:12px;border-left:3px solid var(--red);">
-                <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--red);margin-bottom:4px;">Despesa</div>
-                <div id="dash-mes-pay" style="font-family:'Cormorant Garamond',serif;font-size:20px;font-weight:600;color:var(--red);">R$ 0</div>
-              </div>
-            </div>
-            <div style="background:var(--cream);border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--navy);margin-bottom:2px;">Saldo do Mês</div>
-                <div id="dash-mes-saldo" style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;">R$ 0</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="font-size:9px;color:var(--text-mid);margin-bottom:2px;">Margem</div>
-                <div id="dash-mes-margem" style="font-size:18px;font-weight:700;font-family:'Cormorant Garamond',serif;">—</div>
-              </div>
-            </div>
-          </div>
+      <!-- TABELA MÊS A MÊS -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:18px 24px 14px;border-bottom:1px solid var(--cream-dark);">
+          <div style="font-size:14px;font-weight:600;color:var(--navy);">Mês a Mês</div>
+          <div style="font-size:11px;color:var(--text-mid);margin-top:2px;">Entradas, saídas e saldo mês a mês</div>
         </div>
-
-        <!-- Bloco: Alertas & Pendências -->
-        <div class="card" style="margin:0;">
-          <div class="card-header" style="border-bottom:2px solid var(--cream-dark);">
-            <span class="card-title">⚠️ Pendências</span>
-          </div>
-          <div class="card-body" style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;background:rgba(231,76,60,0.07);border-left:3px solid var(--red);">
-              <div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--red);">A Receber Vencidos</div>
-                <div id="dash-pend-rec-val" style="font-size:11px;color:var(--text-mid);margin-top:1px;">R$ 0</div>
-              </div>
-              <div id="dash-pend-rec" style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:600;color:var(--red);">0</div>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;background:rgba(231,76,60,0.07);border-left:3px solid var(--orange);">
-              <div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--orange);">A Pagar Vencidos</div>
-                <div id="dash-pend-pay-val" style="font-size:11px;color:var(--text-mid);margin-top:1px;">R$ 0</div>
-              </div>
-              <div id="dash-pend-pay" style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:600;color:var(--orange);">0</div>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;background:rgba(204,145,94,0.08);border-left:3px solid var(--gold);">
-              <div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--gold-dark);">Vencem em 7 dias</div>
-                <div id="dash-pend-7d-val" style="font-size:11px;color:var(--text-mid);margin-top:1px;">R$ 0</div>
-              </div>
-              <div id="dash-pend-7d" style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:600;color:var(--gold-dark);">0</div>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:8px;background:rgba(0,32,62,0.04);border-left:3px solid var(--navy-mid);">
-              <div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--navy);">Contratos Vencendo</div>
-                <div style="font-size:11px;color:var(--text-mid);margin-top:1px;">próx. 30 dias</div>
-              </div>
-              <div id="dash-pend-con" style="font-family:'Cormorant Garamond',serif;font-size:28px;font-weight:600;color:var(--navy);">0</div>
-            </div>
-          </div>
+        <div class="tbl-wrap" style="margin:0;">
+          <table style="width:100%;font-size:12px;">
+            <thead>
+              <tr style="background:var(--navy);color:#fff;">
+                <th style="padding:10px 16px;text-align:left;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Mês</th>
+                <th style="padding:10px 16px;text-align:right;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Entradas</th>
+                <th style="padding:10px 16px;text-align:right;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Saídas</th>
+                <th style="padding:10px 16px;text-align:right;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Saldo do Mês</th>
+                <th style="padding:10px 16px;text-align:right;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Saldo Acumulado</th>
+                <th style="padding:10px 16px;text-align:center;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="dash-tabela-mensal"></tbody>
+          </table>
         </div>
-
-        <!-- Bloco: Top Categorias de Despesa -->
-        <div class="card" style="margin:0;">
-          <div class="card-header" style="border-bottom:2px solid var(--cream-dark);">
-            <span class="card-title">📊 Top Despesas</span>
-            <span style="font-size:10px;color:var(--text-mid);font-weight:500;">por categoria</span>
-          </div>
-          <div class="card-body" style="padding:16px 18px;" id="dash-top-cats">
-            <p style="font-size:12px;color:var(--text-mid);text-align:center;padding:20px 0;">Sem lançamentos.</p>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- ROW 3: Projetos + Cadastro -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
-        <!-- Projetos Ativos -->
-        <div class="card" style="margin:0;">
-          <div class="card-header" style="border-bottom:2px solid var(--cream-dark);">
-            <span class="card-title">🗂️ Projetos Ativos</span>
-            <span id="dash-proj-count" style="font-size:10px;color:var(--text-mid);font-weight:500;"></span>
-          </div>
-          <div class="card-body" id="dash-projects-list" style="padding:14px 18px;"></div>
-        </div>
-
-        <!-- Cadastro Resumo -->
-        <div class="card" style="margin:0;">
-          <div class="card-header" style="border-bottom:2px solid var(--cream-dark);">
-            <span class="card-title">👥 Cadastro</span>
-          </div>
-          <div class="card-body" style="padding:16px 18px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
-              <div style="text-align:center;background:var(--cream);border-radius:8px;padding:14px 8px;">
-                <div id="dash-cad-forn" style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:300;color:var(--navy);line-height:1;">0</div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-mid);margin-top:4px;">Fornecedores</div>
-              </div>
-              <div style="text-align:center;background:var(--cream);border-radius:8px;padding:14px 8px;">
-                <div id="dash-cad-cli" style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:300;color:var(--navy);line-height:1;">0</div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-mid);margin-top:4px;">Clientes</div>
-              </div>
-              <div style="text-align:center;background:var(--cream);border-radius:8px;padding:14px 8px;">
-                <div id="dash-cad-func" style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:300;color:var(--navy);line-height:1;">0</div>
-                <div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-mid);margin-top:4px;">Funcionários</div>
-              </div>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px;">
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--cream);border-radius:6px;">
-                <span style="font-size:11px;color:var(--navy);">Clientes & Prospects (CRM)</span>
-                <span id="dash-cad-crm" style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:var(--navy);">0</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--cream);border-radius:6px;">
-                <span style="font-size:11px;color:var(--navy);">Projetos em andamento</span>
-                <span id="dash-cad-proj" style="font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:600;color:var(--navy);">0</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
 
@@ -2522,291 +2399,168 @@ function emptyRow(cols, msg='Nenhum registro encontrado.'){
 // =============================================
 // DASHBOARD
 // =============================================
-function renderEstrategicos(){
-  // ICC — Índice de Cobertura de Caixa
-  // Caixa = total recebido — total pago (histórico, valor atual em conta)
-  const totalRecebido = (DB.receivable||[]).filter(r => r.status === 'Recebido').reduce((a,r) => a + Number(r.value||0), 0);
-  const totalPago = (DB.payable||[]).filter(r => r.status === 'Pago').reduce((a,r) => a + Number(r.value||0), 0);
-  const caixaAtual = totalRecebido - totalPago;
-  // Despesa fixa mensal média = média de despesas pagas nos últimos 3 meses
-  const hoje = new Date();
-  const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
-  const despUltimos3 = (DB.payable||[]).filter(r => {
-    if(r.status !== 'Pago') return false;
-    const d = new Date((r.due||r.created||today())+'T12:00:00');
-    return d >= tresMesesAtras;
-  }).reduce((a,r) => a + Number(r.value||0), 0);
-  const despFixaMensal = despUltimos3 / 3;
-  const iccEl = document.getElementById('estr-icc-valor');
-  const iccSubEl = document.getElementById('estr-icc-sub');
-  const iccCardEl = document.getElementById('estr-icc-card');
-  if(iccEl){
-    if(despFixaMensal > 0 && caixaAtual >= 0){
-      const meses = caixaAtual / despFixaMensal;
-      // Cap visual em 24+ pra não mostrar números absurdos quando amostra é pequena
-      if(meses > 24){
-        iccEl.textContent = '24+ meses';
-        iccSubEl.textContent = despFixaMensal < 500
-          ? `amostra pequena · ${fmtMoney(despFixaMensal)}/mês (vai estabilizar com mais dados)`
-          : `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
-        iccEl.style.color = 'var(--green)';
-        if(iccCardEl) iccCardEl.style.borderTop = '3px solid var(--green)';
-      } else {
-        iccEl.textContent = `${meses.toFixed(1)} meses`;
-        iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
-        let cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)');
-        iccEl.style.color = cor;
-        if(iccCardEl) iccCardEl.style.borderTop = `3px solid ${cor}`;
-      }
-    } else if(caixaAtual < 0){
-      iccEl.textContent = 'Negativo';
-      iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} — em déficit`;
-      iccEl.style.color = 'var(--red)';
-      if(iccCardEl) iccCardEl.style.borderTop = '3px solid var(--red)';
-    } else {
-      iccEl.textContent = '—';
-      iccSubEl.textContent = 'sem despesas pagas pra calcular';
-    }
-  }
+function renderDashboard(){
+  if(!DB.receivable) return;
 
-  // Saldo projetado: faixas incrementais (próx 30d, 30-60d, 60-90d)
-  const saldoEl = document.getElementById('estr-saldo-valor');
-  const saldoSubEl = document.getElementById('estr-saldo-sub');
-  if(saldoEl){
-    function projetarFaixa(diasIni, diasFim){
-      const ini = new Date(hoje); ini.setDate(ini.getDate() + diasIni);
-      const fim = new Date(hoje); fim.setDate(fim.getDate() + diasFim);
-      const iniStr = ini.toISOString().slice(0,10);
-      const fimStr = fim.toISOString().slice(0,10);
-      const recProj = (DB.receivable||[]).filter(r => r.status !== 'Recebido' && r.due >= iniStr && r.due <= fimStr).reduce((a,r) => a + Number(r.value||0), 0);
-      const payProj = (DB.payable||[]).filter(r => r.status !== 'Pago' && r.due >= iniStr && r.due <= fimStr).reduce((a,r) => a + Number(r.value||0), 0);
-      return recProj - payProj;
-    }
-    const f1 = projetarFaixa(0, 30);
-    const f2 = projetarFaixa(31, 60);
-    const f3 = projetarFaixa(61, 90);
-    const total = f1 + f2 + f3;
-    saldoEl.innerHTML = `
-      <div style="font-size:13px;">Próx 30d: <span style="color:${f1>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f1)}</span></div>
-      <div style="font-size:13px;">30 a 60d: <span style="color:${f2>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f2)}</span></div>
-      <div style="font-size:13px;">60 a 90d: <span style="color:${f3>=0?'var(--green)':'var(--red)'};font-weight:700;">${fmtMoney(f3)}</span></div>
-    `;
-    if(saldoSubEl){
-      saldoSubEl.innerHTML = `Total 90d: <strong style="color:${total>=0?'var(--green)':'var(--red)'};">${fmtMoney(total)}</strong>`;
-    }
-  }
-
-  // Faturamento mensal: este mês vs mês passado
-  const fatEl = document.getElementById('estr-fat-valor');
-  const fatSubEl = document.getElementById('estr-fat-sub');
-  if(fatEl){
-    const mesAtual = hoje.getMonth(), anoAtual = hoje.getFullYear();
-    function fatMes(year, month){
-      return (DB.receivable||[]).filter(r => {
-        // Conta tudo que foi emitido no mês (NF gerou a conta a receber).
-        // Usa created como fallback se due não existir, e ignora status.
-        const d = new Date((r.due||r.created||today())+'T12:00:00');
-        return d.getFullYear() === year && d.getMonth() === month;
-      }).reduce((a,r) => a + Number(r.value||0), 0);
-    }
-    const atual = fatMes(anoAtual, mesAtual);
-    const passado = fatMes(mesAtual === 0 ? anoAtual-1 : anoAtual, mesAtual === 0 ? 11 : mesAtual-1);
-    fatEl.textContent = fmtMoney(atual);
-    if(passado > 0){
-      const variacao = ((atual - passado)/passado * 100);
-      const sinal = variacao >= 0 ? '+' : '';
-      const cor = variacao >= 0 ? 'var(--green)' : 'var(--red)';
-      fatSubEl.innerHTML = `<span style="color:${cor};">${sinal}${variacao.toFixed(1)}%</span> vs ${fmtMoney(passado)} no mês passado`;
-    } else {
-      fatSubEl.textContent = passado === 0 ? 'sem comparação (1º mês)' : 'vs mês passado';
-    }
-    // Mini-chart: últimos 6 meses
-    try {
-      const c = document.getElementById('estr-fat-chart');
-      if(c && window.Chart){
-        if(c._chart) c._chart.destroy();
-        const meses = [];
-        const valores = [];
-        for(let i = 5; i >= 0; i--){
-          const dt = new Date(anoAtual, mesAtual - i, 1);
-          meses.push(dt.toLocaleDateString('pt-BR', { month: 'short' }));
-          valores.push(fatMes(dt.getFullYear(), dt.getMonth()));
-        }
-        c._chart = new Chart(c, {
-          type:'bar',
-          data:{ labels: meses, datasets:[{ data: valores, backgroundColor:'rgba(204,145,94,0.5)', borderColor:'var(--gold)', borderWidth:1 }] },
-          options:{ plugins:{ legend:{ display:false } }, scales:{ x:{ display:false }, y:{ display:false } }, responsive:true, maintainAspectRatio:false }
-        });
-      }
-    } catch(e){ /* chart opcional */ }
-  }
-
-  // Próximas a pagar (top 5 por vencimento)
-  const proxEl = document.getElementById('estr-prox-list');
-  if(proxEl){
-    const hojeStr = hoje.toISOString().slice(0,10);
-    const proximas = (DB.payable||[])
-      .filter(r => r.status !== 'Pago')
-      .sort((a,b) => (a.due||'9999').localeCompare(b.due||'9999'))
-      .slice(0, 5);
-    if(!proximas.length){
-      proxEl.innerHTML = '<span style="color:var(--text-mid);font-size:11px;">Nenhuma conta pendente</span>';
-    } else {
-      proxEl.innerHTML = proximas.map(p => {
-        const venc = isOverdue(p.due) ? '<span style="color:var(--red);font-weight:700;">VENCIDA</span>' : fmtDate(p.due);
-        return `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--cream-dark);padding:3px 0;">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%;">${(p.supplier||'—').substring(0,18)}</span>
-          <span style="color:var(--red);font-weight:600;font-size:10px;">${fmtMoney(p.value)}</span>
-        </div>`;
-      }).join('');
-    }
-  }
-}
-
-async function renderDashboard(){
-  // Sincronizar DB com localStorage para garantir dados frescos após importações
-  // Cache já está em memória; recarrega do Supabase para garantir freshness pós-import
-  try { renderEstrategicos(); } catch(e){ console.warn('renderEstrategicos:', e); }
-  if(currentUser){
-    await Promise.all(['receivable','payable','contracts','clients','projects','pessoas'].map(async k => {
-      const { data } = await supabase.from(k).select('data').eq('user_id', currentUser.id);
-      DB[k] = (data||[]).map(r => r.data);
-    }));
-  }
-
-  const now = new Date();
-  const ym  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-
-  // ── KPIs principais ──
-  const totalRec = DB.receivable.filter(r=>r.status!=='Recebido').reduce((a,r)=>a+Number(r.value),0);
-  const totalPay = DB.payable.filter(r=>r.status!=='Pago').reduce((a,r)=>a+Number(r.value),0);
-  const activeContracts = DB.contracts.filter(c=>c.status==='Ativo');
-  const contractsVal = activeContracts.reduce((a,c)=>a+Number(c.value),0);
-  const balance = totalRec - totalPay;
-
-  document.getElementById('dash-receivable').textContent = fmtMoney(totalRec);
-  document.getElementById('dash-receivable-count').textContent = DB.receivable.filter(r=>r.status!=='Recebido').length+' pendentes';
-  document.getElementById('dash-payable').textContent = fmtMoney(totalPay);
-  document.getElementById('dash-payable-count').textContent = DB.payable.filter(r=>r.status!=='Pago').length+' pendentes';
-  const balEl = document.getElementById('dash-balance');
-  balEl.textContent = fmtMoney(balance);
-  balEl.style.color = balance >= 0 ? 'var(--green)' : 'var(--red)';
-  // Saldo acumulado: total histórico de todas as entradas menos todas as saídas
-  const totalRecebido = DB.receivable.reduce((a,r)=>a+Number(r.value),0);
-  const totalPago     = DB.payable.reduce((a,r)=>a+Number(r.value),0);
-  const saldoAcum     = totalRecebido - totalPago;
-  const acumEl = document.getElementById('dash-acumulado');
-  if(acumEl){
-    acumEl.textContent = fmtMoney(saldoAcum);
-    acumEl.style.color = saldoAcum >= 0 ? 'var(--green)' : 'var(--red)';
-  }
-  const acumCard = document.getElementById('dash-acum-card');
-  if(acumCard) acumCard.style.borderTopColor = saldoAcum >= 0 ? 'var(--green)' : 'var(--red)';
-  const acumSub = document.getElementById('dash-acumulado-sub');
-  if(acumSub) acumSub.textContent = `${fmtMoney(totalRecebido)} recebido − ${fmtMoney(totalPago)} pago`;
-
-  document.getElementById('dash-contracts').textContent = activeContracts.length;
-  document.getElementById('dash-contracts-val').textContent = fmtMoney(contractsVal)+' em contratos';
-
-  // ── Alertas banner ──
-  const overdueRec = DB.receivable.filter(r=>r.status!=='Recebido'&&isOverdue(r.due));
-  const overduePay = DB.payable.filter(r=>r.status!=='Pago'&&isOverdue(r.due));
+  // ── Banner de alertas ──
+  const overdueRec = (DB.receivable||[]).filter(r=>r.status!=='Recebido'&&isOverdue(r.due));
+  const overduePay = (DB.payable||[]).filter(r=>r.status!=='Pago'&&isOverdue(r.due));
   const alerts = [];
   if(overdueRec.length) alerts.push(`<div class="alert alert-danger">⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a,r)=>a+Number(r.value),0))}</div>`);
   if(overduePay.length) alerts.push(`<div class="alert alert-danger">🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a,r)=>a+Number(r.value),0))}</div>`);
   const semDocList = [
-    ...DB.receivable.filter(r=>getDocStatus(r)==='pendente'),
-    ...DB.payable.filter(r=>getDocStatus(r)==='pendente')
+    ...(DB.receivable||[]).filter(r=>getDocStatus(r)==='pendente'),
+    ...(DB.payable||[]).filter(r=>getDocStatus(r)==='pendente')
   ];
   if(semDocList.length){
     const totalSemDoc = semDocList.reduce((a,r)=>a+Number(r.value||0), 0);
     alerts.push(`<div class="alert alert-warning" style="background:rgba(204,145,94,0.10);border-left:3px solid var(--gold);color:var(--navy);">📎 ${semDocList.length} lançamento(s) com NF pendente — ${fmtMoney(totalSemDoc)} (atenção contábil)</div>`);
   }
-  document.getElementById('dash-alerts').innerHTML = alerts.join('');
+  const dashAlertsEl = document.getElementById('dash-alerts');
+  if(dashAlertsEl) dashAlertsEl.innerHTML = alerts.join('');
 
-  // ── Bloco 1: Mês atual ──
-  const mesRec = DB.receivable.filter(r=>(r.due||r.created||'').startsWith(ym)).reduce((a,r)=>a+Number(r.value),0);
-  const mesPay = DB.payable.filter(r=>(r.due||r.created||'').startsWith(ym)).reduce((a,r)=>a+Number(r.value),0);
-  const mesSaldo = mesRec - mesPay;
-  const mesMargem = mesRec > 0 ? ((mesSaldo/mesRec)*100).toFixed(1) : null;
-  document.getElementById('dash-mes-label').textContent = meses[now.getMonth()]+' '+now.getFullYear();
-  document.getElementById('dash-mes-rec').textContent = fmtMoney(mesRec);
-  document.getElementById('dash-mes-pay').textContent = fmtMoney(mesPay);
-  const saldoEl = document.getElementById('dash-mes-saldo');
-  saldoEl.textContent = fmtMoney(mesSaldo);
-  saldoEl.style.color = mesSaldo >= 0 ? 'var(--green)' : 'var(--red)';
-  const margemEl = document.getElementById('dash-mes-margem');
-  margemEl.textContent = mesMargem !== null ? mesMargem+'%' : '—';
-  margemEl.style.color = mesMargem >= 0 ? 'var(--green)' : 'var(--red)';
+  // ── KPI 1: Contratos Ativos ──
+  const contratos = (DB.contracts||[]).filter(c => {
+    const s = (c.status||'').toLowerCase();
+    return s === 'ativo' || s === 'em vigor' || s === 'vigente' || (!c.status && c.value);
+  });
+  const valContratos = contratos.reduce((a,c)=>a+Number(c.value||0),0);
+  const numEl = document.getElementById('kpi-contratos-num');
+  const valEl = document.getElementById('kpi-contratos-val');
+  if(numEl) numEl.textContent = contratos.length;
+  if(valEl) valEl.textContent = `${fmtMoney(valContratos)} em valor total`;
 
-  // ── Bloco 2: Pendências ──
-  const vence7 = [
-    ...DB.receivable.filter(r=>r.status!=='Recebido'&&daysUntil(r.due)>=0&&daysUntil(r.due)<=7),
-    ...DB.payable.filter(r=>r.status!=='Pago'&&daysUntil(r.due)>=0&&daysUntil(r.due)<=7)
-  ];
-  const vence7val = vence7.reduce((a,r)=>a+Number(r.value),0);
-  const conVence30 = DB.contracts.filter(c=>c.status==='Ativo'&&daysUntil(c.end)>=0&&daysUntil(c.end)<=30).length;
+  // ── KPI 2: Caixa Atual ──
+  const totalRecebido = (DB.receivable||[]).filter(r => r.status === 'Recebido').reduce((a,r) => a + Number(r.value||0), 0);
+  const totalPago = (DB.payable||[]).filter(r => r.status === 'Pago').reduce((a,r) => a + Number(r.value||0), 0);
+  const caixaAtual = totalRecebido - totalPago;
+  const cxEl = document.getElementById('kpi-caixa-val');
+  const cxSubEl = document.getElementById('kpi-caixa-sub');
+  if(cxEl){
+    cxEl.textContent = fmtMoney(caixaAtual);
+    cxEl.style.color = caixaAtual >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  if(cxSubEl) cxSubEl.textContent = `${fmtMoney(totalRecebido)} recebido − ${fmtMoney(totalPago)} pago`;
 
-  document.getElementById('dash-pend-rec').textContent = overdueRec.length;
-  document.getElementById('dash-pend-rec-val').textContent = overdueRec.length ? fmtMoney(overdueRec.reduce((a,r)=>a+Number(r.value),0)) : 'Tudo em dia ✓';
-  document.getElementById('dash-pend-pay').textContent = overduePay.length;
-  document.getElementById('dash-pend-pay-val').textContent = overduePay.length ? fmtMoney(overduePay.reduce((a,r)=>a+Number(r.value),0)) : 'Tudo em dia ✓';
-  document.getElementById('dash-pend-7d').textContent = vence7.length;
-  document.getElementById('dash-pend-7d-val').textContent = vence7.length ? fmtMoney(vence7val) : 'Nenhum';
-  document.getElementById('dash-pend-con').textContent = conVence30;
+  // ── KPI 3: ICC ──
+  const hoje = new Date();
+  const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate());
+  const despUltimos3 = (DB.payable||[]).filter(r => {
+    if(r.status !== 'Pago') return false;
+    const d = new Date((r.due||r.created||hoje.toISOString().split('T')[0])+'T12:00:00');
+    return d >= tresMesesAtras;
+  }).reduce((a,r) => a + Number(r.value||0), 0);
+  const despFixaMensal = despUltimos3 / 3;
+  const iccEl = document.getElementById('kpi-icc-val');
+  const iccSubEl = document.getElementById('kpi-icc-sub');
+  const iccCardEl = document.getElementById('kpi-icc');
+  if(iccEl){
+    if(despFixaMensal > 0 && caixaAtual >= 0){
+      const meses = caixaAtual / despFixaMensal;
+      let cor;
+      if(meses > 24){
+        iccEl.textContent = '24+ meses';
+        cor = 'var(--green)';
+      } else {
+        iccEl.textContent = `${meses.toFixed(1)} meses`;
+        cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)');
+      }
+      iccEl.style.color = cor;
+      if(iccCardEl) iccCardEl.style.borderTopColor = cor;
+      iccSubEl.textContent = `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(despFixaMensal)}/mês`;
+    } else if(caixaAtual < 0){
+      iccEl.textContent = 'Negativo';
+      iccEl.style.color = 'var(--red)';
+      if(iccCardEl) iccCardEl.style.borderTopColor = 'var(--red)';
+      iccSubEl.textContent = `caixa em déficit · ${fmtMoney(caixaAtual)}`;
+    } else {
+      iccEl.textContent = '—';
+      iccEl.style.color = 'var(--text-mid)';
+      iccSubEl.textContent = 'sem despesas pagas pra calcular';
+    }
+  }
 
-  // ── Bloco 3: Top categorias de despesa ──
-  const catTotals = {};
-  DB.payable.forEach(r=>{ if(r.cat){ catTotals[r.cat] = (catTotals[r.cat]||0) + Number(r.value); } });
-  const topCats = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const maxCat  = topCats[0]?.[1] || 1;
-  const topEl   = document.getElementById('dash-top-cats');
-  if(!topCats.length){
-    topEl.innerHTML = '<p style="font-size:12px;color:var(--text-mid);text-align:center;padding:20px 0;">Sem lançamentos a pagar.</p>';
-  } else {
-    topEl.innerHTML = topCats.map(([cat,val],i)=>{
-      const pct = ((val/maxCat)*100).toFixed(0);
-      const colors = ['var(--navy)','var(--navy-mid)','var(--navy-light)','var(--gold-dark)','var(--gold)'];
-      return `<div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-          <span style="font-size:11px;font-weight:500;color:var(--navy);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat}</span>
-          <span style="font-size:11px;font-weight:700;color:var(--navy);">${fmtMoney(val)}</span>
-        </div>
-        <div style="height:6px;background:var(--cream-dark);border-radius:3px;overflow:hidden;">
-          <div style="height:100%;width:${pct}%;background:${colors[i]};border-radius:3px;transition:width .4s;"></div>
-        </div>
-      </div>`;
+  // ── Gráfico + Tabela mês a mês ──
+  const meses = [];
+  for(let i = -11; i <= 6; i++){
+    const dt = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+    meses.push({
+      ano: dt.getFullYear(),
+      mes: dt.getMonth(),
+      label: dt.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.',''),
+      futuro: i > 0,
+      atual: i === 0
+    });
+  }
+  function inMonth(dateStr, ano, mes){
+    if(!dateStr) return false;
+    const d = new Date(dateStr+'T12:00:00');
+    return d.getFullYear() === ano && d.getMonth() === mes;
+  }
+  let saldoAcum = 0;
+  const dados = meses.map(m => {
+    let entradas, saidas;
+    if(m.futuro){
+      entradas = (DB.receivable||[]).filter(r => r.status !== 'Recebido' && inMonth(r.due, m.ano, m.mes)).reduce((a,r)=>a+Number(r.value||0),0);
+      saidas = (DB.payable||[]).filter(r => r.status !== 'Pago' && inMonth(r.due, m.ano, m.mes)).reduce((a,r)=>a+Number(r.value||0),0);
+    } else {
+      entradas = (DB.receivable||[]).filter(r => r.status === 'Recebido' && inMonth(r.due||r.created, m.ano, m.mes)).reduce((a,r)=>a+Number(r.value||0),0);
+      saidas = (DB.payable||[]).filter(r => r.status === 'Pago' && inMonth(r.due||r.created, m.ano, m.mes)).reduce((a,r)=>a+Number(r.value||0),0);
+    }
+    const saldoMes = entradas - saidas;
+    saldoAcum += saldoMes;
+    return { ...m, entradas, saidas, saldoMes, saldoAcum };
+  });
+
+  // Gráfico
+  const c = document.getElementById('dash-chart-saldo');
+  if(c && window.Chart){
+    if(c._chart) c._chart.destroy();
+    const labels = dados.map(d => d.label);
+    const realizado = dados.map(d => d.futuro ? null : d.saldoAcum);
+    const projetado = dados.map(d => (d.futuro || d.atual) ? d.saldoAcum : null);
+    c._chart = new Chart(c, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Realizado', data: realizado, borderColor: 'rgba(39,174,96,1)', backgroundColor: 'rgba(39,174,96,0.10)', borderWidth: 2.5, tension: 0.3, pointRadius: 3, pointBackgroundColor: 'rgba(39,174,96,1)', fill: true, spanGaps: false },
+          { label: 'Projetado', data: projetado, borderColor: 'rgba(204,145,94,1)', backgroundColor: 'rgba(204,145,94,0.06)', borderWidth: 2.5, borderDash: [6, 4], tension: 0.3, pointRadius: 3, pointBackgroundColor: 'rgba(204,145,94,1)', fill: true, spanGaps: true }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { ticks: { callback: (v) => 'R$ '+(v/1000).toFixed(1)+'k', font:{size:10} } },
+          x: { ticks: { font:{size:10} } }
+        }
+      }
+    });
+  }
+
+  // Tabela
+  const tbody = document.getElementById('dash-tabela-mensal');
+  if(tbody){
+    tbody.innerHTML = dados.map(d => {
+      const corSaldo = d.saldoMes >= 0 ? 'var(--green)' : 'var(--red)';
+      const corAcum = d.saldoAcum >= 0 ? 'var(--green)' : 'var(--red)';
+      const status = d.futuro
+        ? '<span style="background:rgba(204,145,94,0.15);color:var(--gold-dark);padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Projetado</span>'
+        : (d.atual ? '<span style="background:rgba(0,32,62,0.10);color:var(--navy);padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Em curso</span>'
+                   : '<span style="background:rgba(39,174,96,0.12);color:var(--green);padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Realizado</span>');
+      const labelPretty = d.label.charAt(0).toUpperCase() + d.label.slice(1);
+      return `<tr style="border-bottom:1px solid var(--cream-dark);${d.atual?'background:rgba(204,145,94,0.04);':''}">
+        <td style="padding:10px 16px;font-weight:600;color:var(--navy);">${labelPretty}</td>
+        <td style="padding:10px 16px;text-align:right;color:${d.entradas>0?'var(--green)':'var(--text-mid)'};">${fmtMoney(d.entradas)}</td>
+        <td style="padding:10px 16px;text-align:right;color:${d.saidas>0?'var(--red)':'var(--text-mid)'};">${d.saidas>0?'(':''}${fmtMoney(d.saidas)}${d.saidas>0?')':''}</td>
+        <td style="padding:10px 16px;text-align:right;color:${corSaldo};font-weight:600;">${fmtMoney(d.saldoMes)}</td>
+        <td style="padding:10px 16px;text-align:right;color:${corAcum};font-weight:700;">${fmtMoney(d.saldoAcum)}</td>
+        <td style="padding:10px 16px;text-align:center;">${status}</td>
+      </tr>`;
     }).join('');
   }
-
-  // ── Projetos ──
-  const activeProjs = DB.projects.filter(p=>p.status==='Em andamento'||p.status==='Aguardando');
-  document.getElementById('dash-proj-count').textContent = activeProjs.length + ' ativo(s)';
-  const projList = document.getElementById('dash-projects-list');
-  if(!activeProjs.length){
-    projList.innerHTML=`<p style="font-size:12px;color:var(--text-mid);text-align:center;padding:20px 0;">Nenhum projeto ativo.</p>`;
-  } else {
-    projList.innerHTML = activeProjs.slice(0,4).map(p=>`
-      <div style="margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-          <span style="font-size:12px;font-weight:500;color:var(--navy);">${p.name}</span>
-          <span style="font-size:11px;font-weight:700;color:var(--navy);">${p.progress||0}%</span>
-        </div>
-        <div style="font-size:10px;color:var(--gold-dark);margin-bottom:5px;">${p.client||'Sem cliente'} · ${fmtDate(p.deadline)||'Sem prazo'}</div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${p.progress||0}%;background:${(p.progress||0)<50?'var(--gold)':'var(--green)'};"></div></div>
-      </div>
-    `).join('');
-  }
-
-  // ── Cadastro ──
-  document.getElementById('dash-cad-forn').textContent = DB.pessoas.filter(p=>p.tipo==='Fornecedor').length;
-  document.getElementById('dash-cad-cli').textContent  = DB.pessoas.filter(p=>p.tipo==='Cliente').length;
-  document.getElementById('dash-cad-func').textContent = DB.pessoas.filter(p=>p.tipo==='Funcionário').length;
-  document.getElementById('dash-cad-crm').textContent  = DB.pessoas.filter(p=>p.tipo==='Cliente').length;
-  document.getElementById('dash-cad-proj').textContent = DB.projects.filter(p=>p.status==='Em andamento').length;
 }
-
 // =============================================
 // FILTROS / ORDENAÇÃO HELPERS
 // =============================================
