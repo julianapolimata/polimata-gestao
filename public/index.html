@@ -913,17 +913,12 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
       <div class="tbl-wrap">
         <table>
           <thead><tr>
-            <th class="sortable" onclick="sortTableProjetos('codigo','string')">Cód. <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTableProjetos('name','string')">Projeto <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTableProjetos('client','string')">Cliente <span class="sort-arrow">▾</span></th>
-            <th>Responsável</th>
-            <th class="sortable" onclick="sortTableProjetos('start','date')">Início <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTableProjetos('deadline','date')">Entrega <span class="sort-arrow">▾</span></th>
-            <th>Etapas</th>
-            <th class="sortable" onclick="sortTableProjetos('value','number')">Valor <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTableProjetos('progress','number')">% <span class="sort-arrow">▾</span></th>
-            <th class="sortable" onclick="sortTableProjetos('status','string')">Status <span class="sort-arrow">▾</span></th>
-            <th>Ações</th>
+            <th class="sortable" style="width:90px;" onclick="sortTableProjetos('codigo','string')">Cód. <span class="sort-arrow">▾</span></th>
+            <th class="sortable" onclick="sortTableProjetos('name','string')">Projeto / Cliente <span class="sort-arrow">▾</span></th>
+            <th class="sortable" style="width:150px;" onclick="sortTableProjetos('deadline','date')">Datas <span class="sort-arrow">▾</span></th>
+            <th style="width:170px;">Progresso</th>
+            <th class="sortable" style="width:140px;" onclick="sortTableProjetos('status','string')">Status <span class="sort-arrow">▾</span></th>
+            <th style="width:80px;">Ações</th>
           </tr></thead>
           <tbody id="proj-tbody"></tbody>
         </table>
@@ -3988,7 +3983,6 @@ function deleteCli(id){
 // =============================================
 function renderProjects(){
   const f = document.getElementById('proj-filter')?.value || '';
-  // Migração silenciosa: status antigos -> novos
   (DB.projects||[]).forEach(p => {
     if(p.status === 'Aguardando') p.status = 'Em planejamento';
     if(p.status === 'Em andamento') p.status = 'Em execução';
@@ -4000,12 +3994,25 @@ function renderProjects(){
   const tbody = document.getElementById('proj-tbody');
   if(!tbody) return;
   if(!data.length){
-    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state" style="text-align:center;padding:40px 20px;">
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state" style="text-align:center;padding:40px 20px;">
       <h3 style="font-size:14px;color:var(--navy);margin-bottom:6px;">Nenhum projeto encontrado</h3>
       <p style="font-size:12px;color:var(--text-mid);margin-bottom:14px;">${f ? 'Tente outro filtro de status.' : 'Comece criando seu primeiro projeto.'}</p>
       <button class="btn btn-primary" onclick="openProjectModal()">+ Novo Projeto</button>
     </div></td></tr>`;
     return;
+  }
+
+  function diasAteEntrega(deadline){
+    if(!deadline) return null;
+    const hj = new Date(); hj.setHours(0,0,0,0);
+    const dl = new Date(deadline + 'T12:00:00');
+    return Math.ceil((dl - hj) / (1000*60*60*24));
+  }
+  function nomeProjetoLimpo(p){
+    if(!p.name) return '—';
+    const cli = (p.client||'').trim();
+    if(cli && p.name.toLowerCase().startsWith('projeto ' + cli.toLowerCase())) return p.name.substring(8);
+    return p.name;
   }
 
   tbody.innerHTML = data.map(p => {
@@ -4014,46 +4021,64 @@ function renderProjects(){
     const totalEtapas = etapas.length;
     const corStatus = colColor(p.status);
     const progresso = p.progress != null ? Number(p.progress) : 0;
+    const dias = diasAteEntrega(p.deadline);
+    const nomeProj = nomeProjetoLimpo(p);
+    const cliente = p.client || 'sem cliente';
+    const resp = p.responsavel ? ` · resp: ${p.responsavel}` : '';
+    const valor = p.value ? fmtMoney(p.value) : '';
+
+    let datasTxt = '';
+    if(p.start) datasTxt += `Início: ${fmtDate(p.start)}`;
+    if(p.deadline){ datasTxt += datasTxt ? '<br>' : ''; datasTxt += `Entrega: ${fmtDate(p.deadline)}`; }
+    let diasTxt = '';
+    if(dias !== null){
+      const cor = dias < 0 ? 'var(--red)' : (dias <= 7 ? 'var(--orange)' : 'var(--text-mid)');
+      const label = dias < 0 ? `${Math.abs(dias)}d em atraso` : (dias === 0 ? 'hoje' : `${dias}d restantes`);
+      diasTxt = `<div style="font-size:9px;color:${cor};margin-top:3px;">${label}</div>`;
+    }
+    if(!datasTxt) datasTxt = '<span style="color:var(--text-mid);">—</span>';
+
+    const etapasTxt = totalEtapas > 0 ? `${concluidas}/${totalEtapas} etapas` : '';
+    const sublinhaProgr = [etapasTxt, valor].filter(Boolean).join(' · ');
+
     return `<tr>
-      <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;">${p.codigo||'—'}</td>
-      <td style="font-weight:500;color:var(--navy);">${p.name||'—'}</td>
-      <td>${p.client||'—'}</td>
-      <td style="font-size:11px;color:var(--text-mid);">${p.responsavel||'—'}</td>
-      <td style="font-size:11px;">${fmtDate(p.start)||'—'}</td>
-      <td style="font-size:11px;">${fmtDate(p.deadline)||'—'}</td>
-      <td style="font-size:11px;color:var(--text-mid);">${totalEtapas > 0 ? `${concluidas}/${totalEtapas}` : '—'}</td>
-      <td style="font-weight:600;color:var(--gold-dark);">${p.value ? fmtMoney(p.value) : '—'}</td>
-      <td style="min-width:90px;">
+      <td style="font-weight:600;font-size:10px;color:var(--gold-dark);font-family:monospace;vertical-align:top;padding-top:14px;">${p.codigo||'—'}</td>
+      <td style="vertical-align:top;padding-top:12px;">
+        <div style="font-weight:600;color:var(--navy);font-size:12px;line-height:1.3;">${nomeProj}</div>
+        <div style="font-size:10px;color:var(--text-mid);margin-top:3px;">${cliente}${resp}</div>
+      </td>
+      <td style="vertical-align:top;padding-top:14px;font-size:11px;line-height:1.4;">${datasTxt}${diasTxt}</td>
+      <td style="vertical-align:top;padding-top:14px;">
         <div style="display:flex;align-items:center;gap:6px;">
-          <div class="progress-bar" style="flex:1;height:6px;background:var(--cream-dark);border-radius:3px;overflow:hidden;">
-            <div class="progress-fill" style="width:${progresso}%;height:100%;background:${corStatus};"></div>
+          <div style="flex:1;height:6px;background:var(--cream-dark);border-radius:3px;overflow:hidden;">
+            <div style="width:${progresso}%;height:100%;background:${corStatus};transition:width .2s ease;"></div>
           </div>
-          <span style="font-size:10px;font-weight:600;color:var(--navy);">${progresso}%</span>
+          <span style="font-size:10px;font-weight:700;color:var(--navy);min-width:30px;text-align:right;">${progresso}%</span>
+        </div>
+        ${sublinhaProgr ? `<div style="font-size:9px;color:var(--text-mid);margin-top:4px;">${sublinhaProgr}</div>` : ''}
+      </td>
+      <td style="vertical-align:top;padding-top:14px;">
+        <span style="display:inline-block;background:${corStatus}20;color:${corStatus};padding:4px 10px;border-radius:12px;font-size:10px;font-weight:700;">${p.status||'—'}</span>
+      </td>
+      <td style="vertical-align:top;padding-top:12px;">
+        <div class="action-btns">
+          <button class="icon-btn" title="Editar" onclick="editProject('${p.id}')">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <button class="icon-btn danger" title="Excluir" onclick="deleteProj('${p.id}')">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          </button>
         </div>
       </td>
-      <td><span class="badge" style="background:${corStatus}20;color:${corStatus};padding:3px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:0.5px;">${p.status||'—'}</span></td>
-      <td><div class="action-btns">
-        <button class="icon-btn" title="Editar" onclick="editProject('${p.id}')">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button class="icon-btn danger" title="Excluir" onclick="deleteProj('${p.id}')">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
-        </button>
-      </div></td>
     </tr>`;
   }).join('');
 }
 
-// Estado de ordenação da tabela de Projetos
 const _sortStateProjetos = { col: 'deadline', dir: 'asc' };
 
 function sortTableProjetos(col, type){
-  if(_sortStateProjetos.col === col){
-    _sortStateProjetos.dir = _sortStateProjetos.dir === 'asc' ? 'desc' : 'asc';
-  } else {
-    _sortStateProjetos.col = col;
-    _sortStateProjetos.dir = 'asc';
-  }
+  if(_sortStateProjetos.col === col) _sortStateProjetos.dir = _sortStateProjetos.dir === 'asc' ? 'desc' : 'asc';
+  else { _sortStateProjetos.col = col; _sortStateProjetos.dir = 'asc'; }
   renderProjects();
 }
 
@@ -4063,14 +4088,9 @@ function applySortProjetos(data){
   const col = st.col;
   return [...data].sort((a, b) => {
     let va = a[col], vb = b[col];
-    if(['value', 'progress'].includes(col)){
-      va = Number(va||0); vb = Number(vb||0);
-    } else if(['start', 'deadline'].includes(col)){
-      va = va || ''; vb = vb || '';
-    } else {
-      va = (va||'').toString().toLowerCase();
-      vb = (vb||'').toString().toLowerCase();
-    }
+    if(['value','progress'].includes(col)){ va = Number(va||0); vb = Number(vb||0); }
+    else if(['start','deadline'].includes(col)){ va = va || ''; vb = vb || ''; }
+    else { va = (va||'').toString().toLowerCase(); vb = (vb||'').toString().toLowerCase(); }
     if(va < vb) return -1*dir;
     if(va > vb) return 1*dir;
     return 0;
@@ -4089,6 +4109,7 @@ function _markSortHeadersProjetos(){
     }
   });
 }
+
 
 function colColor(col){
   return {
