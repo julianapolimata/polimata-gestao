@@ -4953,7 +4953,7 @@ Responda APENAS com JSON válido, sem markdown, sem explicações:
   const response = await fetchAnthropicWithRetry('/api/anthropic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages })
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, messages })
   });
 
   if(!response.ok){
@@ -6312,7 +6312,7 @@ Responda APENAS com um JSON array, sem markdown:
   const r = await fetchAnthropicWithRetry('/api/anthropic', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages })
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, messages })
   });
   if(!r.ok){
     const err = await r.json();
