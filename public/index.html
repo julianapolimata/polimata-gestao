@@ -1752,6 +1752,20 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
 
       <hr class="divider">
 
+      <!-- CLIENTE — CONTATO PRINCIPAL E BRANDING (só Cliente) -->
+      <div id="pessoa-cliente-extras" style="display:none;background:rgba(204,145,94,0.08);border-left:3px solid var(--gold);padding:14px;border-radius:6px;margin-bottom:14px;">
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--navy);margin-bottom:12px;">Contato Principal &amp; Branding (Cliente)</div>
+        <div class="form-row form-row-2" style="margin-bottom:10px;">
+          <div class="form-group" style="margin:0;"><label class="form-label">Cargo do contato</label><input class="form-input" id="pessoa-contato-cargo" placeholder="Ex: Diretor de Compliance"></div>
+          <div class="form-group" style="margin:0;"><label class="form-label">E-mail do contato</label><input class="form-input" type="email" id="pessoa-contato-email" placeholder="contato@empresa.com"></div>
+        </div>
+        <div class="form-row form-row-2">
+          <div class="form-group" style="margin:0;"><label class="form-label">Telefone direto do contato</label><input class="form-input" id="pessoa-contato-telefone" placeholder="(00) 00000-0000"></div>
+          <div class="form-group" style="margin:0;"><label class="form-label">URL do logotipo</label><input class="form-input" type="url" id="pessoa-logo-url" placeholder="https://...logo.png"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-mid);margin-top:8px;font-style:italic;">Estes campos são propagados automaticamente para o sistema operacional (Polímata CI) via webhook ao salvar.</div>
+      </div>
+
       <!-- ENDEREÇO -->
       <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--navy);margin-bottom:12px;">Endereço</div>
       <div class="form-row form-row-2">
@@ -5576,6 +5590,7 @@ function openPessoaModal(tipo){
   editPessoaId = null;
   // Reset form
   ['doc','nome','fantasia','segmento','situacao','email','telefone','contato',
+   'contato-cargo','contato-telefone','contato-email','logo-url',
    'logradouro','bairro','cidade','uf','cep','banco','agencia','conta','notes'].forEach(f => {
     const el = document.getElementById('pessoa-'+f);
     if(el) el.value = '';
@@ -5598,8 +5613,11 @@ function openPessoaModal(tipo){
 
 function onChangePessoaTipo(){
   const tipo = document.getElementById('pessoa-tipo').value;
+  const isCliente = (tipo === 'Cliente');
   const fields = document.getElementById('pessoa-crm-fields');
-  if(fields) fields.style.display = (tipo === 'Cliente') ? '' : 'none';
+  if(fields) fields.style.display = isCliente ? '' : 'none';
+  const extras = document.getElementById('pessoa-cliente-extras');
+  if(extras) extras.style.display = isCliente ? '' : 'none';
 }
 
 // --- CNPJ MASK ---
@@ -5702,7 +5720,7 @@ function savePessoa(){
     situacao: document.getElementById('pessoa-situacao').value.trim(),
     email: document.getElementById('pessoa-email').value.trim(),
     telefone: document.getElementById('pessoa-telefone').value.trim(),
-    contato: document.getElementById('pessoa-contato').value.trim(),
+    contato_nome: document.getElementById('pessoa-contato').value.trim(),
     logradouro: document.getElementById('pessoa-logradouro').value.trim(),
     bairro: document.getElementById('pessoa-bairro').value.trim(),
     cidade: document.getElementById('pessoa-cidade').value.trim(),
@@ -5717,6 +5735,11 @@ function savePessoa(){
   if(tipo === 'Cliente'){
     d.etapa_funil = document.getElementById('pessoa-etapa-funil').value || 'Sondagem';
     d.origin = document.getElementById('pessoa-origin').value || '';
+    // Campos propagados via webhook → operacional (clientes-webhook Edge Function)
+    d.contato_cargo    = document.getElementById('pessoa-contato-cargo').value.trim();
+    d.contato_telefone = document.getElementById('pessoa-contato-telefone').value.trim();
+    d.contato_email    = document.getElementById('pessoa-contato-email').value.trim();
+    d.logo_url         = document.getElementById('pessoa-logo-url').value.trim();
   }
 
   const docLimpo = (d.doc||'').replace(/\D/g,'');
@@ -5817,11 +5840,20 @@ function editPessoa(id){
   document.getElementById('pessoa-lookup-status').innerHTML = '';
 
   const fields = ['doc','nome','fantasia','segmento','porte','situacao','email',
-    'telefone','contato','logradouro','bairro','cidade','uf','cep','banco','agencia','conta','notes'];
+    'telefone','logradouro','bairro','cidade','uf','cep','banco','agencia','conta','notes'];
   fields.forEach(f => {
     const el = document.getElementById('pessoa-'+f);
     if(el) el.value = p[f]||'';
   });
+  // Contato principal: novo campo é contato_nome; fallback p/ legado p.contato
+  const contatoEl = document.getElementById('pessoa-contato');
+  if(contatoEl) contatoEl.value = p.contato_nome || p.contato || '';
+  // Campos cliente-only (logo + extras de contato)
+  const setIf = (id, v) => { const el = document.getElementById(id); if(el) el.value = v||''; };
+  setIf('pessoa-contato-cargo',    p.contato_cargo);
+  setIf('pessoa-contato-telefone', p.contato_telefone);
+  setIf('pessoa-contato-email',    p.contato_email);
+  setIf('pessoa-logo-url',         p.logo_url);
   document.getElementById('pessoa-tipo').value = p.tipo || 'Fornecedor';
   document.getElementById('pessoa-status').value = p.status || 'Ativo';
   document.getElementById('pessoa-pj-pf').value = p.pjpf || 'PJ';
