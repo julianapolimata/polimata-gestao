@@ -1744,10 +1744,10 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
 
       <!-- CONTATO -->
       <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--navy);margin-bottom:12px;">Contato</div>
-      <div class="form-row form-row-3">
+      <div class="form-row form-row-3" id="pessoa-contato-row">
         <div class="form-group"><label class="form-label">E-mail</label><input class="form-input" type="email" id="pessoa-email" placeholder="email@empresa.com"></div>
         <div class="form-group"><label class="form-label">Telefone</label><input class="form-input" id="pessoa-telefone" placeholder="(00) 00000-0000"></div>
-        <div class="form-group"><label class="form-label">Responsável / Contato</label><input class="form-input" id="pessoa-contato" placeholder="Nome do responsável"></div>
+        <div class="form-group" id="pessoa-contato-wrapper"><label class="form-label">Responsável / Contato</label><input class="form-input" id="pessoa-contato" placeholder="Nome do responsável"></div>
       </div>
 
       <hr class="divider">
@@ -1756,11 +1756,14 @@ th.sortable.sort-asc .sort-arrow,th.sortable.sort-desc .sort-arrow{opacity:1;col
       <div id="pessoa-cliente-extras" style="display:none;background:rgba(204,145,94,0.08);border-left:3px solid var(--gold);padding:14px;border-radius:6px;margin-bottom:14px;">
         <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--navy);margin-bottom:12px;">Contato Principal &amp; Branding (Cliente)</div>
         <div class="form-row form-row-2" style="margin-bottom:10px;">
+          <div class="form-group" style="margin:0;"><label class="form-label">Nome do contato</label><input class="form-input" id="pessoa-contato-nome" placeholder="Nome completo do responsável"></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Cargo do contato</label><input class="form-input" id="pessoa-contato-cargo" placeholder="Ex: Diretor de Compliance"></div>
-          <div class="form-group" style="margin:0;"><label class="form-label">E-mail do contato</label><input class="form-input" type="email" id="pessoa-contato-email" placeholder="contato@empresa.com"></div>
         </div>
-        <div class="form-row form-row-2">
+        <div class="form-row form-row-2" style="margin-bottom:10px;">
+          <div class="form-group" style="margin:0;"><label class="form-label">E-mail do contato</label><input class="form-input" type="email" id="pessoa-contato-email" placeholder="contato@empresa.com"></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Telefone direto do contato</label><input class="form-input" id="pessoa-contato-telefone" placeholder="(00) 00000-0000"></div>
+        </div>
+        <div class="form-row">
           <div class="form-group" style="margin:0;"><label class="form-label">URL do logotipo</label><input class="form-input" type="url" id="pessoa-logo-url" placeholder="https://...logo.png"></div>
         </div>
         <div style="font-size:10px;color:var(--text-mid);margin-top:8px;font-style:italic;">Estes campos são propagados automaticamente para o sistema operacional (Polímata CI) via webhook ao salvar.</div>
@@ -5590,7 +5593,7 @@ function openPessoaModal(tipo){
   editPessoaId = null;
   // Reset form
   ['doc','nome','fantasia','segmento','situacao','email','telefone','contato',
-   'contato-cargo','contato-telefone','contato-email','logo-url',
+   'contato-nome','contato-cargo','contato-telefone','contato-email','logo-url',
    'logradouro','bairro','cidade','uf','cep','banco','agencia','conta','notes'].forEach(f => {
     const el = document.getElementById('pessoa-'+f);
     if(el) el.value = '';
@@ -5618,6 +5621,14 @@ function onChangePessoaTipo(){
   if(fields) fields.style.display = isCliente ? '' : 'none';
   const extras = document.getElementById('pessoa-cliente-extras');
   if(extras) extras.style.display = isCliente ? '' : 'none';
+  // Pra Cliente o nome do contato vai pra seção nova; esconde o duplicado lá em cima
+  const upperWrap = document.getElementById('pessoa-contato-wrapper');
+  if(upperWrap) upperWrap.style.display = isCliente ? 'none' : '';
+  const upperRow = document.getElementById('pessoa-contato-row');
+  if(upperRow){
+    upperRow.classList.toggle('form-row-3', !isCliente);
+    upperRow.classList.toggle('form-row-2', isCliente);
+  }
 }
 
 // --- CNPJ MASK ---
@@ -5720,7 +5731,7 @@ function savePessoa(){
     situacao: document.getElementById('pessoa-situacao').value.trim(),
     email: document.getElementById('pessoa-email').value.trim(),
     telefone: document.getElementById('pessoa-telefone').value.trim(),
-    contato_nome: document.getElementById('pessoa-contato').value.trim(),
+    contato_nome: '',  // preenchido abaixo conforme tipo
     logradouro: document.getElementById('pessoa-logradouro').value.trim(),
     bairro: document.getElementById('pessoa-bairro').value.trim(),
     cidade: document.getElementById('pessoa-cidade').value.trim(),
@@ -5732,7 +5743,9 @@ function savePessoa(){
     notes: document.getElementById('pessoa-notes').value.trim(),
   };
   // Campos de CRM, só pra Cliente
+  // Nome do contato: pra Cliente vem da seção nova; pros outros tipos vem do campo legado
   if(tipo === 'Cliente'){
+    d.contato_nome = document.getElementById('pessoa-contato-nome').value.trim();
     d.etapa_funil = document.getElementById('pessoa-etapa-funil').value || 'Sondagem';
     d.origin = document.getElementById('pessoa-origin').value || '';
     // Campos propagados via webhook → operacional (clientes-webhook Edge Function)
@@ -5740,6 +5753,8 @@ function savePessoa(){
     d.contato_telefone = document.getElementById('pessoa-contato-telefone').value.trim();
     d.contato_email    = document.getElementById('pessoa-contato-email').value.trim();
     d.logo_url         = document.getElementById('pessoa-logo-url').value.trim();
+  } else {
+    d.contato_nome = document.getElementById('pessoa-contato').value.trim();
   }
 
   const docLimpo = (d.doc||'').replace(/\D/g,'');
@@ -5846,10 +5861,12 @@ function editPessoa(id){
     if(el) el.value = p[f]||'';
   });
   // Contato principal: novo campo é contato_nome; fallback p/ legado p.contato
+  // Alimenta ambos os inputs (upper + nova seção); o visível depende do tipo (toggle no onChangePessoaTipo)
+  const nomeContato = p.contato_nome || p.contato || '';
   const contatoEl = document.getElementById('pessoa-contato');
-  if(contatoEl) contatoEl.value = p.contato_nome || p.contato || '';
-  // Campos cliente-only (logo + extras de contato)
+  if(contatoEl) contatoEl.value = nomeContato;
   const setIf = (id, v) => { const el = document.getElementById(id); if(el) el.value = v||''; };
+  setIf('pessoa-contato-nome',     nomeContato);
   setIf('pessoa-contato-cargo',    p.contato_cargo);
   setIf('pessoa-contato-telefone', p.contato_telefone);
   setIf('pessoa-contato-email',    p.contato_email);
