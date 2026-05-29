@@ -1,17 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import EmConstrucao from './pages/EmConstrucao'
+import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import Receber from './pages/Receber'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
   if (loading) return null
-  // Se já logado, redireciona pro legado (até migrarmos as outras telas)
-  if (user) {
-    window.location.href = '/'
-    return null
-  }
-  return <Navigate to="/login" replace />
+  return <Navigate to={user ? '/dashboard' : '/login'} replace />
 }
 
 export default function App() {
@@ -21,7 +18,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/em-construcao" element={<EmConstrucao />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/receber" element={<ProtectedRoute><Receber /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
