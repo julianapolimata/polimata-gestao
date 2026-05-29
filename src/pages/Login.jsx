@@ -97,20 +97,22 @@ const loginBrand = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
 }
 const logoName = {
-  fontFamily: 'var(--display)',
-  fontSize: 34, fontWeight: 300,
-  color: 'var(--navy)', letterSpacing: 2,
+  fontFamily: 'var(--display)',  // Quicksand
+  fontSize: 38, fontWeight: 300,
+  color: 'var(--navy)', letterSpacing: 1,
   textAlign: 'center',
+  lineHeight: 1,
 }
 const logoSub = {
-  fontSize: 9, fontWeight: 700,
+  fontFamily: 'var(--display)',  // Quicksand
+  fontSize: 10, fontWeight: 400,
   color: 'var(--gold)', letterSpacing: 4,
-  textTransform: 'uppercase', marginTop: 4,
+  textTransform: 'uppercase', marginTop: 6,
   textAlign: 'center',
 }
 const loginTitle = {
-  fontFamily: 'var(--display)',
-  fontSize: 22, fontWeight: 300,
+  fontFamily: 'var(--display)',  // Quicksand
+  fontSize: 20, fontWeight: 400,
   color: 'var(--navy)', textAlign: 'center', marginBottom: 4,
 }
 const loginSub = {

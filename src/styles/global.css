@@ -1,6 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
-   Identidade Visual Polímata GRC
-   Extraída fielmente do public/index.html legado (29/05/2026)
+   Identidade Visual Polímata GRC — oficial (manual de marca)
+   
+   Fonte do logotipo: Quicksand (peso 300 Light pra "Polímata",
+   peso 400 Regular pra subtítulos como "CONSULTORIA EM GRC")
+   Fonte de texto: Montserrat (300/400/500/600)
    
    Cores Polímata = exclusivas pra UI estrutural (sempre)
    Cores de mercado financeiro = exclusivas pra status:
@@ -30,9 +33,9 @@
   --shadow: 0 2px 16px rgba(0,32,62,0.10);
   --shadow-lg: 0 8px 32px rgba(0,32,62,0.14);
 
-  /* Tipografia */
-  --display: 'Cormorant Garamond', serif;
-  --body: 'Montserrat', sans-serif;
+  /* Tipografia oficial */
+  --display: 'Quicksand', sans-serif;  /* logotipo Polímata */
+  --body: 'Montserrat', sans-serif;    /* corpo de texto */
 }
 
 * { box-sizing: border-box; }
@@ -54,4 +57,5 @@ button, input, select, textarea {
 
 .font-display {
   font-family: var(--display);
+  font-weight: 300;
 }
