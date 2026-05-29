@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
-const LOGO_URL = '/favicon-32x32.png' // usa o favicon como logo provisório; ideal seria importar a logo Polímata oficial
+const LOGO_URL = '/v2-assets/logo-polimata.png'
 
 export default function Login() {
   const { signIn } = useAuth()
@@ -36,7 +36,7 @@ export default function Login() {
       }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <img src={LOGO_URL} alt="Polímata" style={{ width: 48, height: 48 }} />
+          <img src={LOGO_URL} alt="Polímata" style={{ width: 64, height: 64 }} />
           <div>
             <div style={{ fontFamily: 'var(--display)', fontSize: 34, fontWeight: 300, color: 'var(--navy)', letterSpacing: 2 }}>
               Polímata
