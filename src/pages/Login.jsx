@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 // Identidade visual idêntica ao public/index.html legado
@@ -65,6 +66,10 @@ export default function Login() {
         </div>
 
         <div style={loginError}>{erro}</div>
+
+        <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 6 }}>
+          <Link to="/esqueci-senha" style={{ fontSize: 10, color: 'var(--gold)', textDecoration: 'none', fontWeight: 600, fontFamily: 'var(--body)', letterSpacing: 0.5 }}>Esqueci a senha</Link>
+        </div>
 
         <button
           type="submit"
