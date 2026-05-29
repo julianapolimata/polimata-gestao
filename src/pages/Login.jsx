@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
+// Identidade visual idêntica ao public/index.html legado
+// Botão "Entrar" usa --gold (NÃO navy) — é btn-primary do legado
 const LOGO_URL = '/v2-assets/logo-polimata.png'
 
 export default function Login() {
@@ -9,6 +11,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
+  const [btnHover, setBtnHover] = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -25,94 +28,125 @@ export default function Login() {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'var(--navy)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-    }}>
-      <form onSubmit={handleSubmit} style={{
-        background: 'var(--cream)', borderRadius: 12,
-        padding: '40px 44px', width: 380, maxWidth: '92vw',
-        boxShadow: '0 18px 50px rgba(0,0,0,0.35)',
-      }}>
-        {/* Brand */}
-        <div style={{ textAlign: 'center', marginBottom: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+    <div style={loginOverlay}>
+      <form onSubmit={handleSubmit} style={loginCard}>
+        {/* Brand: logo + texto */}
+        <div style={loginBrand}>
           <img src={LOGO_URL} alt="Polímata" style={{ width: 64, height: 64 }} />
           <div>
-            <div style={{ fontFamily: 'var(--display)', fontSize: 34, fontWeight: 300, color: 'var(--navy)', letterSpacing: 2 }}>
-              Polímata
-            </div>
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--gold)', letterSpacing: 4, textTransform: 'uppercase', marginTop: 4 }}>
-              Consultoria em GRC
-            </div>
+            <div style={logoName}>Polímata</div>
+            <div style={logoSub}>Consultoria em GRC</div>
           </div>
         </div>
 
-        <div style={{ fontFamily: 'var(--display)', fontSize: 22, fontWeight: 300, color: 'var(--navy)', textAlign: 'center', marginBottom: 4 }}>
-          Acessar sistema
-        </div>
-        <div style={{ fontSize: 11, color: 'rgba(0,32,62,0.6)', textAlign: 'center', marginBottom: 24, letterSpacing: 0.5 }}>
-          Entre com seu e-mail e senha
-        </div>
+        <div style={loginTitle}>Acessar sistema</div>
+        <div style={loginSub}>Entre com seu e-mail e senha</div>
 
-        {/* Campo email */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--navy)', marginBottom: 6 }}>
-            E-mail
-          </label>
+        <div style={loginField}>
+          <label style={loginLabel}>E-mail</label>
           <input
             type="email" required autoComplete="email" autoFocus
             value={email} onChange={e => setEmail(e.target.value)}
-            style={loginInputStyle}
+            style={loginInput}
             onFocus={e => e.target.style.borderColor = 'var(--gold)'}
-            onBlur={e => e.target.style.borderColor = '#E6DCC8'}
+            onBlur={e => e.target.style.borderColor = 'var(--cream-dark)'}
           />
         </div>
 
-        {/* Campo senha */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ display: 'block', fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--navy)', marginBottom: 6 }}>
-            Senha
-          </label>
+        <div style={loginField}>
+          <label style={loginLabel}>Senha</label>
           <input
             type="password" required autoComplete="current-password"
             value={password} onChange={e => setPassword(e.target.value)}
-            style={loginInputStyle}
+            style={loginInput}
             onFocus={e => e.target.style.borderColor = 'var(--gold)'}
-            onBlur={e => e.target.style.borderColor = '#E6DCC8'}
+            onBlur={e => e.target.style.borderColor = 'var(--cream-dark)'}
           />
         </div>
 
-        {/* Erro */}
-        <div style={{ color: '#C0392B', fontSize: 11, marginTop: 10, minHeight: 15, textAlign: 'center' }}>
-          {erro}
-        </div>
+        <div style={loginError}>{erro}</div>
 
-        {/* Botão */}
-        <button type="submit" disabled={carregando} style={{
-          width: '100%', marginTop: 10, padding: 12,
-          background: carregando ? 'rgba(0,32,62,0.6)' : 'var(--navy)',
-          color: 'var(--cream)', border: 'none', borderRadius: 6,
-          fontSize: 13, fontWeight: 600, letterSpacing: 0.5,
-          cursor: carregando ? 'wait' : 'pointer',
-          fontFamily: 'var(--body)',
-          transition: 'background .15s',
-        }}>
+        <button
+          type="submit"
+          disabled={carregando}
+          onMouseEnter={() => setBtnHover(true)}
+          onMouseLeave={() => setBtnHover(false)}
+          style={{ ...btnPrimary, ...loginBtnExtra, background: btnHover && !carregando ? 'var(--gold-dark)' : 'var(--gold)', transform: btnHover && !carregando ? 'translateY(-1px)' : 'none', boxShadow: btnHover && !carregando ? '0 4px 16px rgba(204,145,94,0.3)' : 'none', cursor: carregando ? 'wait' : 'pointer' }}
+        >
           {carregando ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <div style={{ marginTop: 18, textAlign: 'center', fontSize: 10, color: 'rgba(0,32,62,0.5)', letterSpacing: 0.5 }}>
-          © 2026 Polímata GRC · Acesso restrito
-        </div>
+        <div style={loginFoot}>© 2026 Polímata GRC · Acesso restrito</div>
       </form>
     </div>
   )
 }
 
-const loginInputStyle = {
+// ─── styles (idênticos ao legado) ───
+const loginOverlay = {
+  position: 'fixed', inset: 0, background: 'var(--navy)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+}
+const loginCard = {
+  background: 'var(--cream)', borderRadius: 12,
+  padding: '40px 44px', width: 380, maxWidth: '92vw',
+  boxShadow: '0 18px 50px rgba(0,0,0,0.35)',
+}
+const loginBrand = {
+  textAlign: 'center', marginBottom: 28,
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+}
+const logoName = {
+  fontFamily: 'var(--display)',
+  fontSize: 34, fontWeight: 300,
+  color: 'var(--navy)', letterSpacing: 2,
+  textAlign: 'center',
+}
+const logoSub = {
+  fontSize: 9, fontWeight: 700,
+  color: 'var(--gold)', letterSpacing: 4,
+  textTransform: 'uppercase', marginTop: 4,
+  textAlign: 'center',
+}
+const loginTitle = {
+  fontFamily: 'var(--display)',
+  fontSize: 22, fontWeight: 300,
+  color: 'var(--navy)', textAlign: 'center', marginBottom: 4,
+}
+const loginSub = {
+  fontSize: 11, color: 'var(--text-mid)',
+  textAlign: 'center', marginBottom: 24, letterSpacing: 0.5,
+}
+const loginField = { marginBottom: 14 }
+const loginLabel = {
+  display: 'block', fontSize: 9, fontWeight: 700,
+  letterSpacing: 2, textTransform: 'uppercase',
+  color: 'var(--navy)', marginBottom: 6,
+}
+const loginInput = {
   width: '100%', padding: '11px 13px',
-  border: '1.5px solid #E6DCC8', borderRadius: 6,
+  border: '1.5px solid var(--cream-dark)', borderRadius: 6,
   fontFamily: 'var(--body)', fontSize: 13,
   color: 'var(--navy)', background: '#fff',
-  transition: 'border-color .15s',
-  outline: 'none',
+  transition: 'border-color .15s', outline: 'none',
+}
+const loginError = {
+  color: 'var(--red)', fontSize: 11, marginTop: 10,
+  minHeight: 15, textAlign: 'center',
+}
+const btnPrimary = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+  padding: '8px 18px', borderRadius: 4,
+  fontFamily: 'var(--body)', fontSize: 11,
+  fontWeight: 600, letterSpacing: 0.8,
+  cursor: 'pointer', transition: 'all .2s',
+  border: 'none', textTransform: 'uppercase',
+  background: 'var(--gold)', color: '#fff',
+}
+const loginBtnExtra = {
+  width: '100%', marginTop: 10, padding: 12,
+}
+const loginFoot = {
+  marginTop: 18, textAlign: 'center',
+  fontSize: 10, color: 'var(--text-mid)', letterSpacing: 0.5,
 }

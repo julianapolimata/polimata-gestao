@@ -1,7 +1,36 @@
+/* ═══════════════════════════════════════════════════════════
+   Identidade Visual Polímata GRC
+   Extraída fielmente do public/index.html legado (29/05/2026)
+   
+   Cores Polímata = exclusivas pra UI estrutural (sempre)
+   Cores de mercado financeiro = exclusivas pra status:
+     --green  = recebido/entrada
+     --red    = vencido/atraso
+     --orange = alerta/pendente
+   ═══════════════════════════════════════════════════════════ */
 :root {
+  /* Polímata */
   --navy: #00203E;
+  --navy-mid: #1D3B5C;
+  --navy-light: #2a4f78;
   --gold: #CC915E;
+  --gold-dark: #A6512F;
+  --gold-light: #e0b080;
   --cream: #F3EEE4;
+  --cream-dark: #e0d9cc;
+  --white: #ffffff;
+  --text-mid: #5a6a7a;
+
+  /* Linguagem financeira universal (NUNCA usar em UI estrutural) */
+  --green: #27ae60;
+  --red: #e74c3c;
+  --orange: #e67e22;
+
+  /* Elevações */
+  --shadow: 0 2px 16px rgba(0,32,62,0.10);
+  --shadow-lg: 0 8px 32px rgba(0,32,62,0.14);
+
+  /* Tipografia */
   --display: 'Cormorant Garamond', serif;
   --body: 'Montserrat', sans-serif;
 }
@@ -14,6 +43,9 @@ html, body {
   font-family: var(--body);
   background: var(--cream);
   color: var(--navy);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button, input, select, textarea {
