@@ -2,15 +2,15 @@
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
+  "buildCommand": "npm run build",
+  "outputDirectory": "public",
+  "framework": null,
   "functions": {
-    "api/email-cron.js": {
-      "maxDuration": 60
-    },
-    "api/anthropic.js": {
-      "maxDuration": 60
-    }
+    "api/email-cron.js": { "maxDuration": 60 },
+    "api/anthropic.js": { "maxDuration": 60 }
   },
   "rewrites": [
+    { "source": "/v2/(.*)", "destination": "/v2/index.html" },
     { "source": "/", "destination": "/index.html" }
   ]
 }
