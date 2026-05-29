@@ -32,7 +32,7 @@ export default function Login() {
       <form onSubmit={handleSubmit} style={loginCard}>
         {/* Brand: logo + texto */}
         <div style={loginBrand}>
-          <img src={LOGO_URL} alt="Polímata" style={{ width: 64, height: 64 }} />
+          <img src={LOGO_URL} alt="Polímata" style={{ width: 46, height: 64 }} />
           <div>
             <div style={logoName}>Polímata</div>
             <div style={logoSub}>Consultoria em GRC</div>
