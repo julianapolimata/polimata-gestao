@@ -4,6 +4,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoReceivable, proximoCodigoPayable } from '../../lib/codigos'
+import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '../../lib/anexos'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 
 // =============================================================================
@@ -54,6 +55,11 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [recFreq, setRecFreq] = useState('mensal')
   const [recAte, setRecAte] = useState('')
 
+  // ── Anexo ─────────────────────────────────────────────────────────────
+  const [anexoPath, setAnexoPath] = useState(null)
+  const [anexoFile, setAnexoFile] = useState(null) // arquivo selecionado, ainda não enviado
+  // O estado de upload em si é coberto pelo `saving` global do modal.
+
   const [pessoas, setPessoas] = useState([])
   const [plano, setPlano] = useState([])
   const [saving, setSaving] = useState(false)
@@ -93,12 +99,14 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       setRecorrente(!!d.recorrente)
       setRecFreq(d.rec_frequencia || 'mensal')
       setRecAte(d.rec_ate || '')
+      setAnexoPath(registro.anexo_path || null); setAnexoFile(null)
     } else {
       setParte(''); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
       setValor(''); setDescricao(''); setVenc('')
       setStatusV('Pendente'); setForma(''); setCat(''); setSubcat(''); setNotes('')
       setDocStatus('vinculado'); setDocMotivo('')
       setRecorrente(false); setRecFreq('mensal'); setRecAte('')
+      setAnexoPath(null); setAnexoFile(null)
     }
   }, [open, isEdit, registro, isRec])
 
@@ -150,7 +158,28 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       }
       if (isEdit) {
         const merged = { ...(registro.data || {}), ...data }
-        const { error } = await supabase.from(tabela).update({ data: merged }).eq('id', registro.id)
+        const updates = { data: merged }
+        // Anexo: 3 casos — substituir (novo file), remover (anexoPath=null mas tinha), manter
+        if (anexoFile) {
+          // Substituir: apaga o antigo (se existir), envia o novo
+          if (registro.anexo_path) {
+            try { await deleteAnexo(registro.anexo_path) } catch (e) { console.warn('Falha ao apagar anexo antigo:', e) }
+          }
+          try {
+            const newPath = await uploadAnexo(anexoFile, { tipo: isRec ? 'rec' : 'pay', lancamentoId: registro.id, userId: user?.id || registro.user_id })
+            updates.anexo_path = newPath
+          } catch (errUp) {
+            console.error(errUp)
+            showToast('Erro ao subir anexo: ' + errUp.message, 'error')
+            setSaving(false)
+            return
+          }
+        } else if (registro.anexo_path && !anexoPath) {
+          // Usuário clicou em remover
+          try { await deleteAnexo(registro.anexo_path) } catch (e) { console.warn(e) }
+          updates.anexo_path = null
+        }
+        const { error } = await supabase.from(tabela).update(updates).eq('id', registro.id)
         if (error) throw error
         showToast('Lançamento atualizado.', 'success')
       } else {
@@ -161,8 +190,18 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           codigo,
           data: { ...data, created: new Date().toISOString().slice(0, 10) },
         }
-        const { error } = await supabase.from(tabela).insert(payload)
+        const { data: inserted, error } = await supabase.from(tabela).insert(payload).select('id').single()
         if (error) throw error
+        // Upload do anexo (se selecionado) — após criação
+        if (anexoFile && inserted?.id) {
+          try {
+            const path = await uploadAnexo(anexoFile, { tipo: isRec ? 'rec' : 'pay', lancamentoId: inserted.id, userId: user.id })
+            await supabase.from(tabela).update({ anexo_path: path }).eq('id', inserted.id)
+          } catch (errUp) {
+            console.error(errUp)
+            showToast('Lançamento salvo, mas anexo falhou: ' + errUp.message, 'warning')
+          }
+        }
         showToast(`${codigo} salvo.`, 'success')
       }
       onSaved?.()
@@ -175,7 +214,28 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     }
   }
 
-  const title = isEdit
+  async function abrirAnexo() {
+    if (!anexoPath) return
+    try {
+      const url = await getAnexoSignedUrl(anexoPath)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch (e) {
+      showToast('Erro ao abrir anexo: ' + e.message, 'error')
+    }
+  }
+  function selecionarAnexo(e) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setAnexoFile(f)
+    // Marcar visualmente como "novo anexo pendente de envio"
+    setAnexoPath('pending')
+  }
+  function removerAnexo() {
+    setAnexoPath(null)
+    setAnexoFile(null)
+  }
+
+    const title = isEdit
     ? `Editar ${isRec ? 'Conta a Receber' : 'Conta a Pagar'}${registro.codigo ? ` · ${registro.codigo}` : ''}`
     : `Nova ${isRec ? 'Conta a Receber' : 'Conta a Pagar'}`
 
@@ -280,6 +340,28 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         </Row>
       </div>
 
+      {/* Anexo Fiscal */}
+      <div style={boxNavy}>
+        <div style={boxLabel}>📎 Anexo Fiscal (PDF, XML, imagem)</div>
+        {anexoPath && anexoFile ? (
+          <div style={anexoRow}>
+            <span style={anexoNome}>📄 {anexoFile.name}</span>
+            <span style={anexoStatus}>· Será enviado ao salvar</span>
+            <button type="button" onClick={removerAnexo} style={btnRemoverAnexo} aria-label="Cancelar">×</button>
+          </div>
+        ) : anexoPath ? (
+          <div style={anexoRow}>
+            <button type="button" onClick={abrirAnexo} style={anexoLink}>📄 {nomeAnexoFromPath(anexoPath)}</button>
+            <button type="button" onClick={removerAnexo} style={btnRemoverAnexo} aria-label="Remover anexo">×</button>
+          </div>
+        ) : (
+          <label style={anexoUpload}>
+            <input type="file" onChange={selecionarAnexo} accept=".pdf,.xml,.png,.jpg,.jpeg" style={{ display: 'none' }} disabled={saving} />
+            <span>+ Selecionar arquivo</span>
+          </label>
+        )}
+      </div>
+
       {/* Recorrência */}
       <div style={boxGold}>
         <label style={checkboxLabel}>
@@ -361,6 +443,28 @@ const btnGhost = {
   borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', letterSpacing: 0.5,
+}
+const anexoRow = { display: 'flex', alignItems: 'center', gap: 10 }
+const anexoNome = { fontSize: 12, color: 'var(--navy)', fontWeight: 600 }
+const anexoStatus = { fontSize: 11, color: 'var(--gold-dark)', fontStyle: 'italic' }
+const anexoLink = {
+  background: 'none', border: 'none', padding: 0,
+  color: 'var(--gold)', cursor: 'pointer', textDecoration: 'underline',
+  fontSize: 12, fontWeight: 600, fontFamily: 'var(--body)',
+}
+const anexoUpload = {
+  display: 'inline-block', cursor: 'pointer',
+  padding: '8px 14px', borderRadius: 6,
+  border: '1.5px dashed var(--gold)',
+  background: 'rgba(204,145,94,0.06)',
+  color: 'var(--gold-dark)',
+  fontSize: 11, fontWeight: 600, fontFamily: 'var(--body)',
+  letterSpacing: 0.5, textTransform: 'uppercase',
+}
+const btnRemoverAnexo = {
+  background: 'none', border: '1px solid transparent', borderRadius: 4,
+  color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer',
+  width: 26, height: 26, padding: 0, marginLeft: 'auto',
 }
 const btnPrimary = {
   padding: '10px 18px', border: 'none',

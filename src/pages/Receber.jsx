@@ -209,7 +209,7 @@ export default function Receber() {
                     style={trStyle}
                     title="Clique para editar"
                   >
-                    <td style={tdMono}>{item.codigo || '—'}</td>
+                    <td style={tdMono}>{item.codigo || '—'}{item.anexo_path && <span style={{ marginLeft: 6, color: 'var(--gold)' }} title="Anexo fiscal">📎</span>}</td>
                     <td style={td}>{d.client || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.desc || '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(d.value)}</td>
