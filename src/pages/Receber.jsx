@@ -192,7 +192,7 @@ export default function Receber() {
                 <Th onClick={() => toggleSort('client')} active={sortCol === 'client'} dir={sortDir}>Cliente</Th>
                 <th style={th}>Descrição</th>
                 <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right" width={120}>Valor</Th>
-                <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={100}>Vencimento</Th>
+                <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={140}>Datas</Th>
                 <th style={th}>Categoria</th>
                 <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir} width={110}>Status</Th>
                 <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
@@ -213,7 +213,11 @@ export default function Receber() {
                     <td style={td}>{d.client || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.desc || '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(d.value)}</td>
-                    <td style={td}>{fmtData(d.due)}</td>
+                    <td style={td}>
+                      {d.data_competencia && <div style={{ fontSize: 10, color: 'var(--text-mid)', lineHeight: 1.4 }}>📄 {fmtData(d.data_competencia)}</div>}
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', lineHeight: 1.4 }}>📅 {fmtData(d.due)}</div>
+                      {d.data_pagamento && <div style={{ fontSize: 10, color: 'var(--green)', lineHeight: 1.4 }}>✓ {fmtData(d.data_pagamento)}</div>}
+                    </td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.cat || '—'}</td>
                     <td style={td}>
                       <span style={{

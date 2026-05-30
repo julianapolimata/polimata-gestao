@@ -69,13 +69,15 @@ export default function FluxoCaixa() {
     const entriesByMonth = new Array(12).fill(0)
     const saidasByMonth = new Array(12).fill(0)
     receivable.forEach(r => {
-      const d = r.due || r.created
+      // Regime caixa: usa data_pagamento (quando o dinheiro entrou de fato).
+      // Fallback pro vencimento se ainda não pago, e pra created como último recurso.
+      const d = r.data?.data_pagamento || r.due || r.created
       if (!d || !d.startsWith(ano)) return
       const m = parseInt(d.substring(5, 7), 10) - 1
       if (m >= 0 && m < 12) entriesByMonth[m] += r.value
     })
     payable.forEach(r => {
-      const d = r.due || r.created
+      const d = r.data?.data_pagamento || r.due || r.created
       if (!d || !d.startsWith(ano)) return
       const m = parseInt(d.substring(5, 7), 10) - 1
       if (m >= 0 && m < 12) saidasByMonth[m] += r.value
