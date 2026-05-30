@@ -16,6 +16,7 @@ import ConferenciaFatura from './pages/ConferenciaFatura'
 import { ToastContainer } from './components/Toast'
 import FluxoCaixa from './pages/FluxoCaixa'
 import DRE from './pages/DRE'
+import Conciliacao from './pages/Conciliacao'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -44,7 +45,7 @@ export default function App() {
           <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
           <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
           <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
-          <Route path="/conciliacao" element={<ProtectedRoute><EmConstrucaoModulo titulo="Conciliação" descricao="Conciliação de extrato bancário, faturas de cartão e NFs. Ainda não migrado." /></ProtectedRoute>} />
+          <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><EmConstrucaoModulo titulo="Importar NFs" descricao="Importação manual ou automática (Gmail+IA) de notas fiscais." /></ProtectedRoute>} />
           <Route path="/recorrencias" element={<ProtectedRoute><EmConstrucaoModulo titulo="Recorrências" descricao="Lançamentos mestre com projeção automática mensal." /></ProtectedRoute>} />
