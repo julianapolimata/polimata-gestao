@@ -1,17 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Convivência com o sistema legado:
-// - public/index.html (legado) continua servido na raiz pela Vercel
-// - Vite buildea para public/v2/ → servido em /v2/
-// Quando todas as telas estiverem migradas, basta deletar public/index.html
-// e mudar base pra '/'
+// Após o switch arquitetural (PR pós-#22), o v2 React passa a ser servido
+// na RAIZ do domínio. O sistema legado permanece em /legado.html como
+// arquivo único.
+//
+// Fonte:
+//   - static/         pasta com arquivos estáticos do legado (legado.html,
+//                     favicons, v2-assets/) — copiada integralmente pra
+//                     dist no build via `publicDir`
+//   - src/            código React do v2
+//
+// Saída:
+//   - public/         output do build (o que a Vercel publica) — inclui
+//                     index.html do v2 React, assets/ versionados,
+//                     e tudo de static/ replicado.
 export default defineConfig({
   plugins: [react()],
-  publicDir: false, // não copia public/ pra dist (já estamos buildando pra dentro de public/v2)
-  base: '/v2/',
+  publicDir: 'static',
+  base: '/',
   build: {
-    outDir: 'public/v2',
+    outDir: 'public',
     emptyOutDir: true,
     rollupOptions: {
       output: {

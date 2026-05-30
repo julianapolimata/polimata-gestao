@@ -9,9 +9,11 @@
     "api/email-cron.js": { "maxDuration": 60 },
     "api/anthropic.js": { "maxDuration": 60 }
   },
+  "redirects": [
+    { "source": "/v2", "destination": "/", "permanent": true },
+    { "source": "/v2/:path*", "destination": "/:path*", "permanent": true }
+  ],
   "rewrites": [
-    { "source": "/v2", "destination": "/v2/index.html" },
-    { "source": "/v2/", "destination": "/v2/index.html" },
-    { "source": "/v2/((?!assets/|favicon).*)", "destination": "/v2/index.html" }
+    { "source": "/((?!api|assets|v2-assets|legado.html|favicon|.*\\.(?:png|svg|ico|webmanifest|xml|txt|json)).*)", "destination": "/index.html" }
   ]
 }

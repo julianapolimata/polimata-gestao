@@ -1,5 +1,5 @@
 node_modules/
-public/v2/
+public/
 .env.local
 .env.*.local
 .DS_Store

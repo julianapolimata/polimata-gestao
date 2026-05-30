@@ -1,7 +1,8 @@
 import AppLayout from '../components/AppLayout'
 
 export default function EmConstrucaoModulo({ titulo, descricao, hashLegado }) {
-  const linkLegado = hashLegado ? `/#${hashLegado}` : '/'
+  // Após o switch arquitetural, o legado fica em /legado.html
+  const linkLegado = hashLegado ? `/legado.html#${hashLegado}` : '/legado.html'
   return (
     <AppLayout title={titulo}>
       <div style={{
