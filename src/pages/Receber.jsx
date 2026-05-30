@@ -3,6 +3,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import ModalLancamento from './components/ModalLancamento'
+import FiltrosAvancados from './components/FiltrosAvancados'
+import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -30,6 +32,8 @@ export default function Receber() {
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtrosAvancados, setFiltrosAvancados] = useState({ periodo: '', dataDe: '', dataAte: '', categoria: '', vmin: '', vmax: '' })
+  const [filtrosExpanded, setFiltrosExpanded] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
 
@@ -61,6 +65,21 @@ export default function Receber() {
         return blob.includes(q)
       })
     }
+    // Filtros avançados — período por vencimento, categoria, valor min/max
+    const range = resolveDateRange(filtrosAvancados.periodo, filtrosAvancados.dataDe, filtrosAvancados.dataAte)
+    if (range) {
+      r = r.filter(item => {
+        const due = item.data?.due
+        return due && due >= range.from && due <= range.to
+      })
+    }
+    if (filtrosAvancados.categoria) {
+      r = r.filter(item => item.data?.cat === filtrosAvancados.categoria)
+    }
+    const vmin = parseFloat(filtrosAvancados.vmin)
+    const vmax = parseFloat(filtrosAvancados.vmax)
+    if (!isNaN(vmin)) r = r.filter(item => parseFloat(item.data?.value || 0) >= vmin)
+    if (!isNaN(vmax)) r = r.filter(item => parseFloat(item.data?.value || 0) <= vmax)
     return [...r].sort((a, b) => {
       const va = (a.data?.[sortCol] ?? a[sortCol] ?? '').toString()
       const vb = (b.data?.[sortCol] ?? b[sortCol] ?? '').toString()
@@ -69,7 +88,7 @@ export default function Receber() {
       else cmp = va.localeCompare(vb)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rows, busca, filtroStatus, sortCol, sortDir])
+  }, [rows, busca, filtroStatus, filtrosAvancados, sortCol, sortDir])
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -147,6 +166,15 @@ export default function Receber() {
           <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
         </div>
       </div>
+
+      {/* Filtros avançados */}
+      <FiltrosAvancados
+        tipo="rec"
+        filtros={filtrosAvancados}
+        setFiltros={setFiltrosAvancados}
+        expanded={filtrosExpanded}
+        setExpanded={setFiltrosExpanded}
+      />
 
       {/* Tabela */}
       <div style={tableWrap}>
