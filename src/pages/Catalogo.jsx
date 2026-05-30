@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import ModalContrato from './components/ModalContrato'
+import ModalProjeto from './components/ModalProjeto'
+import { showToast } from '../components/Toast'
 
 function fmtMoeda(v) {
   const n = parseFloat(v) || 0
@@ -18,9 +21,15 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [edicao, setEdicao] = useState(null)
 
-  useEffect(() => {
+  const isContrato = tabela === 'contracts'
+  const novoLabel = isContrato ? 'contrato' : 'projeto'
+
+  const recarregar = useCallback(() => {
     if (!user) return
+    setLoading(true)
     supabase
       .from(tabela)
       .select('*')
@@ -31,12 +40,15 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
       })
   }, [user, tabela])
 
+  useEffect(() => { recarregar() }, [recarregar])
+
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return rows
     return rows.filter(item => {
       const d = item.data || {}
-      const blob = [item.codigo, d.name, d.client, d.value, d.status, d.notes].filter(Boolean).join(' ').toLowerCase()
+      const blob = [item.codigo, d.name, d.party, d.client, d.object, d.value, d.status, d.notes]
+        .filter(Boolean).join(' ').toLowerCase()
       return blob.includes(q)
     })
   }, [rows, busca])
@@ -46,9 +58,22 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     [filtrados],
   )
 
+  function abrirNovo() { setEdicao(null); setModalOpen(true) }
+  function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
+
+  async function excluir(row, e) {
+    e?.stopPropagation()
+    const nome = row.data?.name || row.data?.party || row.codigo || `este ${novoLabel}`
+    if (!confirm(`Excluir "${nome}"?`)) return
+    const { error } = await supabase.from(tabela).delete().eq('id', row.id)
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
+    showToast(`${isContrato ? 'Contrato' : 'Projeto'} excluído.`, 'info')
+    recarregar()
+  }
+
   return (
     <AppLayout title={titulo}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
             style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
@@ -56,10 +81,15 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
           </svg>
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${titulo.toLowerCase()}...`} style={searchInput} />
         </div>
-        <div style={resumo}>
-          <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'registro' : 'registros'}</span>
-          <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
-          <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={resumo}>
+            <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'registro' : 'registros'}</span>
+            <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
+            <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
+          </div>
+          <button onClick={abrirNovo} style={btnNovo}>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {novoLabel}
+          </button>
         </div>
       </div>
 
@@ -67,30 +97,36 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : filtrados.length === 0 ? (
-          <div style={emptyState}>{rows.length === 0 ? `Nenhum ${titulo.toLowerCase().slice(0,-1)} cadastrado.` : 'Nenhum resultado para a busca.'}</div>
+          <div style={emptyState}>
+            {rows.length === 0 ? `Nenhum ${novoLabel} cadastrado. Clique em "Novo ${novoLabel}" pra começar.` : 'Nenhum resultado para a busca.'}
+          </div>
         ) : (
           <table style={tbl}>
             <thead>
               <tr>
                 <th style={{ ...th, width: 110 }}>Cód.</th>
-                <th style={th}>Nome</th>
+                <th style={th}>{isContrato ? 'Objeto' : 'Nome'}</th>
                 <th style={th}>{labelParte}</th>
                 <th style={{ ...th, width: 140, textAlign: 'right' }}>Valor</th>
-                <th style={{ ...th, width: 110 }}>Prazo</th>
+                <th style={{ ...th, width: 110 }}>{isContrato ? 'Início' : 'Prazo'}</th>
                 <th style={{ ...th, width: 110 }}>Status</th>
+                <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map(p => {
                 const d = p.data || {}
                 return (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => abrirEdicao(p)} style={{ cursor: 'pointer' }} title="Clique para editar">
                     <td style={tdMono}>{p.codigo || '—'}</td>
-                    <td style={td}>{d.name || '—'}</td>
-                    <td style={{ ...td, color: 'var(--text-mid)' }}>{d.client || '—'}</td>
+                    <td style={td}>{(isContrato ? d.object : d.name) || '—'}</td>
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>{(isContrato ? d.party : d.client) || '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(d.value)}</td>
-                    <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtData(d.deadline)}</td>
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtData(isContrato ? d.start : d.deadline)}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.status || '—'}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <button onClick={e => excluir(p, e)} title="Excluir" aria-label="Excluir" style={btnExcluir}>×</button>
+                    </td>
                   </tr>
                 )
               })}
@@ -98,10 +134,28 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
           </table>
         )}
       </div>
+
+      {isContrato ? (
+        <ModalContrato open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} />
+      ) : (
+        <ModalProjeto open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} />
+      )}
     </AppLayout>
   )
 }
 
+const btnNovo = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '8px 16px', borderRadius: 6,
+  border: 'none', background: 'var(--gold)', color: '#fff',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
+  cursor: 'pointer', textTransform: 'uppercase',
+}
+const btnExcluir = {
+  background: 'none', border: '1px solid transparent', borderRadius: 4,
+  color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer',
+  width: 26, height: 26, padding: 0,
+}
 const searchInput = { width: '100%', padding: '10px 13px 10px 32px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const resumo = { display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'var(--body)', fontSize: 12, padding: '8px 14px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6 }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
