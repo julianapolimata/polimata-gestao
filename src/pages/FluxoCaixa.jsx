@@ -4,6 +4,7 @@ import AppLayout from '../components/AppLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fmtMoney, flatten, calcularProjecaoFutura } from '../lib/finance'
+import FluxoMatricial from './components/FluxoMatricial'
 
 // =====================================================================
 // FLUXO DE CAIXA — replica fielmente renderCashflow() do legado.
@@ -23,6 +24,7 @@ export default function FluxoCaixa() {
   const [loading, setLoading] = useState(true)
   const [modo, setModo] = useState('projetado_6')
   const [tipoChart, setTipoChart] = useState('waterfall')
+  const [viewMode, setViewMode] = useState('grafico')
   const [ano, setAno] = useState(String(new Date().getFullYear()))
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
@@ -302,6 +304,17 @@ export default function FluxoCaixa() {
 
   return (
     <AppLayout title="Fluxo de Caixa">
+      {/* Tabs */}
+      <div style={tabsBar}>
+        <button onClick={() => setViewMode('grafico')} style={viewMode === 'grafico' ? tabActive : tabInactive}>Gráfico</button>
+        <button onClick={() => setViewMode('matricial')} style={viewMode === 'matricial' ? tabActive : tabInactive}>Matricial (Real × Projetado)</button>
+      </div>
+
+      {viewMode === 'matricial' && (
+        <FluxoMatricial receivable={receivable} payable={payable} anosDisponiveis={anosDisponiveis} />
+      )}
+
+      {viewMode === 'grafico' && (<>
       {/* Cards de resumo */}
       <div style={kpiGrid}>
         <StatCard color="green" label="Entradas" value={fmtMoney(totals.totalIn)} sub="Total recebido + a receber" />
@@ -391,6 +404,7 @@ export default function FluxoCaixa() {
           </table>
         </div>
       </div>
+      </>)}
     </AppLayout>
   )
 }
@@ -423,6 +437,10 @@ function StatCard({ color, label, value, valueColor, sub }) {
 }
 
 // ─── styles ──────────────────────────────────────────────────────────────────
+const tabsBar = { display: 'flex', gap: 4, marginBottom: 18, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
+const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
+const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
+const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const emptyRow = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-mid)', fontStyle: 'italic', fontSize: 12 }
 

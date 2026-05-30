@@ -167,3 +167,58 @@ export function calcularProjecaoFutura(numMeses, { receivable = [], payable = []
 
   return { entradas, saidas, labels }
 }
+
+// =============================================================================
+// Classificação CPC 03 — Fluxo de Caixa por atividade
+// =============================================================================
+
+/**
+ * Classificações do plano_contas que representam ATIVIDADES DE INVESTIMENTO
+ * (CPC 03 §16): aquisição/venda de ativos imobilizados, intangíveis, ou
+ * aplicações financeiras que não são equivalentes de caixa.
+ */
+const CLASSIF_INVESTIMENTO = new Set([
+  'Imobilizado/Intangível',
+])
+
+/** Subcategorias adicionais que se enquadram como investimento, mesmo
+ * em classificações operacionais (ex: aplicações financeiras como
+ * 'Transferência Entre Contas') */
+const SUBCAT_INVESTIMENTO_KEYS = ['aplicaç', 'aplicac', 'resgate', 'cdb', 'tesouro', 'fundo']
+
+/**
+ * Classifica um lançamento como atividade Operacional, Investimento ou
+ * Financiamento, conforme CPC 03. Recebe o lançamento já flatten() e a
+ * tabela plano_contas pra resolver a classificação da categoria.
+ *
+ * @returns {'operacional' | 'investimento' | 'financiamento'}
+ */
+export function classificarFluxo(reg, plano) {
+  if (!reg) return 'operacional'
+  const cat = reg.cat || reg.data?.cat
+  const subcat = (reg.subcat || reg.data?.subcat || '').toLowerCase()
+
+  if (subcat && SUBCAT_INVESTIMENTO_KEYS.some(k => subcat.includes(k))) {
+    return 'investimento'
+  }
+
+  if (!cat || !plano) return 'operacional'
+
+  // Procura no plano de contas: precisa do par (tipo, categoria) pra resolver classificacao
+  const tipoFin = guessTipoFinanc(reg)
+  const linha = plano.find(p => p.tipo === tipoFin && p.categoria === cat)
+  if (!linha) return 'operacional'
+
+  if (CLASSIF_INVESTIMENTO.has(linha.classificacao)) return 'investimento'
+  if (linha.classificacao === 'Empréstimo - Principal') return 'financiamento'
+  return 'operacional'
+}
+
+/** Heurística pra inferir se um registro é Entrada ou Saída pelo formato. */
+function guessTipoFinanc(reg) {
+  // Por padrão olha o status do registro — Recebido = Entrada, Pago = Saída
+  if (reg.status === 'Recebido' || reg.client !== undefined) return 'Entrada'
+  if (reg.status === 'Pago' || reg.supplier !== undefined) return 'Saída'
+  // Fallback: se vem do receivable é Entrada, payable é Saída
+  return reg._tipoFin || 'Entrada'
+}
