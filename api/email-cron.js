@@ -333,6 +333,11 @@ REGRAS PARA DETERMINAR O TIPO:
 - NF/NFS com DESTINATÁRIO = ${POLIMATA_CNPJ} → "entrada" (Conta a Pagar)
 - Boleto/Fatura recebido → "entrada"
 
+CAMPOS OBRIGATÓRIOS (extraia com muito cuidado, mesmo se aparecem em rodapé/cabeçalho):
+- numero_nf: procure por "NF", "NFS-e", "Nº", "Numero", "Number". Se não achar, deixe string vazia.
+- data_emissao: procure por "Data de emissão", "Emissão", "Issue date", "Issued on". Formato YYYY-MM-DD obrigatório.
+- emitente_cnpj e destinatario_cnpj: extraia mesmo de rodapé. Format 14 dígitos.
+
 Responda APENAS com JSON válido, sem markdown:
 {
   "tipo": "entrada" ou "saida",
@@ -385,7 +390,9 @@ Responda APENAS com JSON válido, sem markdown:
 }
 
 // ============================================================================
-// Cria Lançamento (com auto-vinculação reversa em "sem_documento")
+// Cria entrada em nf_pending (humano aprova depois). v2 — antes criava
+// lançamento direto em receivable/payable; agora passa por fila de aprovação
+// pra evitar fornecedores fragmentados, categoria errada, número faltando.
 // ============================================================================
 async function createLancamento(parsed, att, base64) {
   const today = new Date().toISOString().slice(0, 10);
@@ -481,37 +488,46 @@ async function createLancamento(parsed, att, base64) {
     return matchSemDoc.id;
   }
 
-  // Sem match → cria novo lançamento
-  const lancamentoId = crypto.randomUUID();
-  const reg = {
-    id: lancamentoId,
-    created: today,
-    [isSaida ? 'client' : 'supplier']: parte,
-    desc: descFull,
-    value: val,
-    due,
-    status: 'Pendente',
-    cat: isSaida ? '' : mapNFCategoria(parsed),
-    subcat: isSaida ? '' : desc,
-    notes: 'Importado via email automaticamente',
+  // v2: em vez de criar lançamento direto, cria entrada em nf_pending pra
+  // humano revisar/aprovar. Mantém auto-vinculação a 'sem_documento' acima.
+  const pendingId = crypto.randomUUID();
+  const pendingData = {
+    fileName: att.filename,
+    tipo: parsed.tipo,
+    tipo_documento: tipoDoc,
+    numero: numero,
+    data_emissao: parsed.data_emissao || null,
+    data_vencimento: due,
+    emitente_nome: parsed.emitente_nome || '',
+    emitente_cnpj: String(parsed.emitente_cnpj || '').replace(/\D/g, ''),
+    destinatario_nome: parsed.destinatario_nome || '',
+    destinatario_cnpj: String(parsed.destinatario_cnpj || '').replace(/\D/g, ''),
+    parte,
+    descricao: desc,
+    desc_full: descFull,
+    valor: val,
     moeda,
     valor_original: valorOrig,
     cotacao_ptax: cotacao ? (isSaida ? cotacao.compra : cotacao.venda) : null,
     cotacao_tipo: cotacao ? (isSaida ? 'compra' : 'venda') : null,
     data_cotacao: cotacao ? cotacao.dataCotacao : null,
-    conciliado: false,
-    sem_documento: false,
+    categoria_sugerida: isSaida ? '' : mapNFCategoria(parsed),
+    target_table: targetTable,
+    is_saida: isSaida,
     anexo: base64,
     anexoNome: att.filename,
-    anexoTipo: att.mimeType
+    anexoTipo: att.mimeType,
   };
-
-  const { error } = await getSupabase().from(targetTable).insert({
-    id: lancamentoId, user_id: process.env.POLIMATA_USER_ID, data: reg
+  const { error } = await getSupabase().from('nf_pending').insert({
+    id: pendingId,
+    user_id: process.env.POLIMATA_USER_ID,
+    status: 'pendente',
+    origem: 'email',
+    data: pendingData,
   });
-  if (error) throw new Error(`Insert ${targetTable}: ${error.message}`);
+  if (error) throw new Error(`Insert nf_pending: ${error.message}`);
 
-  // nf_history
+  // Log em nf_history pra auditoria
   const nfId = crypto.randomUUID();
   await getSupabase().from('nf_history').insert({
     id: nfId, user_id: process.env.POLIMATA_USER_ID,
@@ -520,12 +536,14 @@ async function createLancamento(parsed, att, base64) {
       fileName: att.filename,
       tipo: parsed.tipo,
       tipo_documento: tipoDoc,
+      numero: numero || null,
       parte, valor: val,
-      status: 'Importado via email'
-    }
+      status: 'Aguardando aprovação (nf_pending)',
+      pending_id: pendingId,
+    },
   });
 
-  return lancamentoId;
+  return pendingId;
 }
 
 async function ensurePessoa(parsed, isSaida) {
