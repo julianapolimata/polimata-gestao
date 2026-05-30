@@ -94,6 +94,7 @@ export default function Sidebar() {
         <NavItem to="/fluxo-caixa" label="Fluxo de Caixa" icon={ico(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>)} />
         <NavItem to="/dre" label="DRE Gerencial" icon={ico(<><line x1="3" y1="3" x2="3" y2="21"/><line x1="3" y1="21" x2="21" y2="21"/><polyline points="7 14 11 10 14 13 19 7"/></>)} />
         <NavItem to="/conciliacao" label="Conciliação" icon={ico(<><circle cx="12" cy="12" r="9"/><polyline points="9 12 11 14 15 10"/></>)} />
+        <NavItem to="/conferencia-fatura" label="Conferência de Fatura" icon={ico(<><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><circle cx="7" cy="14" r="1"/></>)} />
 
         <Section>Notas Fiscais</Section>
         <NavItem to="/emitir-nf" label="Emitir NF" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
