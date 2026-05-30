@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import ModalPessoa from './components/ModalPessoa'
+import { showToast } from '../components/Toast'
 
 function fmtDoc(s) {
   if (!s) return '—'
@@ -16,33 +18,51 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [edicao, setEdicao] = useState(null)
 
-  useEffect(() => {
+  const recarregar = useCallback(() => {
     if (!user) return
+    setLoading(true)
     supabase
       .from('pessoas')
       .select('*')
       .order('updated_at', { ascending: false })
       .then(({ data }) => {
-        const filtered = (data || []).filter(p => (p.data?.tipo || '') === tipo)
-        setRows(filtered)
+        setRows((data || []).filter(p => (p.data?.tipo || '') === tipo))
         setLoading(false)
       })
   }, [user, tipo])
+
+  useEffect(() => { recarregar() }, [recarregar])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return rows
     return rows.filter(item => {
       const d = item.data || {}
-      const blob = [item.codigo, d.nome, d.doc, d.email, d.telefone, d.cidade, d.uf].filter(Boolean).join(' ').toLowerCase()
+      const blob = [item.codigo, d.nome, d.fantasia, d.doc, d.email, d.telefone, d.cidade, d.uf]
+        .filter(Boolean).join(' ').toLowerCase()
       return blob.includes(q)
     })
   }, [rows, busca])
 
+  function abrirNovo() { setEdicao(null); setModalOpen(true) }
+  function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
+
+  async function excluir(row, e) {
+    e?.stopPropagation()
+    const nome = row.data?.nome || row.codigo || 'este cadastro'
+    if (!confirm(`Excluir "${nome}"? Esta ação não pode ser desfeita.`)) return
+    const { error } = await supabase.from('pessoas').delete().eq('id', row.id)
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
+    showToast('Cadastro excluído.', 'info')
+    recarregar()
+  }
+
   return (
     <AppLayout title={titulo}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
           <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
             style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
@@ -54,8 +74,13 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
             style={searchInput}
           />
         </div>
-        <div style={resumo}>
-          <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'cadastro' : 'cadastros'}</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={resumo}>
+            <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'cadastro' : 'cadastros'}</span>
+          </div>
+          <button onClick={abrirNovo} style={btnNovo}>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {tipo === 'Órgão Público' ? 'órgão' : tipo.toLowerCase()}
+          </button>
         </div>
       </div>
 
@@ -64,7 +89,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
           <div style={emptyState}>Carregando…</div>
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? `Nenhum ${tipo.toLowerCase()} cadastrado.` : 'Nenhum resultado para a busca.'}
+            {rows.length === 0 ? `Nenhum ${tipo.toLowerCase()} cadastrado. Clique em "Novo" pra começar.` : 'Nenhum resultado para a busca.'}
           </div>
         ) : (
           <table style={tbl}>
@@ -76,19 +101,32 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                 <th style={th}>Email</th>
                 <th style={{ ...th, width: 130 }}>Telefone</th>
                 <th style={{ ...th, width: 150 }}>Cidade/UF</th>
+                <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map(p => {
                 const d = p.data || {}
                 return (
-                  <tr key={p.id}>
+                  <tr
+                    key={p.id}
+                    onClick={() => abrirEdicao(p)}
+                    style={{ cursor: 'pointer' }}
+                    title="Clique para editar"
+                  >
                     <td style={tdMono}>{p.codigo || '—'}</td>
                     <td style={td}>{d.nome || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtDoc(d.doc)}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.email || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.telefone || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{[d.cidade, d.uf].filter(Boolean).join('/') || '—'}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <button
+                        onClick={e => excluir(p, e)}
+                        title="Excluir" aria-label="Excluir cadastro"
+                        style={btnExcluir}
+                      >×</button>
+                    </td>
                   </tr>
                 )
               })}
@@ -96,10 +134,30 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
           </table>
         )}
       </div>
+
+      <ModalPessoa
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        tipo={tipo}
+        registro={edicao}
+        onSaved={recarregar}
+      />
     </AppLayout>
   )
 }
 
+const btnNovo = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '8px 16px', borderRadius: 6,
+  border: 'none', background: 'var(--gold)', color: '#fff',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
+  cursor: 'pointer', textTransform: 'uppercase',
+}
+const btnExcluir = {
+  background: 'none', border: '1px solid transparent', borderRadius: 4,
+  color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer',
+  width: 26, height: 26, padding: 0,
+}
 const searchInput = { width: '100%', padding: '10px 13px 10px 32px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const resumo = { display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'var(--body)', fontSize: 12, padding: '8px 14px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6 }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
