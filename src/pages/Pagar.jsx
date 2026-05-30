@@ -6,6 +6,7 @@ import ModalLancamento from './components/ModalLancamento'
 import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
+import { getDocStatus } from '../lib/finance'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -56,7 +57,9 @@ export default function Pagar() {
     const q = busca.trim().toLowerCase()
     let r = rows
     if (filtroStatus) {
-      r = r.filter(item => (item.data?.status || '').toLowerCase() === filtroStatus.toLowerCase())
+      if (filtroStatus === '__sem_doc__') r = r.filter(item => getDocStatus(item) === 'pendente')
+      else if (filtroStatus === '__doc_dispensado__') r = r.filter(item => getDocStatus(item) === 'dispensado')
+      else r = r.filter(item => (item.data?.status || '').toLowerCase() === filtroStatus.toLowerCase())
     }
     if (q) {
       r = r.filter(item => {
@@ -102,6 +105,27 @@ export default function Pagar() {
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
+  async function marcarLiquidado(row, e) {
+    e?.stopPropagation()
+    if (row.data?.status === 'Pago') {
+      showToast('Lançamento já está marcado como pago.', 'info')
+      return
+    }
+    const hoje = new Date().toISOString().slice(0, 10)
+    const dataPag = prompt(`Data de pagamento (YYYY-MM-DD):`, hoje)
+    if (!dataPag) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPag)) {
+      showToast('Data inválida. Use AAAA-MM-DD.', 'warning')
+      return
+    }
+    const merged = { ...(row.data || {}), status: 'Pago', data_pagamento: dataPag }
+    const tabela = 'payable'
+    const { error } = await supabase.from(tabela).update({ data: merged }).eq('id', row.id)
+    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    showToast(`Marcado como pago.`, 'success')
+    recarregar()
+  }
+
   async function excluir(row, e) {
     e?.stopPropagation()
     const desc = row.data?.desc || row.codigo || 'este lançamento'
@@ -122,6 +146,8 @@ export default function Pagar() {
             { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
             { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
             { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+          { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
+          { key: '__doc_dispensado__', label: '✓ Doc dispensado', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
           ].map(opt => {
             const active = filtroStatus === opt.key
             return (
@@ -194,7 +220,7 @@ export default function Pagar() {
                 <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={140}>Datas</Th>
                 <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
                 <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir} width={110}>Status</Th>
-                <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
+                <th style={{ ...th, width: 70, textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -226,6 +252,13 @@ export default function Pagar() {
                       }}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
+                      <button
+                        onClick={e => marcarLiquidado(item, e)}
+                        title="Marcar como pago"
+                        style={{ ...btnExcluir, color: d.status === 'Pago' ? 'var(--green)' : 'var(--text-mid)', fontSize: 14, fontWeight: 700 }}
+                        disabled={d.status === 'Pago'}
+                        aria-label="Marcar como pago"
+                      >✓</button>
                       <button
                         onClick={e => excluir(item, e)}
                         title="Excluir"
