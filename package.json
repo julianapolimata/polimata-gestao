@@ -4,7 +4,9 @@
   "description": "Polímata GRC — Sistema de gestão administrativa e financeira",
   "private": true,
   "type": "module",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -15,6 +17,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
+    "chart.js": "^4.4.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"
