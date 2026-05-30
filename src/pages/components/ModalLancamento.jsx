@@ -44,6 +44,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [valor, setValor] = useState('')
   const [descricao, setDescricao] = useState('')
   const [venc, setVenc] = useState('')
+  const [dataCompetencia, setDataCompetencia] = useState('')
+  const [dataPagamento, setDataPagamento] = useState('')
   const [statusV, setStatusV] = useState('Pendente')
   const [forma, setForma] = useState('')
   const [cat, setCat] = useState('')
@@ -89,6 +91,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       setValor(String(d.value ?? ''))
       setDescricao(d.desc || '')
       setVenc(d.due || '')
+      setDataCompetencia(d.data_competencia || '')
+      setDataPagamento(d.data_pagamento || '')
       setStatusV(d.status || 'Pendente')
       setForma(d.forma || '')
       setCat(d.cat || '')
@@ -103,7 +107,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     } else {
       setParte(''); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
       setValor(''); setDescricao(''); setVenc('')
-      setStatusV('Pendente'); setForma(''); setCat(''); setSubcat(''); setNotes('')
+      setDataCompetencia(''); setDataPagamento('');       setStatusV('Pendente'); setForma(''); setCat(''); setSubcat(''); setNotes('')
       setDocStatus('vinculado'); setDocMotivo('')
       setRecorrente(false); setRecFreq('mensal'); setRecAte('')
       setAnexoPath(null); setAnexoFile(null)
@@ -137,6 +141,12 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     }
     if (!cat) { showToast('Selecione a categoria.', 'warning'); return }
     if (!subcat) { showToast('Selecione a subcategoria.', 'warning'); return }
+    // A2 — regime caixa: status liquidado exige data de pagamento
+    const liquidado = (statusV === 'Recebido' || statusV === 'Pago')
+    if (liquidado && !dataPagamento) {
+      showToast(`Status "${statusV}" exige a data de ${isRec ? 'recebimento' : 'pagamento'}.`, 'warning')
+      return
+    }
     setSaving(true)
     try {
       const data = {
@@ -145,6 +155,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         value: Number(valor),
         desc: descricao.trim(),
         due: venc,
+        data_competencia: dataCompetencia || null,
+        data_pagamento: dataPagamento || null,
         status: statusV,
         forma: forma || null,
         cat, subcat,
@@ -284,10 +296,25 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         </Field>
       </Row>
 
+      {/* Datas e status */}
       <Row cols={3}>
+        <Field label="Data de Emissão (Competência)">
+          <input type="date" value={dataCompetencia} onChange={e => setDataCompetencia(e.target.value)} style={input} title="Data de emissão da NF — usada no DRE (regime de competência)" />
+        </Field>
         <Field label="Vencimento *">
           <input type="date" value={venc} onChange={e => setVenc(e.target.value)} style={input} />
         </Field>
+        <Field label={`Data de ${isRec ? 'Recebimento' : 'Pagamento'}${(statusV === 'Recebido' || statusV === 'Pago') ? ' *' : ''}`}>
+          <input
+            type="date" value={dataPagamento}
+            onChange={e => setDataPagamento(e.target.value)}
+            style={{ ...input, ...(((statusV === 'Recebido' || statusV === 'Pago') && !dataPagamento) ? { borderColor: 'var(--red)' } : {}) }}
+            title="Quando o dinheiro entrou/saiu de fato — usado no Fluxo de Caixa"
+          />
+        </Field>
+      </Row>
+
+      <Row cols={2}>
         <Field label="Status">
           <select value={statusV} onChange={e => setStatusV(e.target.value)} style={input}>
             {(isRec ? STATUSES_REC : STATUSES_PAY).map(s => <option key={s} value={s}>{s}</option>)}
