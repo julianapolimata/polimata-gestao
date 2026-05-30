@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import ModalLancamento from './components/ModalLancamento'
+import { showToast } from '../components/Toast'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -13,7 +15,6 @@ function fmtData(s) {
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
-// Status com linguagem financeira universal (verde/laranja/vermelho)
 function statusCfg(status) {
   const s = (status || '').toLowerCase()
   if (s === 'pago') return { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
@@ -28,10 +29,13 @@ export default function Pagar() {
   const [busca, setBusca] = useState('')
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
-  const [filtroStatus, setFiltroStatus] = useState('')  // '', 'Pendente', 'Pago', 'Atrasado'
+  const [filtroStatus, setFiltroStatus] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [edicao, setEdicao] = useState(null)
 
-  useEffect(() => {
+  const recarregar = useCallback(() => {
     if (!user) return
+    setLoading(true)
     supabase
       .from('payable')
       .select('*')
@@ -41,6 +45,8 @@ export default function Pagar() {
         setLoading(false)
       })
   }, [user])
+
+  useEffect(() => { recarregar() }, [recarregar])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -75,35 +81,51 @@ export default function Pagar() {
     [filtrados],
   )
 
+  function abrirNovo() { setEdicao(null); setModalOpen(true) }
+  function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
+
+  async function excluir(row, e) {
+    e?.stopPropagation()
+    const desc = row.data?.desc || row.codigo || 'este lançamento'
+    if (!confirm(`Excluir "${desc}"?`)) return
+    const { error } = await supabase.from('payable').delete().eq('id', row.id)
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
+    showToast('Lançamento excluído.', 'info')
+    recarregar()
+  }
+
   return (
     <AppLayout title="Contas a Pagar">
-      {/* Chips de filtro rápido por status */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[
-          { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
-          { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
-          { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
-          { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
-        ].map(opt => {
-          const active = filtroStatus === opt.key
-          return (
-            <button
-              key={opt.key || 'all'}
-              onClick={() => setFiltroStatus(opt.key)}
-              style={{
-                padding: '7px 14px', borderRadius: 999,
-                fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                cursor: 'pointer', transition: 'all .15s',
-                border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
-                background: active ? opt.bg : 'var(--white)',
-                color: active ? opt.color : 'var(--text-mid)',
-                textTransform: 'uppercase',
-              }}
-            >
-              {opt.label}
-            </button>
-          )
-        })}
+      {/* Topo: chips + botão novo */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
+            { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
+            { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
+            { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+          ].map(opt => {
+            const active = filtroStatus === opt.key
+            return (
+              <button
+                key={opt.key || 'all'}
+                onClick={() => setFiltroStatus(opt.key)}
+                style={{
+                  padding: '7px 14px', borderRadius: 999,
+                  fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                  cursor: 'pointer', transition: 'all .15s',
+                  border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
+                  background: active ? opt.bg : 'var(--white)',
+                  color: active ? opt.color : 'var(--text-mid)',
+                  textTransform: 'uppercase',
+                }}
+              >{opt.label}</button>
+            )
+          })}
+        </div>
+        <button onClick={abrirNovo} style={btnNovo}>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Nova conta
+        </button>
       </div>
 
       {/* Barra de busca + resumo */}
@@ -132,19 +154,20 @@ export default function Pagar() {
           <div style={emptyState}>Carregando…</div>
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? 'Nenhuma conta a pagar cadastrada.' : 'Nenhum resultado para os filtros.'}
+            {rows.length === 0 ? 'Nenhuma conta a pagar cadastrada. Clique em "Nova conta" pra começar.' : 'Nenhum resultado para os filtros.'}
           </div>
         ) : (
           <table style={tbl}>
             <thead>
               <tr>
                 <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir} width={90}>Cód.</Th>
-                <Th onClick={() => toggleSort('client')} active={sortCol === 'client'} dir={sortDir}>Fornecedor</Th>
+                <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
                 <th style={th}>Descrição</th>
                 <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right" width={120}>Valor</Th>
                 <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={100}>Vencimento</Th>
                 <th style={th}>Categoria</th>
                 <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir} width={110}>Status</Th>
+                <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -152,7 +175,12 @@ export default function Pagar() {
                 const d = item.data || {}
                 const cfg = statusCfg(d.status)
                 return (
-                  <tr key={item.id} style={trStyle}>
+                  <tr
+                    key={item.id}
+                    onClick={() => abrirEdicao(item)}
+                    style={trStyle}
+                    title="Clique para editar"
+                  >
                     <td style={tdMono}>{item.codigo || '—'}</td>
                     <td style={td}>{d.supplier || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.desc || '—'}</td>
@@ -166,6 +194,14 @@ export default function Pagar() {
                         background: cfg.bg, color: cfg.color, textTransform: 'uppercase',
                       }}>{cfg.label}</span>
                     </td>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <button
+                        onClick={e => excluir(item, e)}
+                        title="Excluir"
+                        style={btnExcluir}
+                        aria-label="Excluir lançamento"
+                      >×</button>
+                    </td>
                   </tr>
                 )
               })}
@@ -173,6 +209,14 @@ export default function Pagar() {
           </table>
         )}
       </div>
+
+      <ModalLancamento
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        tipo="pay"
+        registro={edicao}
+        onSaved={recarregar}
+      />
     </AppLayout>
   )
 }
@@ -191,6 +235,19 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
 }
 
 // ─── styles ───────────────────────────────────────────────────────────────
+const btnNovo = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '8px 16px', borderRadius: 6,
+  border: 'none', background: 'var(--gold)', color: '#fff',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
+  cursor: 'pointer', textTransform: 'uppercase',
+}
+const btnExcluir = {
+  background: 'none', border: '1px solid transparent', borderRadius: 4,
+  color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer',
+  width: 26, height: 26, padding: 0,
+  transition: 'all .15s',
+}
 const searchInput = {
   width: '100%', padding: '10px 13px 10px 32px',
   border: '1.5px solid var(--cream-dark)', borderRadius: 6,
@@ -217,7 +274,7 @@ const th = {
   background: 'var(--cream)',
   borderBottom: '1px solid var(--cream-dark)',
 }
-const trStyle = { transition: 'background .15s' }
+const trStyle = { transition: 'background .15s', cursor: 'pointer' }
 const td = {
   padding: '12px 14px', fontSize: 12, color: 'var(--navy)',
   borderBottom: '1px solid var(--cream-dark)',

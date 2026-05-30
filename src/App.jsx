@@ -10,6 +10,7 @@ import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
 import Catalogo from './pages/Catalogo'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
+import { ToastContainer } from './components/Toast'
 import FluxoCaixa from './pages/FluxoCaixa'
 
 function RootRedirect() {
@@ -21,6 +22,7 @@ function RootRedirect() {
 export default function App() {
   return (
     <AuthProvider>
+      <ToastContainer />
       <BrowserRouter basename="/v2">
         <Routes>
           <Route path="/" element={<RootRedirect />} />

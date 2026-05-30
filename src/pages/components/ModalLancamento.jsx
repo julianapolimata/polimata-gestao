@@ -1,0 +1,370 @@
+import { useEffect, useMemo, useState } from 'react'
+import Modal from '../../components/Modal'
+import { showToast } from '../../components/Toast'
+import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { proximoCodigoReceivable, proximoCodigoPayable } from '../../lib/codigos'
+import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
+
+// =============================================================================
+// MODAL LANÇAMENTO — serve Contas a Receber (tipo='rec') e Pagar (tipo='pay').
+// Replica o saveReceivable() / savePayable() do legado (linhas 2845/3008).
+// =============================================================================
+
+const FORMAS_REC = ['Pix/Transferência', 'Boleto', 'Cartão de Crédito']
+const FORMAS_PAY = ['Pix/Transferência', 'Boleto', 'Cartão de Crédito', 'Débito Automático', 'Dinheiro']
+const STATUSES_REC = ['Pendente', 'Recebido', 'Atrasado']
+const STATUSES_PAY = ['Pendente', 'Pago', 'Atrasado']
+const TIPOS_CONTRAPART_REC = ['Cliente', 'Prospect', 'Fornecedor', 'Funcionário', 'Órgão Público', 'Outro']
+const TIPOS_CONTRAPART_PAY = ['Fornecedor', 'Funcionário', 'Órgão Público', 'Cliente', 'Outro']
+const FREQUENCIAS = [
+  { value: 'mensal', label: 'Mensal' },
+  { value: 'trimestral', label: 'Trimestral' },
+  { value: 'semestral', label: 'Semestral' },
+  { value: 'anual', label: 'Anual' },
+]
+const MOTIVOS_DISPENSA = [
+  'Tarifa bancária', 'Anuidade de cartão', 'IOF / Imposto sobre operação',
+  'Juros / Multa', 'Rendimento de aplicação',
+  'Transferência entre contas próprias', 'Saque ou depósito próprio',
+  'Estorno / Cancelamento', 'Outro',
+]
+
+export default function ModalLancamento({ open, onClose, tipo, registro, onSaved }) {
+  const { user } = useAuth()
+  const isEdit = !!registro
+  const isRec = tipo === 'rec'
+  const tabela = isRec ? 'receivable' : 'payable'
+  const tipoFinanc = isRec ? 'Entrada' : 'Saída'
+
+  // ── State (form) ─────────────────────────────────────────────────────
+  const [parte, setParte] = useState('')
+  const [parteTipo, setParteTipo] = useState(isRec ? 'Cliente' : 'Fornecedor')
+  const [valor, setValor] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [venc, setVenc] = useState('')
+  const [statusV, setStatusV] = useState('Pendente')
+  const [forma, setForma] = useState('')
+  const [cat, setCat] = useState('')
+  const [subcat, setSubcat] = useState('')
+  const [notes, setNotes] = useState('')
+  const [docStatus, setDocStatus] = useState('vinculado')
+  const [docMotivo, setDocMotivo] = useState('')
+  const [recorrente, setRecorrente] = useState(false)
+  const [recFreq, setRecFreq] = useState('mensal')
+  const [recAte, setRecAte] = useState('')
+
+  const [pessoas, setPessoas] = useState([])
+  const [plano, setPlano] = useState([])
+  const [saving, setSaving] = useState(false)
+
+  // ── Carregar listas auxiliares (pessoas para autocomplete + plano de contas) ──
+  useEffect(() => {
+    if (!open) return undefined
+    let cancelled = false
+    Promise.all([
+      supabase.from('pessoas').select('id,codigo,data'),
+      fetchPlanoContas(),
+    ]).then(([rPess, plano]) => {
+      if (cancelled) return
+      setPessoas(rPess.data || [])
+      setPlano(plano || [])
+    })
+    return () => { cancelled = true }
+  }, [open])
+
+  // ── Reset / hidratação ao abrir ──────────────────────────────────────
+  useEffect(() => {
+    if (!open) return
+    if (isEdit && registro) {
+      const d = registro.data || {}
+      setParte(d.client || d.supplier || '')
+      setParteTipo(d.parte_tipo || (isRec ? 'Cliente' : 'Fornecedor'))
+      setValor(String(d.value ?? ''))
+      setDescricao(d.desc || '')
+      setVenc(d.due || '')
+      setStatusV(d.status || 'Pendente')
+      setForma(d.forma || '')
+      setCat(d.cat || '')
+      setSubcat(d.subcat || '')
+      setNotes(d.notes || '')
+      setDocStatus(d.doc_status || (d.sem_documento ? 'pendente' : 'vinculado'))
+      setDocMotivo(d.doc_motivo_dispensa || '')
+      setRecorrente(!!d.recorrente)
+      setRecFreq(d.rec_frequencia || 'mensal')
+      setRecAte(d.rec_ate || '')
+    } else {
+      setParte(''); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
+      setValor(''); setDescricao(''); setVenc('')
+      setStatusV('Pendente'); setForma(''); setCat(''); setSubcat(''); setNotes('')
+      setDocStatus('vinculado'); setDocMotivo('')
+      setRecorrente(false); setRecFreq('mensal'); setRecAte('')
+    }
+  }, [open, isEdit, registro, isRec])
+
+  // ── Categorias / subcategorias filtradas ─────────────────────────────
+  const categorias = useMemo(() => categoriasDe(plano, tipoFinanc), [plano, tipoFinanc])
+  const subcategorias = useMemo(() => subcategoriasDe(plano, tipoFinanc, cat), [plano, tipoFinanc, cat])
+  useEffect(() => {
+    if (cat && !subcategorias.includes(subcat)) setSubcat('')
+  }, [cat, subcategorias, subcat])
+
+  // ── Autocomplete parte (datalist nativo) ─────────────────────────────
+  const partesFiltradas = useMemo(() => {
+    const tiposAccept = parteTipo === 'Outro' ? null
+      : parteTipo === 'Cliente' ? ['Cliente', 'Prospect']
+      : [parteTipo]
+    return pessoas
+      .filter(p => !tiposAccept || tiposAccept.includes(p.data?.tipo))
+      .map(p => p.data?.nome)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [pessoas, parteTipo])
+
+  // ── Save ─────────────────────────────────────────────────────────────
+  async function handleSave() {
+    if (!parte.trim() || !valor || !descricao.trim() || !venc) {
+      showToast('Preencha os campos obrigatórios.', 'warning')
+      return
+    }
+    if (!cat) { showToast('Selecione a categoria.', 'warning'); return }
+    if (!subcat) { showToast('Selecione a subcategoria.', 'warning'); return }
+    setSaving(true)
+    try {
+      const data = {
+        ...(isRec ? { client: parte.trim() } : { supplier: parte.trim() }),
+        parte_tipo: parteTipo,
+        value: Number(valor),
+        desc: descricao.trim(),
+        due: venc,
+        status: statusV,
+        forma: forma || null,
+        cat, subcat,
+        notes: notes.trim() || null,
+        doc_status: docStatus,
+        doc_motivo_dispensa: docStatus === 'dispensado' ? (docMotivo || null) : null,
+        sem_documento: docStatus === 'pendente',
+        recorrente,
+        rec_frequencia: recorrente ? recFreq : null,
+        rec_ate: recorrente ? (recAte || null) : null,
+      }
+      if (isEdit) {
+        const merged = { ...(registro.data || {}), ...data }
+        const { error } = await supabase.from(tabela).update({ data: merged }).eq('id', registro.id)
+        if (error) throw error
+        showToast('Lançamento atualizado.', 'success')
+      } else {
+        if (!user) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
+        const codigo = isRec ? await proximoCodigoReceivable() : await proximoCodigoPayable()
+        const payload = {
+          user_id: user.id,
+          codigo,
+          data: { ...data, created: new Date().toISOString().slice(0, 10) },
+        }
+        const { error } = await supabase.from(tabela).insert(payload)
+        if (error) throw error
+        showToast(`${codigo} salvo.`, 'success')
+      }
+      onSaved?.()
+      onClose()
+    } catch (e) {
+      console.error(e)
+      showToast(e?.message || 'Erro ao salvar.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const title = isEdit
+    ? `Editar ${isRec ? 'Conta a Receber' : 'Conta a Pagar'}${registro.codigo ? ` · ${registro.codigo}` : ''}`
+    : `Nova ${isRec ? 'Conta a Receber' : 'Conta a Pagar'}`
+
+  const tiposParte = isRec ? TIPOS_CONTRAPART_REC : TIPOS_CONTRAPART_PAY
+  const datalistId = `parte-list-${isRec ? 'rec' : 'pay'}`
+
+  return (
+    <Modal
+      open={open}
+      onClose={saving ? () => {} : onClose}
+      title={title}
+      width={760}
+      footer={
+        <>
+          <button type="button" onClick={onClose} style={btnGhost} disabled={saving}>Cancelar</button>
+          <button type="button" onClick={handleSave} style={btnPrimary} disabled={saving}>
+            {saving ? 'Salvando…' : 'Salvar'}
+          </button>
+        </>
+      }
+    >
+      <Row cols={2}>
+        <Field label={`${isRec ? 'Cliente' : 'Fornecedor'} *`}>
+          <select value={parteTipo} onChange={e => setParteTipo(e.target.value)} style={input}>
+            {tiposParte.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input
+            value={parte} onChange={e => setParte(e.target.value)}
+            list={datalistId}
+            placeholder={isRec ? 'Nome do cliente' : 'Nome do fornecedor'}
+            style={{ ...input, marginTop: 6 }}
+            autoComplete="off"
+          />
+          <datalist id={datalistId}>
+            {partesFiltradas.map(n => <option key={n} value={n} />)}
+          </datalist>
+        </Field>
+        <Field label="Valor (R$) *">
+          <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} />
+        </Field>
+      </Row>
+
+      <Row>
+        <Field label="Descrição *">
+          <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Descrição do serviço ou produto" style={input} />
+        </Field>
+      </Row>
+
+      <Row cols={3}>
+        <Field label="Vencimento *">
+          <input type="date" value={venc} onChange={e => setVenc(e.target.value)} style={input} />
+        </Field>
+        <Field label="Status">
+          <select value={statusV} onChange={e => setStatusV(e.target.value)} style={input}>
+            {(isRec ? STATUSES_REC : STATUSES_PAY).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label={`Forma de ${isRec ? 'Recebimento' : 'Pagamento'}`}>
+          <select value={forma} onChange={e => setForma(e.target.value)} style={input}>
+            <option value="">Não informado</option>
+            {(isRec ? FORMAS_REC : FORMAS_PAY).map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </Field>
+      </Row>
+
+      <Row cols={2}>
+        <Field label="Categoria *">
+          <select value={cat} onChange={e => setCat(e.target.value)} style={input}>
+            <option value="">Selecione…</option>
+            {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Subcategoria *">
+          <select value={subcat} onChange={e => setSubcat(e.target.value)} style={input} disabled={!cat}>
+            <option value="">{cat ? 'Selecione…' : 'Selecione a categoria primeiro'}</option>
+            {subcategorias.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+      </Row>
+
+      <Row>
+        <Field label="Observações">
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Informações adicionais…" style={{ ...input, minHeight: 70, resize: 'vertical' }} />
+        </Field>
+      </Row>
+
+      {/* Documento fiscal */}
+      <div style={boxNavy}>
+        <div style={boxLabel}>📎 Documento Fiscal</div>
+        <Row cols={2} gap={10}>
+          <select value={docStatus} onChange={e => setDocStatus(e.target.value)} style={input}>
+            <option value="vinculado">✓ Documento vinculado / não se aplica</option>
+            <option value="pendente">📎 NF pendente (vai chegar)</option>
+            <option value="dispensado">✓ Doc fiscal dispensado (sem NF possível)</option>
+          </select>
+          {docStatus === 'dispensado' ? (
+            <select value={docMotivo} onChange={e => setDocMotivo(e.target.value)} style={input}>
+              <option value="">— motivo —</option>
+              {MOTIVOS_DISPENSA.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : <div />}
+        </Row>
+      </div>
+
+      {/* Recorrência */}
+      <div style={boxGold}>
+        <label style={checkboxLabel}>
+          <input type="checkbox" checked={recorrente} onChange={e => setRecorrente(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
+          🔄 Lançamento recorrente
+        </label>
+        {recorrente && (
+          <Row cols={2} gap={10} mt={10}>
+            <Field label="Frequência">
+              <select value={recFreq} onChange={e => setRecFreq(e.target.value)} style={input}>
+                {FREQUENCIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Última geração até">
+              <input type="date" value={recAte} onChange={e => setRecAte(e.target.value)} style={input} />
+            </Field>
+          </Row>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ─── helpers visuais ─────────────────────────────────────────────────────────
+function Field({ label, children }) {
+  return (
+    <div style={fieldWrap}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function Row({ children, cols = 1, gap = 14, mt }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+      gap,
+      marginTop: mt,
+      marginBottom: 14,
+    }}>
+      {children}
+    </div>
+  )
+}
+
+const fieldWrap = { display: 'flex', flexDirection: 'column' }
+const labelStyle = {
+  fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+  color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)',
+}
+const input = {
+  width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)',
+  borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13,
+  color: 'var(--navy)', background: 'var(--white)', outline: 'none',
+  boxSizing: 'border-box',
+}
+const boxNavy = {
+  marginTop: 6, padding: 14,
+  background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)',
+  borderRadius: 6, marginBottom: 14,
+}
+const boxGold = {
+  padding: 14,
+  background: 'rgba(204,145,94,0.06)', borderLeft: '3px solid var(--gold)',
+  borderRadius: 6,
+}
+const boxLabel = {
+  fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+  color: 'var(--navy)', marginBottom: 8, fontFamily: 'var(--body)',
+}
+const checkboxLabel = {
+  display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+  fontWeight: 600, color: 'var(--navy)', fontSize: 12, fontFamily: 'var(--body)',
+}
+const btnGhost = {
+  padding: '10px 18px', border: '1.5px solid var(--cream-dark)',
+  borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
+  cursor: 'pointer', letterSpacing: 0.5,
+}
+const btnPrimary = {
+  padding: '10px 18px', border: 'none',
+  borderRadius: 6, background: 'var(--gold)', color: '#fff',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700,
+  cursor: 'pointer', letterSpacing: 0.5,
+}
