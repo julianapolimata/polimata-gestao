@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoReceivable, proximoCodigoPayable } from '../../lib/codigos'
 import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '../../lib/anexos'
+import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/parcelas'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 
 // =============================================================================
@@ -62,6 +63,12 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [anexoFile, setAnexoFile] = useState(null) // arquivo selecionado, ainda não enviado
   // O estado de upload em si é coberto pelo `saving` global do modal.
 
+  // ── Cartão / parcelado (só Pagar) ─────────────────────────────────────
+  const [cartoes, setCartoes] = useState([])
+  const [cartaoId, setCartaoId] = useState('')
+  const [parcelado, setParcelado] = useState(false)
+  const [numParcelas, setNumParcelas] = useState(2)
+
   const [pessoas, setPessoas] = useState([])
   const [plano, setPlano] = useState([])
   const [saving, setSaving] = useState(false)
@@ -73,10 +80,12 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     Promise.all([
       supabase.from('pessoas').select('id,codigo,data'),
       fetchPlanoContas(),
-    ]).then(([rPess, plano]) => {
+      isRec ? Promise.resolve({ data: [] }) : supabase.from('cartoes').select('id,data').order('updated_at', { ascending: false }),
+    ]).then(([rPess, plano, rCart]) => {
       if (cancelled) return
       setPessoas(rPess.data || [])
       setPlano(plano || [])
+      setCartoes((rCart?.data || []).filter(c => c.data?.ativo !== false))
     })
     return () => { cancelled = true }
   }, [open])
@@ -104,6 +113,9 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       setRecFreq(d.rec_frequencia || 'mensal')
       setRecAte(d.rec_ate || '')
       setAnexoPath(registro.anexo_path || null); setAnexoFile(null)
+      setCartaoId(registro.cartao_id || '')
+      setParcelado(!!(d.parcela_total && d.parcela_total > 1))
+      setNumParcelas(d.parcela_total || 2)
     } else {
       setParte(''); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
       setValor(''); setDescricao(''); setVenc('')
@@ -111,8 +123,16 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       setDocStatus('vinculado'); setDocMotivo('')
       setRecorrente(false); setRecFreq('mensal'); setRecAte('')
       setAnexoPath(null); setAnexoFile(null)
+      setCartaoId(''); setParcelado(false); setNumParcelas(2)
     }
   }, [open, isEdit, registro, isRec])
+
+  // ── Auto-detecta padrão "X/Y" na descrição (Pagar com cartão) ───────
+  useEffect(() => {
+    if (isRec || forma !== 'Cartão de Crédito') return
+    const det = detectarParcela(descricao)
+    if (det) { setParcelado(true); setNumParcelas(det.total) }
+  }, [descricao, forma, isRec])
 
   // ── Categorias / subcategorias filtradas ─────────────────────────────
   const categorias = useMemo(() => categoriasDe(plano, tipoFinanc), [plano, tipoFinanc])
@@ -191,15 +211,58 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           try { await deleteAnexo(registro.anexo_path) } catch (e) { console.warn(e) }
           updates.anexo_path = null
         }
+        // Cartão (Pagar) — gravar/limpar cartao_id
+        if (!isRec) updates.cartao_id = cartaoId || null
         const { error } = await supabase.from(tabela).update(updates).eq('id', registro.id)
         if (error) throw error
         showToast('Lançamento atualizado.', 'success')
       } else {
         if (!user) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
+        // Cartão (Pagar): integra com a tabela cartoes via cartao_id
+        const cartaoSelecionado = cartoes.find(c => c.id === cartaoId)
+        // Caso PARCELADO + Cartão: gera N lançamentos com vencimento progressivo
+        if (!isRec && parcelado && cartaoSelecionado && numParcelas > 1) {
+          const dataCompra = data.data_competencia || data.due || new Date().toISOString().slice(0, 10)
+          const parcelas = gerarParcelas({
+            baseData: { ...data, desc: removerSufixoParcela(data.desc) },
+            valorTotal: Number(valor),
+            numParcelas,
+            dataCompra,
+            cartao: cartaoSelecionado,
+          })
+          const created = new Date().toISOString().slice(0, 10)
+          // 1ª inserção: PARENT (parcela 1) — gera id pra encadear
+          const parent = parcelas[0]
+          const codigoP = await proximoCodigoPayable()
+          const { data: parentRow, error: errParent } = await supabase.from('payable').insert({
+            user_id: user.id, codigo: codigoP, cartao_id: cartaoId,
+            data: { ...parent, created },
+          }).select('id').single()
+          if (errParent) throw errParent
+          // demais parcelas: parent_id = parentRow.id, código sequencial
+          const filhos = []
+          for (let i = 1; i < parcelas.length; i++) {
+            const cod = await proximoCodigoPayable()
+            filhos.push({
+              user_id: user.id, codigo: cod, cartao_id: cartaoId, parent_id: parentRow.id,
+              data: { ...parcelas[i], created },
+            })
+          }
+          if (filhos.length) {
+            const { error: errFilhos } = await supabase.from('payable').insert(filhos)
+            if (errFilhos) throw errFilhos
+          }
+          showToast(`${numParcelas} parcelas criadas (${codigoP} + ${filhos.length} filhas).`, 'success')
+          onSaved?.()
+          onClose()
+          return
+        }
+
         const codigo = isRec ? await proximoCodigoReceivable() : await proximoCodigoPayable()
         const payload = {
           user_id: user.id,
           codigo,
+          ...(cartaoId ? { cartao_id: cartaoId } : {}),
           data: { ...data, created: new Date().toISOString().slice(0, 10) },
         }
         const { data: inserted, error } = await supabase.from(tabela).insert(payload).select('id').single()
@@ -388,6 +451,52 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           </label>
         )}
       </div>
+
+      {/* Cartão de crédito + parcelas (só Pagar) */}
+      {!isRec && forma === 'Cartão de Crédito' && (
+        <div style={boxNavy}>
+          <div style={boxLabel}>💳 Cartão de Crédito</div>
+          <Row cols={2} gap={10}>
+            <Field label="Cartão">
+              {cartoes.length === 0 ? (
+                <div style={{ fontSize: 11, color: 'var(--text-mid)', fontStyle: 'italic' }}>
+                  Nenhum cartão cadastrado. Cadastre em <a href="/cartoes" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold)', textDecoration: 'underline' }}>Cartões</a>.
+                </div>
+              ) : (
+                <select value={cartaoId} onChange={e => setCartaoId(e.target.value)} style={input}>
+                  <option value="">— selecione —</option>
+                  {cartoes.map(c => <option key={c.id} value={c.id}>{c.data?.nome} ({c.data?.bandeira})</option>)}
+                </select>
+              )}
+            </Field>
+            <Field label="Parcelas">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600, marginTop: 6 }}>
+                <input type="checkbox" checked={parcelado} onChange={e => setParcelado(e.target.checked)} disabled={isEdit} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
+                Compra parcelada
+              </label>
+              {parcelado && (
+                <input
+                  type="number" min={2} max={36} value={numParcelas}
+                  onChange={e => setNumParcelas(Math.max(2, Math.min(36, Number(e.target.value))))}
+                  disabled={isEdit}
+                  style={{ ...input, marginTop: 6 }}
+                  placeholder="Nº de parcelas (ex: 12)"
+                />
+              )}
+            </Field>
+          </Row>
+          {parcelado && !isEdit && cartaoId && (
+            <div style={{ fontSize: 11, color: 'var(--text-mid)', background: 'rgba(204,145,94,0.08)', padding: 10, borderRadius: 4, borderLeft: '3px solid var(--gold)' }}>
+              💡 Ao salvar, o sistema vai criar <strong>{numParcelas} lançamentos</strong> ligados como parcelas (1/{numParcelas} a {numParcelas}/{numParcelas}), com vencimentos progressivos baseados no fechamento do cartão.
+            </div>
+          )}
+          {isEdit && registro?.data?.parcela_atual && (
+            <div style={{ fontSize: 11, color: 'var(--text-mid)', background: 'rgba(0,32,62,0.05)', padding: 10, borderRadius: 4, borderLeft: '3px solid var(--navy)' }}>
+              Esta é a parcela <strong>{registro.data.parcela_atual}/{registro.data.parcela_total}</strong> de uma compra parcelada. Edição de parcelas individuais é livre, mas a estrutura da série não pode ser alterada por aqui.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recorrência */}
       <div style={boxGold}>
