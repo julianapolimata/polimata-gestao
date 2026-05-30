@@ -28,6 +28,7 @@ export default function Receber() {
   const [busca, setBusca] = useState('')
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
+  const [filtroStatus, setFiltroStatus] = useState('')  // '', 'Pendente', 'Recebido', 'Atrasado'
 
   useEffect(() => {
     if (!user) return
@@ -44,6 +45,9 @@ export default function Receber() {
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     let r = rows
+    if (filtroStatus) {
+      r = r.filter(item => (item.data?.status || '').toLowerCase() === filtroStatus.toLowerCase())
+    }
     if (q) {
       r = r.filter(item => {
         const d = item.data || {}
@@ -59,7 +63,7 @@ export default function Receber() {
       else cmp = va.localeCompare(vb)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rows, busca, sortCol, sortDir])
+  }, [rows, busca, filtroStatus, sortCol, sortDir])
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -73,6 +77,35 @@ export default function Receber() {
 
   return (
     <AppLayout title="Contas a Receber">
+      {/* Chips de filtro rápido por status */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[
+          { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
+          { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
+          { key: 'Recebido', label: 'Recebido', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
+          { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+        ].map(opt => {
+          const active = filtroStatus === opt.key
+          return (
+            <button
+              key={opt.key || 'all'}
+              onClick={() => setFiltroStatus(opt.key)}
+              style={{
+                padding: '7px 14px', borderRadius: 999,
+                fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                cursor: 'pointer', transition: 'all .15s',
+                border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
+                background: active ? opt.bg : 'var(--white)',
+                color: active ? opt.color : 'var(--text-mid)',
+                textTransform: 'uppercase',
+              }}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Barra de busca + resumo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
