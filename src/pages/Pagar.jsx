@@ -192,7 +192,7 @@ export default function Pagar() {
                 <th style={th}>Descrição</th>
                 <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right" width={120}>Valor</Th>
                 <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={140}>Datas</Th>
-                <th style={th}>Categoria</th>
+                <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
                 <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir} width={110}>Status</Th>
                 <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
               </tr>
