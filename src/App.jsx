@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import Receber from './pages/Receber'
 import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
+import Catalogo from './pages/Catalogo'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -31,6 +32,8 @@ export default function App() {
           <Route path="/clientes" element={<ProtectedRoute><Pessoas tipo="Cliente" titulo="Clientes" /></ProtectedRoute>} />
           <Route path="/funcionarios" element={<ProtectedRoute><Pessoas tipo="Funcionário" titulo="Funcionários" labelDoc="CPF" /></ProtectedRoute>} />
           <Route path="/orgaos-publicos" element={<ProtectedRoute><Pessoas tipo="Órgão Público" titulo="Órgãos Públicos" /></ProtectedRoute>} />
+          <Route path="/projetos" element={<ProtectedRoute><Catalogo tabela="projects" titulo="Projetos" /></ProtectedRoute>} />
+          <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
