@@ -30,6 +30,40 @@ export default function ImportarNFs() {
   const [historico, setHistorico] = useState([])
   const [loading, setLoading] = useState(true)
   const [confirmando, setConfirmando] = useState(null) // id do que está sendo processado
+  const [rodandoCron, setRodandoCron] = useState(false)
+  const [ultimoResultado, setUltimoResultado] = useState(null)
+
+  async function rodarCron() {
+    setRodandoCron(true)
+    setUltimoResultado(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
+      const r = await fetch('/api/email-cron?days=7&max=10', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      const txt = await r.text()
+      let j = null
+      try { j = JSON.parse(txt) } catch { j = { raw: txt } }
+      if (!r.ok) {
+        const msg = j?.error || `HTTP ${r.status}`
+        setUltimoResultado({ ok: false, msg })
+        showToast('Erro: ' + msg, 'error')
+        return
+      }
+      setUltimoResultado({ ok: true, msg: j?.message || JSON.stringify(j).slice(0, 200), data: j })
+      const novas = j?.processed || j?.nfsCriadas || 0
+      showToast(novas > 0 ? `${novas} novas NFs na fila` : 'Cron rodou — nada novo no email', 'success')
+      carregar()
+    } catch (e) {
+      console.error(e)
+      setUltimoResultado({ ok: false, msg: e.message })
+      showToast('Falha: ' + e.message, 'error')
+    } finally {
+      setRodandoCron(false)
+    }
+  }
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -172,7 +206,22 @@ export default function ImportarNFs() {
       {loading ? (
         <div style={emptyState}>Carregando…</div>
       ) : aba === 'aguardando' ? (
-        pendentes.length === 0 ? (
+        <>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
+            Cron processa emails em <strong>financeiro@polimatagrc.com.br</strong> automaticamente.
+            Use o botão se quiser forçar verificação imediata.
+          </div>
+          <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
+            {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
+          </button>
+        </div>
+        {ultimoResultado && (
+          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: ultimoResultado.ok ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.08)', borderLeft: `3px solid ${ultimoResultado.ok ? 'var(--green)' : 'var(--red)'}`, color: ultimoResultado.ok ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+            {ultimoResultado.ok ? '✓' : '⚠'} {ultimoResultado.msg}
+          </div>
+        )}
+        {pendentes.length === 0 ? (
           <div style={emptyState}>
             ✨ Nada na fila! O cron (rodando em <code>api/email-cron.js</code>) processa emails em <strong>financeiro@polimatagrc.com.br</strong> e coloca aqui as NFs detectadas pra você aprovar antes de virarem lançamentos.
           </div>
@@ -182,7 +231,8 @@ export default function ImportarNFs() {
               <PendingCard key={p.id} pending={p} processando={confirmando === p.id} onAprovar={() => aprovar(p)} onRejeitar={() => rejeitar(p)} />
             ))}
           </div>
-        )
+        )}
+        </>
       ) : aba === 'historico' ? (
         historico.length === 0 ? (
           <div style={emptyState}>Nenhuma NF processada ainda.</div>
