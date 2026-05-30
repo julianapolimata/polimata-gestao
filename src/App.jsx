@@ -6,6 +6,7 @@ import EsqueciSenha from './pages/EsqueciSenha'
 import RedefinirSenha from './pages/RedefinirSenha'
 import Dashboard from './pages/Dashboard'
 import Receber from './pages/Receber'
+import Pagar from './pages/Pagar'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="/redefinir-senha" element={<RedefinirSenha />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/receber" element={<ProtectedRoute><Receber /></ProtectedRoute>} />
+          <Route path="/pagar" element={<ProtectedRoute><Pagar /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
