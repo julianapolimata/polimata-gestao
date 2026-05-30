@@ -12,6 +12,7 @@ import Catalogo from './pages/Catalogo'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
 import { ToastContainer } from './components/Toast'
 import FluxoCaixa from './pages/FluxoCaixa'
+import DRE from './pages/DRE'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -39,7 +40,7 @@ export default function App() {
           <Route path="/projetos" element={<ProtectedRoute><Catalogo tabela="projects" titulo="Projetos" /></ProtectedRoute>} />
           <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
           <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
-          <Route path="/dre" element={<ProtectedRoute><EmConstrucaoModulo titulo="DRE Gerencial" descricao="Demonstrativo do Resultado do Exercício por regime de competência. Ainda não migrado." /></ProtectedRoute>} />
+          <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><EmConstrucaoModulo titulo="Conciliação" descricao="Conciliação de extrato bancário, faturas de cartão e NFs. Ainda não migrado." /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><EmConstrucaoModulo titulo="Importar NFs" descricao="Importação manual ou automática (Gmail+IA) de notas fiscais." /></ProtectedRoute>} />
