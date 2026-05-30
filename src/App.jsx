@@ -10,6 +10,7 @@ import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
 import Catalogo from './pages/Catalogo'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
+import Cartoes from './pages/Cartoes'
 import { ToastContainer } from './components/Toast'
 import FluxoCaixa from './pages/FluxoCaixa'
 import DRE from './pages/DRE'
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><EmConstrucaoModulo titulo="Importar NFs" descricao="Importação manual ou automática (Gmail+IA) de notas fiscais." /></ProtectedRoute>} />
           <Route path="/recorrencias" element={<ProtectedRoute><EmConstrucaoModulo titulo="Recorrências" descricao="Lançamentos mestre com projeção automática mensal." /></ProtectedRoute>} />
+          <Route path="/cartoes" element={<ProtectedRoute><Cartoes /></ProtectedRoute>} />
           <Route path="/relatorios" element={<ProtectedRoute><EmConstrucaoModulo titulo="Exportar Relatório" descricao="Exportação de relatórios financeiros consolidados." /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
