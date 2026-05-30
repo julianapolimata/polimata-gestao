@@ -10,6 +10,7 @@ import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
 import Catalogo from './pages/Catalogo'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
+import FluxoCaixa from './pages/FluxoCaixa'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -35,7 +36,7 @@ export default function App() {
           <Route path="/orgaos-publicos" element={<ProtectedRoute><Pessoas tipo="Órgão Público" titulo="Órgãos Públicos" /></ProtectedRoute>} />
           <Route path="/projetos" element={<ProtectedRoute><Catalogo tabela="projects" titulo="Projetos" /></ProtectedRoute>} />
           <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
-          <Route path="/fluxo-caixa" element={<ProtectedRoute><EmConstrucaoModulo titulo="Fluxo de Caixa" descricao="Visão matricial de entradas e saídas por período (Real vs Projetado). A migração para a nova versão está prevista nas próximas iterações." /></ProtectedRoute>} />
+          <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
           <Route path="/dre" element={<ProtectedRoute><EmConstrucaoModulo titulo="DRE Gerencial" descricao="Demonstrativo do Resultado do Exercício por regime de competência. Ainda não migrado." /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><EmConstrucaoModulo titulo="Conciliação" descricao="Conciliação de extrato bancário, faturas de cartão e NFs. Ainda não migrado." /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />

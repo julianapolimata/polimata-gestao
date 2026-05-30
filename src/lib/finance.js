@@ -90,3 +90,80 @@ export function monthLabels(ano = new Date().getFullYear()) {
   }
   return out
 }
+
+const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+/**
+ * Projeta entradas e saídas dos próximos N meses baseado em recorrências.
+ * Replica calcularProjecaoFutura() do legado (linha 3265).
+ *
+ * Considera 3 fontes:
+ *  1. receivable/payable com `data.recorrente === true`
+ *  2. Contratos com `data.rec_ativa === true` e status Ativo (apenas entradas, mensal)
+ *  3. Lançamentos NÃO recorrentes com data futura (já cadastrados)
+ *
+ * Inputs já vêm passados por flatten(). Quando Recorrências for construído (#11),
+ * basta os usuários começarem a marcar `recorrente:true` que essa função usa.
+ */
+export function calcularProjecaoFutura(numMeses, { receivable = [], payable = [], contracts = [] } = {}) {
+  const entradas = new Array(numMeses).fill(0)
+  const saidas = new Array(numMeses).fill(0)
+  const labels = []
+  const hoje = new Date()
+  const incPorFreq = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 }
+
+  for (let i = 0; i < numMeses; i++) {
+    const fd = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+    labels.push(`${MES_CURTO[fd.getMonth()]}/${String(fd.getFullYear()).slice(2)}`)
+  }
+
+  function avancarRecorrencia(reg, arr) {
+    if (!reg.due) return
+    const freq = reg.data?.rec_frequencia || 'mensal'
+    const inc = incPorFreq[freq] || 1
+    let d = new Date(reg.due + 'T12:00:00')
+    while (d <= hoje) d.setMonth(d.getMonth() + inc)
+    for (let i = 0; i < numMeses; i++) {
+      const target = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+      if (d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()) {
+        arr[i] += Number(reg.value) || 0
+        d.setMonth(d.getMonth() + inc)
+      } else if (d < target) {
+        d = new Date(target)
+      }
+    }
+  }
+
+  receivable.filter(r => r.data?.recorrente).forEach(r => avancarRecorrencia(r, entradas))
+  payable.filter(r => r.data?.recorrente).forEach(r => avancarRecorrencia(r, saidas))
+
+  contracts
+    .filter(c => c.data?.rec_ativa && (c.data?.status === 'Ativo'))
+    .forEach(c => {
+      const valor = Number(c.data?.rec_valor_mensal || c.value || 0)
+      for (let i = 0; i < numMeses; i++) entradas[i] += valor
+    })
+
+  receivable.filter(r => !r.data?.recorrente && r.due).forEach(r => {
+    const d = new Date(r.due + 'T12:00:00')
+    if (d <= hoje) return
+    for (let i = 0; i < numMeses; i++) {
+      const target = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+      if (d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()) {
+        entradas[i] += Number(r.value) || 0
+      }
+    }
+  })
+  payable.filter(r => !r.data?.recorrente && r.due).forEach(r => {
+    const d = new Date(r.due + 'T12:00:00')
+    if (d <= hoje) return
+    for (let i = 0; i < numMeses; i++) {
+      const target = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+      if (d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()) {
+        saidas[i] += Number(r.value) || 0
+      }
+    }
+  })
+
+  return { entradas, saidas, labels }
+}
