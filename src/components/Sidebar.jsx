@@ -127,6 +127,7 @@ export default function Sidebar() {
         <NavItem to="/funcionarios" collapsed={collapsed} label="Funcionários" icon={ico(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>)} />
         <NavItem to="/orgaos-publicos" collapsed={collapsed} label="Órgãos Públicos" icon={ico(<><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 21V10l7-7 7 7v11"/></>)} />
         <NavItem to="/cartoes" collapsed={collapsed} label="Cartões" icon={ico(<><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>)} />
+        <NavItem to="/contas-bancarias" collapsed={collapsed} label="Contas Bancárias" icon={ico(<><path d="M3 21h18"/><polyline points="5 21 5 10 12 4 19 10 19 21"/></>)} />
 
         <Section collapsed={collapsed}>Financeiro</Section>
         <NavItem to="/receber" collapsed={collapsed} label="Contas a Receber" icon={ico(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>)} />
