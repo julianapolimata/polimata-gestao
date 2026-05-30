@@ -24,7 +24,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastContainer />
-      <BrowserRouter basename="/v2">
+      <BrowserRouter>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
