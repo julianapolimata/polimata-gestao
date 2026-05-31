@@ -19,6 +19,7 @@ import FluxoCaixa from './pages/FluxoCaixa'
 import DRE from './pages/DRE'
 import Conciliacao from './pages/Conciliacao'
 import ImportarNFs from './pages/ImportarNFs'
+import SimplesNacional from './pages/SimplesNacional'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
+          <Route path="/simples-nacional" element={<ProtectedRoute><SimplesNacional /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><ImportarNFs /></ProtectedRoute>} />
           <Route path="/recorrencias" element={<ProtectedRoute><EmConstrucaoModulo titulo="Recorrências" descricao="Lançamentos mestre com projeção automática mensal." /></ProtectedRoute>} />
           <Route path="/cartoes" element={<ProtectedRoute><Cartoes /></ProtectedRoute>} />
