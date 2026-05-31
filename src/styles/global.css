@@ -108,18 +108,18 @@ button, input, select, textarea {
    ============================================================================ */
 
 /* Cabeçalho de tabela fica sticky (precisa de background pra não ficar
-   transparente quando linhas passam atrás) */
-table thead {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--cream);
-}
+   transparente quando linhas passam atrás). !important porque vários
+   th têm style inline que sobrescrevia. */
 table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--cream);
+  position: -webkit-sticky !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 5 !important;
+}
+/* Quando thead tem cor de fundo via <tr style="background:..."> inline,
+   esse background passa pro th sticky via inherit + isolation. */
+table thead tr {
+  background-color: inherit;
 }
 
 /* Containers de tabela: 'overflow: hidden' anula sticky dos filhos.
