@@ -238,10 +238,22 @@ export default function Conciliacao() {
     <AppLayout title="Conciliação Bancária">
       {/* Banner topo: conta + saldos + upload */}
       <div style={topo}>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null) }} style={select}>
-            {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome} ({c.data?.banco})</option>)}
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', fontFamily: 'var(--body)' }}>
+              Conta Bancária
+            </label>
+            <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null) }} style={select}>
+            {contas.map(c => {
+              const d = c.data || {}
+              const partes = [d.nome]
+              if (d.banco && d.banco !== d.nome) partes.push(d.banco)
+              if (d.agencia) partes.push(`Ag ${d.agencia}`)
+              if (d.conta) partes.push(`CC ${d.conta}`)
+              return <option key={c.id} value={c.id}>{partes.filter(Boolean).join(' · ')}</option>
+            })}
           </select>
+          </div>
           <label style={btnUpload}>
             <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
             {uploading ? '⏳ Processando…' : '📥 Importar OFX'}
