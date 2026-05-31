@@ -3,6 +3,7 @@ import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { maskAgencia, maskConta, validarAgencia, validarConta } from '../../lib/mascaras'
 
 const BANCOS_BR = ['Itaú', 'Bradesco', 'Banco do Brasil', 'Santander', 'Caixa', 'Nubank', 'Inter', 'BTG Pactual', 'C6 Bank', 'Sicredi', 'Sicoob', 'XP Investimentos', 'Outro']
 const TIPOS = [
@@ -114,10 +115,10 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
 
       <Row cols={2}>
         <Field label="Agência">
-          <input value={agencia} onChange={e => setAgencia(e.target.value)} placeholder="0000" style={input} />
+          <input value={agencia} onChange={e => setAgencia(maskAgencia(e.target.value))} placeholder="0000-0" maxLength={6} style={{...input, ...(agencia && !validarAgencia(agencia) ? {borderColor:'var(--red)'}:{})}} />
         </Field>
         <Field label="Conta">
-          <input value={conta} onChange={e => setConta(e.target.value)} placeholder="00000-0" style={input} />
+          <input value={conta} onChange={e => setConta(maskConta(e.target.value))} placeholder="00000-0" maxLength={11} style={{...input, ...(conta && !validarConta(conta) ? {borderColor:'var(--red)'}:{})}} />
         </Field>
       </Row>
 
