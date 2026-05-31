@@ -278,7 +278,7 @@ function FragmentLinha({ linha, exp, podeExp, onToggle, isSubtotal, bg, corBase,
 
 const topo = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }
 const selectAno = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 14px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none' }
-const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
+const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const thBase = { padding: '10px 12px', fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }
 const td = { padding: '8px 12px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle' }

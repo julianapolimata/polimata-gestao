@@ -107,8 +107,25 @@ button, input, select, textarea {
    Cabeçalhos de tabela ficam fixos quando rola a tela
    ============================================================================ */
 
+/* Cabeçalho de tabela fica sticky (precisa de background pra não ficar
+   transparente quando linhas passam atrás) */
+table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--cream);
+}
 table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
+  background: var(--cream);
+}
+
+/* Containers de tabela: 'overflow: hidden' anula sticky dos filhos.
+   Quem precisa de border-radius E sticky usa 'overflow: clip' (mantém
+   o radius mas não cria contexto de overflow). Aplicado a todas as
+   .tbl-wrap-sticky e .scroll-overflow-clip do sistema. */
+.scroll-overflow-clip {
+  overflow: clip;
 }

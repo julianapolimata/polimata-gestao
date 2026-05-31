@@ -210,7 +210,7 @@ function corLinha(kind, valor) {
 
 const topo = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }
 const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 14px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none' }
-const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
+const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontFamily: 'var(--body)', fontSize: 11 }
 const thFirst = { padding: '12px 14px', fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'left', minWidth: 220, borderRight: '1px solid rgba(255,255,255,0.1)' }
 const thMonth = { padding: '8px 6px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.15)' }

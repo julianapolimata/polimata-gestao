@@ -403,7 +403,7 @@ const legendItem = { display: 'inline-flex', alignItems: 'center', gap: 5 }
 const swatch = { display: 'inline-block', width: 12, height: 12, borderRadius: 2 }
 const swatchLine = { display: 'inline-block', width: 14, height: 3 }
 
-const tableCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
+const tableCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tableHeader = { padding: '18px 24px 14px', borderBottom: '1px solid var(--cream-dark)' }
 const tbl = { width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const thBase = { padding: '10px 16px', fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }

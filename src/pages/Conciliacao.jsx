@@ -496,7 +496,7 @@ const chipActive = { ...chipBase, background: 'var(--navy)', color: '#fff' }
 const chipInactive = { ...chipBase, background: 'var(--cream)', color: 'var(--text-mid)' }
 const inputFiltro = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tabela = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
+const tabela = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const headerMes = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--cream)', borderTop: '1px solid var(--cream-dark)', borderBottom: '1px solid var(--cream-dark)', position: 'sticky', top: 0, zIndex: 1 }
 const linha = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--cream-dark)', transition: 'background .15s' }
 const expand = { padding: '14px 16px 16px 96px', background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)' }
