@@ -26,14 +26,21 @@ export function parseOFX(texto) {
     const valor = Math.abs(Number(amount))
     const tipo = Number(amount) >= 0 ? 'entrada' : 'saida'
     const dataISO = normalizarData(dtPosted)
-    const descricao = (memo || name || '').trim()
+    // NAME tem nome do favorecido + CNPJ (mais útil); MEMO é genérico tipo "PIX EMITIDO".
+    // Concatena se ambos existem e diferem.
+    const nameStr = (name || '').trim()
+    const memoStr = (memo || '').trim()
+    let descricao
+    if (nameStr && memoStr && nameStr !== memoStr) descricao = `${nameStr} · ${memoStr}`
+    else descricao = nameStr || memoStr
     transacoes.push({
       fit_id: fitId || null,
       tipo, valor, data: dataISO,
       descricao,
       trn_type: trnType || null,
       check_num: checkNum || null,
-      cnpj: extrairCNPJ(descricao),
+      // Procura CNPJ em NAME + MEMO combinados (CNPJ pode estar em qualquer um)
+      cnpj: extrairCNPJ(`${nameStr} ${memoStr}`),
     })
   }
   // Saldo final
