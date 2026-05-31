@@ -4,6 +4,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoPessoa } from '../../lib/codigos'
+import { maskDocumento as maskDoc, maskTelefone, maskCEP } from '../../lib/mascaras'
 
 // =============================================================================
 // MODAL PESSOA — replica savePessoa() do legado (linha 5738).
@@ -25,20 +26,7 @@ const PORTES = [
   { v: 'Grande', l: 'Grande Porte' },
 ]
 
-function maskDocumento(raw) {
-  const v = String(raw || '').replace(/\D/g, '')
-  if (v.length <= 11) {
-    return v
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d{1,2})$/, '$1-$2')
-  }
-  return v
-    .replace(/(\d{2})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1/$2')
-    .replace(/(\d{4})(\d{1,2})$/, '$1-$2')
-}
+// maskDocumento agora vem de '../../lib/mascaras' como maskDoc
 
 export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) {
   const { user } = useAuth()
@@ -285,7 +273,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
           <Field label="CNPJ / CPF" style={{ flex: 1 }}>
             <input
               value={doc}
-              onChange={e => setDoc(maskDocumento(e.target.value))}
+              onChange={e => setDoc(maskDoc(e.target.value))}
               placeholder="00.000.000/0001-00 ou 000.000.000-00"
               maxLength={18} style={input}
             />
@@ -369,7 +357,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={input} />
         </Field>
         <Field label="Telefone">
-          <input value={telefone} onChange={e => setTelefone(e.target.value)} style={input} />
+          <input value={telefone} onChange={e => setTelefone(maskTelefone(e.target.value))} placeholder="(00) 00000-0000" style={input} />
         </Field>
         {!isCliente && (
           <Field label="Responsável / Contato">
@@ -395,7 +383,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
               <input type="email" value={contatoEmail} onChange={e => setContatoEmail(e.target.value)} style={input} />
             </Field>
             <Field label="Telefone direto do contato">
-              <input value={contatoTel} onChange={e => setContatoTel(e.target.value)} style={input} />
+              <input value={contatoTel} onChange={e => setContatoTel(maskTelefone(e.target.value))} placeholder="(00) 00000-0000" style={input} />
             </Field>
           </Row>
           <Row>
@@ -415,7 +403,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       <Row cols={3}>
         <Field label="Cidade"><input value={cidade} onChange={e => setCidade(e.target.value)} style={input} /></Field>
         <Field label="UF"><input value={uf} onChange={e => setUf(e.target.value.toUpperCase())} maxLength={2} style={input} /></Field>
-        <Field label="CEP"><input value={cep} onChange={e => setCep(e.target.value)} style={input} /></Field>
+        <Field label="CEP"><input value={cep} onChange={e => setCep(maskCEP(e.target.value))} placeholder="00000-000" maxLength={9} style={input} /></Field>
       </Row>
 
       <Divider label="Dados Bancários (opcional)" />
