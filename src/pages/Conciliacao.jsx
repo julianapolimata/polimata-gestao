@@ -148,7 +148,22 @@ export default function Conciliacao() {
     return sIni + tIn - tOut
   }, [conta, receivable, payable])
 
-  const divergencia = saldoBanco != null ? saldoBanco - saldoSistema : null
+  // Saldo do banco = saldo inicial cadastrado + soma de TODAS as transações
+  // importadas via OFX nesta conta (entradas - saídas). Se o último OFX trouxe
+  // o BALAMT, usa esse valor; senão, recalcula.
+  const saldoBancoCalculado = useMemo(() => {
+    if (!conta) return null
+    const sIni = Number(conta.data?.saldo_inicial || 0)
+    const trans = extratos.filter(e => e.conta_id === contaId)
+    if (trans.length === 0) return null
+    const totalIn = trans.filter(t => t.data?.tipo === 'entrada').reduce((s, t) => s + Number(t.data?.valor || 0), 0)
+    const totalOut = trans.filter(t => t.data?.tipo === 'saida').reduce((s, t) => s + Number(t.data?.valor || 0), 0)
+    return sIni + totalIn - totalOut
+  }, [conta, contaId, extratos])
+
+  const saldoBancoFinal = saldoBanco != null ? saldoBanco : saldoBancoCalculado
+
+  const divergencia = saldoBancoFinal != null ? saldoBancoFinal - saldoSistema : null
 
   // ── Upload OFX ───────────────────────────────────────────────────────
   async function handleUpload(e) {
@@ -292,10 +307,21 @@ export default function Conciliacao() {
           </label>
         </div>
         <div style={saldosBox}>
-          <Saldo label="Banco" valor={saldoBanco} dim={saldoBanco == null} />
-          <Saldo label="Sistema" valor={saldoSistema} />
           <Saldo
-            label="Divergência" valor={divergencia}
+            label="Saldo no Banco"
+            sub="da conta no banco"
+            valor={saldoBancoFinal}
+            dim={saldoBancoFinal == null}
+          />
+          <Saldo
+            label="Saldo no Sistema"
+            sub="recebido − pago"
+            valor={saldoSistema}
+          />
+          <Saldo
+            label="Divergência"
+            sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
+            valor={divergencia}
             cor={divergencia == null ? 'var(--text-mid)' : (Math.abs(divergencia) < 0.01 ? 'var(--green)' : 'var(--red)')}
             dim={divergencia == null}
           />
@@ -448,11 +474,12 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
   )
 }
 
-function Saldo({ label, valor, cor, dim }) {
+function Saldo({ label, valor, cor, dim, sub }) {
   return (
     <div style={{ textAlign: 'right' }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>{label}</div>
       <div style={{ fontSize: 16, fontWeight: 700, color: cor || 'var(--navy)', opacity: dim ? 0.5 : 1 }}>{valor == null ? '—' : fmtMoney(valor)}</div>
+      {sub && <div style={{ fontSize: 9, color: cor || 'var(--text-mid)', fontStyle: 'italic', marginTop: 2 }}>{sub}</div>}
     </div>
   )
 }
