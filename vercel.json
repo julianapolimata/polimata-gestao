@@ -6,14 +6,32 @@
   "outputDirectory": "public",
   "framework": null,
   "functions": {
-    "api/email-cron.js": { "maxDuration": 60 },
-    "api/anthropic.js": { "maxDuration": 60 }
+    "api/email-cron.js": {
+      "maxDuration": 60
+    },
+    "api/anthropic.js": {
+      "maxDuration": 60
+    }
   },
   "redirects": [
-    { "source": "/v2", "destination": "/", "permanent": true },
-    { "source": "/v2/:path*", "destination": "/:path*", "permanent": true }
+    {
+      "source": "/v2",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/v2/:path*",
+      "destination": "/:path*",
+      "permanent": true
+    }
   ],
   "rewrites": [
-    { "source": "/((?!api|assets|v2-assets|legado.html|favicon|.*\\.(?:png|svg|ico|webmanifest|xml|txt|json)).*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/((?!api|assets|v2-assets|legado.html|favicon|.*\\.(?:png|svg|ico|webmanifest|xml|txt|json)).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "github": {
+    "silent": true
+  }
 }
