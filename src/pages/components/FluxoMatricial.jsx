@@ -152,7 +152,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
       </div>
 
       <div style={tableWrap}>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'visible' }}>
           <table style={tbl}>
             <thead>
               <tr style={{ background: 'var(--navy)', color: '#fff' }}>
