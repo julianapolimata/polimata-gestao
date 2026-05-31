@@ -8,22 +8,33 @@ import { parseOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
 
 // =====================================================================
-// CONCILIAÇÃO v1 — MVP baseado em pesquisa de ERPs (Conta Azul, Omie,
-// Nibo, Granatum, QuickBooks, Xero, YNAB). Veja design docs no PR.
-//
-// Padrões herdados:
-//  - 3 abas canônicas (Pendentes / Conciliados / Ignorados)
-//  - Match auto valor exato + data ±3 dias + CNPJ se houver
-//  - 4 ações por linha (Vincular existente / Criar / Transferência / Ignorar)
-//  - Banner Saldo banco × sistema × divergência
-//  - Lock visual após conciliar
+// CONCILIAÇÃO BANCÁRIA v1.5 — refatoração UX baseada em YNAB + Xero +
+// Conta Azul.
+//   - Tabela densa (não cards)
+//   - Header sticky por mês com saldo do período
+//   - Badge de status visível na linha (clique expande inline)
+//   - Filtros: período (chips) + busca + valor min/max + status
+//   - 4 ações por linha pendente: Vincular / Criar / Transferência / Ignorar
 // =====================================================================
 
-function fmtData(s) {
+function fmtDataBR(s) {
   if (!s) return '—'
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
+function mesLabel(ym) {
+  const [y, m] = ym.split('-')
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+  return `${meses[parseInt(m, 10) - 1]} ${y}`
+}
+function ymDe(dataISO) { return dataISO ? dataISO.slice(0, 7) : '' }
+
+const PERIODOS = [
+  { k: 'mes_atual', l: 'Mês atual' },
+  { k: '30d', l: 'Últimos 30 dias' },
+  { k: '90d', l: 'Últimos 90 dias' },
+  { k: 'todos', l: 'Todos' },
+]
 
 export default function Conciliacao() {
   const { user } = useAuth()
@@ -33,16 +44,25 @@ export default function Conciliacao() {
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])
   const [loading, setLoading] = useState(true)
-  const [aba, setAba] = useState('pendente')
   const [uploading, setUploading] = useState(false)
-  const [saldoBanco, setSaldoBanco] = useState(null) // último saldo OFX importado
+  const [saldoBanco, setSaldoBanco] = useState(null)
+
+  // Filtros
+  const [filtroPeriodo, setFiltroPeriodo] = useState('mes_atual')
+  const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroBusca, setFiltroBusca] = useState('')
+  const [filtroValorMin, setFiltroValorMin] = useState('')
+  const [filtroValorMax, setFiltroValorMax] = useState('')
+
+  // Expand inline (qual linha está aberta)
+  const [expandido, setExpandido] = useState(null) // id do extrato
 
   const carregar = useCallback(() => {
     if (!user) return
     setLoading(true)
     Promise.all([
       supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false }),
-      supabase.from('transacoes_extrato').select('*').order('created_at', { ascending: false }),
+      supabase.from('transacoes_extrato').select('*').order('data->>data', { ascending: false }),
       supabase.from('receivable').select('*'),
       supabase.from('payable').select('*'),
     ]).then(([rC, rE, rR, rP]) => {
@@ -60,11 +80,57 @@ export default function Conciliacao() {
 
   const conta = useMemo(() => contas.find(c => c.id === contaId), [contas, contaId])
 
-  // Extratos filtrados pela conta + aba ativa
-  const extratosFiltrados = useMemo(() => {
-    return extratos.filter(e => e.conta_id === contaId && e.status === aba)
-  }, [extratos, contaId, aba])
+  // ── Aplica filtros ───────────────────────────────────────────────────
+  const periodoLimite = useMemo(() => {
+    const hoje = new Date()
+    if (filtroPeriodo === 'mes_atual') {
+      const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+      return ini.toISOString().slice(0, 10)
+    }
+    if (filtroPeriodo === '30d') {
+      const ini = new Date(hoje); ini.setDate(ini.getDate() - 30)
+      return ini.toISOString().slice(0, 10)
+    }
+    if (filtroPeriodo === '90d') {
+      const ini = new Date(hoje); ini.setDate(ini.getDate() - 90)
+      return ini.toISOString().slice(0, 10)
+    }
+    return null
+  }, [filtroPeriodo])
 
+  const extratosFiltrados = useMemo(() => {
+    let arr = extratos.filter(e => e.conta_id === contaId)
+    if (filtroStatus !== 'todos') arr = arr.filter(e => e.status === filtroStatus)
+    if (periodoLimite) arr = arr.filter(e => (e.data?.data || '') >= periodoLimite)
+    if (filtroBusca.trim()) {
+      const q = filtroBusca.trim().toLowerCase()
+      arr = arr.filter(e => (e.data?.descricao || '').toLowerCase().includes(q))
+    }
+    const vmin = parseFloat(filtroValorMin)
+    const vmax = parseFloat(filtroValorMax)
+    if (!isNaN(vmin)) arr = arr.filter(e => Number(e.data?.valor || 0) >= vmin)
+    if (!isNaN(vmax)) arr = arr.filter(e => Number(e.data?.valor || 0) <= vmax)
+    // Ordena por data desc
+    arr.sort((a, b) => (b.data?.data || '').localeCompare(a.data?.data || ''))
+    return arr
+  }, [extratos, contaId, filtroStatus, periodoLimite, filtroBusca, filtroValorMin, filtroValorMax])
+
+  // ── Agrupamento por mês pra header sticky ────────────────────────────
+  const gruposMes = useMemo(() => {
+    const out = []
+    let mesAtual = null
+    for (const e of extratosFiltrados) {
+      const ym = ymDe(e.data?.data)
+      if (ym !== mesAtual) {
+        out.push({ tipo: 'header', ym, items: [] })
+        mesAtual = ym
+      }
+      out[out.length - 1].items.push(e)
+    }
+    return out
+  }, [extratosFiltrados])
+
+  // ── Contadores por status (badges nos chips) ─────────────────────────
   const counts = useMemo(() => {
     const c = { pendente: 0, conciliado: 0, ignorado: 0 }
     for (const e of extratos) {
@@ -73,8 +139,7 @@ export default function Conciliacao() {
     return c
   }, [extratos, contaId])
 
-  // Saldo sistema = soma de receivable Recebido − payable Pago, todos vinculados a essa conta
-  // V1: simplificado — pega o saldo_inicial + tudo Recebido − tudo Pago no sistema. Não filtra por conta no lançamento porque V1 não associou conta a lançamento.
+  // ── Saldo sistema ────────────────────────────────────────────────────
   const saldoSistema = useMemo(() => {
     if (!conta) return 0
     const sIni = Number(conta.data?.saldo_inicial || 0)
@@ -85,7 +150,7 @@ export default function Conciliacao() {
 
   const divergencia = saldoBanco != null ? saldoBanco - saldoSistema : null
 
-  // ── Upload OFX ────────────────────────────────────────────────────────
+  // ── Upload OFX ───────────────────────────────────────────────────────
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -93,139 +158,115 @@ export default function Conciliacao() {
     if (!user) { showToast('Sessão expirada.', 'error'); return }
     setUploading(true)
     try {
-      // Banco BR geralmente exporta OFX em Windows-1252. Decodifica
-      // explicitamente pra preservar acentos (DÉB, JUROS, etc).
       const buf = await file.arrayBuffer()
       let texto
       try { texto = new TextDecoder('windows-1252').decode(buf) }
       catch { texto = new TextDecoder('utf-8').decode(buf) }
       const { transacoes, saldoFinal } = parseOFX(texto)
-      if (!transacoes.length) {
-        showToast('Nenhuma transação encontrada no OFX.', 'warning')
-        return
-      }
-      // Dedup por fit_id (importações repetidas não duplicam)
-      const fitIdsExistentes = new Set(
-        extratos.filter(e => e.conta_id === contaId && e.fit_id).map(e => e.fit_id)
-      )
-      const novos = transacoes.filter(t => !t.fit_id || !fitIdsExistentes.has(t.fit_id))
+      if (!transacoes.length) { showToast('Nenhuma transação no OFX.', 'warning'); return }
+      const fitIds = new Set(extratos.filter(e => e.conta_id === contaId && e.fit_id).map(e => e.fit_id))
+      const novos = transacoes.filter(t => !t.fit_id || !fitIds.has(t.fit_id))
       if (!novos.length) {
         showToast(`Todas as ${transacoes.length} transações já estavam importadas.`, 'info')
         if (saldoFinal != null) setSaldoBanco(saldoFinal)
         return
       }
       const payload = novos.map(t => ({
-        user_id: user.id,
-        conta_id: contaId,
-        status: 'pendente',
-        fit_id: t.fit_id,
-        data: t,
+        user_id: user.id, conta_id: contaId, status: 'pendente', fit_id: t.fit_id, data: t,
       }))
       const { error } = await supabase.from('transacoes_extrato').insert(payload)
       if (error) throw error
-      showToast(`${novos.length} transações importadas (${transacoes.length - novos.length} duplicadas ignoradas).`, 'success')
+      showToast(`${novos.length} transações importadas.`, 'success')
       if (saldoFinal != null) setSaldoBanco(saldoFinal)
       carregar()
     } catch (err) {
       console.error(err)
-      showToast('Erro ao processar OFX: ' + err.message, 'error')
+      showToast('Erro: ' + err.message, 'error')
     } finally {
       setUploading(false)
       e.target.value = ''
     }
   }
 
-  // ── Ações por linha ───────────────────────────────────────────────────
+  // ── Ações por linha ──────────────────────────────────────────────────
   async function vincular(extrato, lancamento) {
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
     const agora = new Date().toISOString()
     try {
-      // 1. Marca extrato como conciliado
       await supabase.from('transacoes_extrato').update({
-        status: 'conciliado',
-        lancamento_tipo: tipoTabela,
-        lancamento_id: lancamento.id,
+        status: 'conciliado', lancamento_tipo: tipoTabela, lancamento_id: lancamento.id,
       }).eq('id', extrato.id)
-      // 2. Marca lançamento como conciliado + atualiza status pra liquidado se ainda Pendente
       const statusNovo = tipoTabela === 'receivable' ? 'Recebido' : 'Pago'
-      const dataPag = extrato.data?.data
-      const mergedData = {
-        ...(lancamento.data || {}),
-        status: statusNovo,
-        data_pagamento: lancamento.data?.data_pagamento || dataPag,
-      }
-      await supabase.from(tipoTabela).update({
-        data: mergedData,
-        conciliado_em: agora,
-        extrato_id: extrato.id,
-      }).eq('id', lancamento.id)
+      const merged = { ...(lancamento.data || {}), status: statusNovo, data_pagamento: lancamento.data?.data_pagamento || extrato.data?.data }
+      await supabase.from(tipoTabela).update({ data: merged, conciliado_em: agora, extrato_id: extrato.id }).eq('id', lancamento.id)
       showToast('Conciliado.', 'success')
+      setExpandido(null)
       carregar()
-    } catch (e) {
-      showToast('Erro: ' + e.message, 'error')
-    }
-  }
-
-  async function ignorar(extrato) {
-    if (!confirm('Ignorar essa transação? Você pode restaurar depois.')) return
-    await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
-    showToast('Transação ignorada.', 'info')
-    carregar()
-  }
-
-  async function restaurar(extrato) {
-    await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
-    showToast('Voltou pra fila.', 'info')
-    carregar()
-  }
-
-  async function desconciliar(extrato) {
-    if (!confirm('Desconciliar? O lançamento vinculado vai voltar pra pendente também.')) return
-    const tipoTabela = extrato.lancamento_tipo
-    const lancId = extrato.lancamento_id
-    await supabase.from('transacoes_extrato').update({
-      status: 'pendente', lancamento_tipo: null, lancamento_id: null,
-    }).eq('id', extrato.id)
-    if (tipoTabela && lancId) {
-      await supabase.from(tipoTabela).update({
-        conciliado_em: null, extrato_id: null,
-      }).eq('id', lancId)
-    }
-    showToast('Desconciliado.', 'info')
-    carregar()
+    } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
   async function criarLancamento(extrato) {
     if (!user) return
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
-    const agora = new Date().toISOString()
     const dataExt = extrato.data?.data
-    const descExt = extrato.data?.descricao || '(sem descrição)'
-    const statusNovo = tipoTabela === 'receivable' ? 'Recebido' : 'Pago'
     const novoLanc = {
-      [tipoTabela === 'receivable' ? 'client' : 'supplier']: descExt.substring(0, 80),
-      desc: descExt,
+      [tipoTabela === 'receivable' ? 'client' : 'supplier']: (extrato.data?.descricao || '').substring(0, 80),
+      desc: extrato.data?.descricao,
       value: Number(extrato.data?.valor || 0),
       due: dataExt, data_pagamento: dataExt,
-      status: statusNovo,
-      cat: '', subcat: '',
-      doc_status: 'pendente', sem_documento: true,
-      created: dataExt,
-      criado_via_conciliacao: true,
+      status: tipoTabela === 'receivable' ? 'Recebido' : 'Pago',
+      cat: '', subcat: '', doc_status: 'pendente', sem_documento: true,
+      created: dataExt, criado_via_conciliacao: true,
     }
     const { data: inserted, error } = await supabase.from(tipoTabela).insert({
-      user_id: user.id, data: novoLanc, conciliado_em: agora, extrato_id: extrato.id,
+      user_id: user.id, data: novoLanc, conciliado_em: new Date().toISOString(), extrato_id: extrato.id,
     }).select('id').single()
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     await supabase.from('transacoes_extrato').update({
       status: 'conciliado', lancamento_tipo: tipoTabela, lancamento_id: inserted.id,
     }).eq('id', extrato.id)
-    showToast(`Lançamento criado e conciliado. Edite depois pra preencher categoria.`, 'success')
+    showToast('Lançamento criado e conciliado.', 'success')
+    setExpandido(null)
+    carregar()
+  }
+
+  async function marcarTransferencia(extrato) {
+    if (!confirm('Marcar como transferência entre contas próprias? Não vira despesa nem receita.')) return
+    await supabase.from('transacoes_extrato').update({
+      status: 'ignorado',
+      data: { ...(extrato.data || {}), motivo: 'transferencia_propria' },
+    }).eq('id', extrato.id)
+    showToast('Marcado como transferência interna.', 'info')
+    setExpandido(null)
+    carregar()
+  }
+
+  async function ignorar(extrato) {
+    if (!confirm('Ignorar essa transação?')) return
+    await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
+    showToast('Ignorada.', 'info')
+    setExpandido(null)
+    carregar()
+  }
+
+  async function restaurar(extrato) {
+    await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
+    showToast('Voltou pra pendentes.', 'info')
+    setExpandido(null)
+    carregar()
+  }
+
+  async function desconciliar(extrato) {
+    if (!confirm('Desconciliar? Lançamento vinculado volta pra pendente.')) return
+    const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
+    await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
+    if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
+    showToast('Desconciliado.', 'info')
+    setExpandido(null)
     carregar()
   }
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
-
   if (contas.length === 0) return (
     <AppLayout title="Conciliação">
       <div style={emptyState}>
@@ -236,16 +277,14 @@ export default function Conciliacao() {
 
   return (
     <AppLayout title="Conciliação Bancária">
-      {/* Banner topo: conta + saldos + upload */}
+      {/* Topo: conta + saldos + upload */}
       <div style={topo}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', fontFamily: 'var(--body)' }}>
-              Conta Bancária
-            </label>
+            <label style={labelTopo}>Conta Bancária</label>
             <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null) }} style={select}>
-            {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
-          </select>
+              {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
+            </select>
           </div>
           <label style={btnUpload}>
             <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
@@ -263,40 +302,64 @@ export default function Conciliacao() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={tabsBar}>
-        {[
-          { k: 'pendente', l: 'Pendentes' },
-          { k: 'conciliado', l: 'Conciliados' },
-          { k: 'ignorado', l: 'Ignorados' },
-        ].map(t => (
-          <button key={t.k} onClick={() => setAba(t.k)} style={aba === t.k ? tabActive : tabInactive}>
-            {t.l} <span style={{ marginLeft: 6, padding: '2px 7px', borderRadius: 999, background: aba === t.k ? 'rgba(255,255,255,0.18)' : 'rgba(0,32,62,0.10)', fontSize: 10 }}>{counts[t.k] || 0}</span>
-          </button>
-        ))}
+      {/* Filtros */}
+      <div style={filtrosBar}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {PERIODOS.map(p => (
+            <button key={p.k} onClick={() => setFiltroPeriodo(p.k)} style={filtroPeriodo === p.k ? chipActive : chipInactive}>{p.l}</button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { k: 'todos', l: 'Todos', c: counts.pendente + counts.conciliado + counts.ignorado },
+            { k: 'pendente', l: '⏳ Pendentes', c: counts.pendente },
+            { k: 'conciliado', l: '✓ Conciliados', c: counts.conciliado },
+            { k: 'ignorado', l: '⨯ Ignorados', c: counts.ignorado },
+          ].map(s => (
+            <button key={s.k} onClick={() => setFiltroStatus(s.k)} style={filtroStatus === s.k ? chipActive : chipInactive}>
+              {s.l} <span style={{ marginLeft: 4, opacity: 0.7 }}>{s.c}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="Buscar descrição..." style={{ ...inputFiltro, width: 200 }} />
+          <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="Valor mín" style={{ ...inputFiltro, width: 90 }} />
+          <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="Valor máx" style={{ ...inputFiltro, width: 90 }} />
+        </div>
       </div>
 
-      {/* Lista */}
-      {extratosFiltrados.length === 0 ? (
+      {/* Tabela densa com agrupamento por mês */}
+      {gruposMes.length === 0 ? (
         <div style={emptyState}>
-          {aba === 'pendente'
-            ? 'Tudo conciliado nesta conta! Importe um OFX pra começar.'
-            : aba === 'conciliado' ? 'Nenhuma transação conciliada ainda.' : 'Nenhuma transação ignorada.'}
+          {extratos.filter(e => e.conta_id === contaId).length === 0
+            ? 'Importe um OFX pra começar.'
+            : 'Nenhuma transação com os filtros aplicados.'}
         </div>
       ) : (
-        <div style={lista}>
-          {extratosFiltrados.map(e => (
-            <LinhaExtrato
-              key={e.id}
-              extrato={e}
-              receivable={receivable}
-              payable={payable}
-              onVincular={lanc => vincular(e, lanc)}
-              onIgnorar={() => ignorar(e)}
-              onRestaurar={() => restaurar(e)}
-              onDesconciliar={() => desconciliar(e)}
-              onCriar={() => criarLancamento(e)}
-            />
+        <div style={tabela}>
+          {gruposMes.map(grupo => (
+            <div key={grupo.ym}>
+              <div style={headerMes}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{mesLabel(grupo.ym)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>{grupo.items.length} transações</span>
+              </div>
+              {grupo.items.map(ext => (
+                <LinhaExtrato
+                  key={ext.id}
+                  extrato={ext}
+                  receivable={receivable}
+                  payable={payable}
+                  expandido={expandido === ext.id}
+                  onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
+                  onVincular={lanc => vincular(ext, lanc)}
+                  onCriar={() => criarLancamento(ext)}
+                  onTransferencia={() => marcarTransferencia(ext)}
+                  onIgnorar={() => ignorar(ext)}
+                  onRestaurar={() => restaurar(ext)}
+                  onDesconciliar={() => desconciliar(ext)}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -304,80 +367,84 @@ export default function Conciliacao() {
   )
 }
 
-function LinhaExtrato({ extrato, receivable, payable, onVincular, onIgnorar, onRestaurar, onDesconciliar, onCriar }) {
-  const [aberto, setAberto] = useState(false)
+function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVincular, onCriar, onTransferencia, onIgnorar, onRestaurar, onDesconciliar }) {
   const tipo = extrato.data?.tipo
   const valor = Number(extrato.data?.valor || 0)
   const desc = extrato.data?.descricao || '(sem descrição)'
   const data = extrato.data?.data
+  const cnpj = extrato.data?.cnpj
+  const status = extrato.status
+
   const candidatos = tipo === 'entrada' ? receivable : payable
   const sugestoes = useMemo(
-    () => sugerirMatches({ ...extrato.data }, candidatos.filter(c => c.status !== (tipo === 'entrada' ? 'Recebido' : 'Pago') || extrato.lancamento_id === c.id)),
-    [extrato, candidatos, tipo],
+    () => status === 'pendente' ? sugerirMatches(extrato.data || {}, candidatos.filter(c => c.status !== (tipo === 'entrada' ? 'Recebido' : 'Pago') || extrato.lancamento_id === c.id)) : [],
+    [extrato, candidatos, tipo, status],
   )
-  const topSugestao = sugestoes[0]
-  const isConciliado = extrato.status === 'conciliado'
-  const isIgnorado = extrato.status === 'ignorado'
+  const temSugestao = sugestoes.length > 0
+
+  // Badge de status
+  let badge
+  if (status === 'pendente') badge = { txt: temSugestao ? '💡 Sugestão' : '⏳ Pendente', bg: temSugestao ? 'rgba(204,145,94,0.15)' : 'rgba(230,126,34,0.12)', cor: temSugestao ? 'var(--gold-dark)' : 'var(--orange)' }
+  else if (status === 'conciliado') badge = { txt: '✓ Conciliado', bg: 'rgba(39,174,96,0.10)', cor: 'var(--green)' }
+  else badge = { txt: '⨯ Ignorado', bg: 'rgba(0,0,0,0.05)', cor: 'var(--text-mid)' }
+
+  const corValor = tipo === 'entrada' ? 'var(--green)' : 'var(--red)'
 
   return (
-    <div style={{ ...card, borderLeft: `3px solid ${tipo === 'entrada' ? 'var(--green)' : 'var(--red)'}`, opacity: isIgnorado ? 0.55 : 1 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }} onClick={() => setAberto(o => !o)}>
-        <div style={{ minWidth: 90, fontSize: 11, color: 'var(--text-mid)' }}>{fmtData(data)}</div>
-        <div style={{ flex: 1, fontSize: 12, color: 'var(--navy)', fontWeight: 500 }}>
-          {desc}
-          {extrato.data?.cnpj && <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {extrato.data.cnpj}</span>}
+    <>
+      <div style={{ ...linha, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1 }} onClick={onToggle}>
+        <div style={{ width: 80, fontSize: 11, color: 'var(--text-mid)' }}>{fmtDataBR(data)}</div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--navy)' }}>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
+          {cnpj && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {cnpj}</div>}
         </div>
-        <div style={{ minWidth: 130, fontSize: 14, fontWeight: 700, color: tipo === 'entrada' ? 'var(--green)' : 'var(--red)', textAlign: 'right' }}>
+        <div style={{ width: 130, textAlign: 'right', fontSize: 13, fontWeight: 700, color: corValor }}>
           {tipo === 'entrada' ? '+' : '−'} {fmtMoney(valor)}
         </div>
-        {isConciliado && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'rgba(39,174,96,0.10)', padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.5 }}>🔒 Conciliado</span>}
-        {isIgnorado && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mid)', background: 'rgba(0,0,0,0.05)', padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ignorado</span>}
+        <div style={{ width: 150, textAlign: 'center' }}>
+          <span style={{ background: badge.bg, color: badge.cor, padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{badge.txt}</span>
+        </div>
+        <div style={{ width: 24, fontSize: 11, color: 'var(--text-mid)', textAlign: 'center' }}>{expandido ? '▾' : '▸'}</div>
       </div>
 
-      {aberto && !isConciliado && !isIgnorado && (
-        <div style={{ marginTop: 14, padding: '14px 0 0 0', borderTop: '1px solid var(--cream-dark)' }}>
-          {topSugestao && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, background: 'rgba(204,145,94,0.06)', borderRadius: 6, marginBottom: 10 }}>
-              <div style={{ flex: 1, fontSize: 12 }}>
-                <strong style={{ color: 'var(--navy)' }}>💡 Sugestão:</strong>{' '}
-                <span style={{ color: 'var(--text-mid)' }}>{topSugestao.lancamento.codigo} — {topSugestao.lancamento.desc || topSugestao.lancamento.client || topSugestao.lancamento.supplier}</span>
-                <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>{topSugestao.motivo}</div>
+      {expandido && (
+        <div style={expand}>
+          {status === 'pendente' ? (
+            <>
+              {temSugestao && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Sugestões automáticas</div>
+                  {sugestoes.slice(0, 3).map((s, i) => (
+                    <div key={i} style={sugestaoRow}>
+                      <div style={{ flex: 1, fontSize: 12 }}>
+                        <strong>{s.lancamento.codigo}</strong> — <span style={{ color: 'var(--text-mid)' }}>{s.lancamento.desc || s.lancamento.client || s.lancamento.supplier}</span>
+                        <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>{s.motivo}</div>
+                      </div>
+                      <button onClick={() => onVincular(s.lancamento)} style={btnOk}>✓ Vincular</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {!temSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)', marginRight: 8, alignSelf: 'center' }}>Nenhuma sugestão automática.</em>}
+                <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
+                <button onClick={onTransferencia} style={btnAcao}>↔ Transferência entre contas</button>
+                <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
               </div>
-              <button onClick={() => onVincular(topSugestao.lancamento)} style={btnOk}>✓ OK</button>
+            </>
+          ) : status === 'conciliado' ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>Vinculado a {extrato.lancamento_tipo} {extrato.lancamento_id?.substring(0, 8)}</span>
+              <button onClick={onDesconciliar} style={btnLink}>↶ Desconciliar</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra pendentes</button>
             </div>
           )}
-          {sugestoes.length > 1 && (
-            <details style={{ marginBottom: 10 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--text-mid)' }}>Outras {sugestoes.length - 1} sugestões</summary>
-              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {sugestoes.slice(1).map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 6, fontSize: 11, color: 'var(--text-mid)' }}>
-                    <span style={{ flex: 1 }}>{s.lancamento.codigo} — {s.lancamento.desc}</span>
-                    <button onClick={() => onVincular(s.lancamento)} style={btnLink}>Vincular</button>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {!topSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)' }}>Nenhuma sugestão automática.</em>}
-            <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
-            <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
-          </div>
         </div>
       )}
-      {aberto && isConciliado && (
-        <div style={{ marginTop: 14, padding: '14px 0 0 0', borderTop: '1px solid var(--cream-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>Vinculado a <strong>{extrato.lancamento_tipo}</strong> {extrato.lancamento_id?.substring(0, 8)}</span>
-          <button onClick={onDesconciliar} style={btnLink}>↶ Desconciliar</button>
-        </div>
-      )}
-      {aberto && isIgnorado && (
-        <div style={{ marginTop: 14, padding: '14px 0 0 0', borderTop: '1px solid var(--cream-dark)', textAlign: 'right' }}>
-          <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra Pendentes</button>
-        </div>
-      )}
-    </div>
+    </>
   )
 }
 
@@ -385,24 +452,30 @@ function Saldo({ label, valor, cor, dim }) {
   return (
     <div style={{ textAlign: 'right' }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: cor || 'var(--navy)', opacity: dim ? 0.5 : 1 }}>
-        {valor == null ? '—' : fmtMoney(valor)}
-      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: cor || 'var(--navy)', opacity: dim ? 0.5 : 1 }}>{valor == null ? '—' : fmtMoney(valor)}</div>
     </div>
   )
 }
 
-const topo = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 18, flexWrap: 'wrap', background: 'var(--white)', padding: 14, borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+const topo = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap', background: 'var(--white)', padding: 14, borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+const labelTopo = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', fontFamily: 'var(--body)' }
 const saldosBox = { display: 'flex', gap: 24, alignItems: 'center' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 200 }
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
-const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
-const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
-const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
-const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
-const lista = { display: 'flex', flexDirection: 'column', gap: 8 }
-const card = { background: 'var(--white)', borderRadius: 10, padding: '12px 16px', border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
-const btnOk = { padding: '7px 14px', borderRadius: 6, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, fontFamily: 'var(--body)' }
+
+const filtrosBar = { display: 'flex', flexDirection: 'column', gap: 8, padding: 14, background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 12 }
+const chipBase = { border: 'none', padding: '5px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
+const chipActive = { ...chipBase, background: 'var(--navy)', color: '#fff' }
+const chipInactive = { ...chipBase, background: 'var(--cream)', color: 'var(--text-mid)' }
+const inputFiltro = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+
+const tabela = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
+const headerMes = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--cream)', borderTop: '1px solid var(--cream-dark)', borderBottom: '1px solid var(--cream-dark)', position: 'sticky', top: 0, zIndex: 1 }
+const linha = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--cream-dark)', transition: 'background .15s' }
+const expand = { padding: '14px 16px 16px 96px', background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)' }
+
+const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
+const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
 const btnAcao = { padding: '6px 12px', borderRadius: 4, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--body)' }
 const btnLink = { background: 'none', border: 'none', color: 'var(--gold-dark)', cursor: 'pointer', fontSize: 11, fontWeight: 600, textDecoration: 'underline', fontFamily: 'var(--body)' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13, background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
