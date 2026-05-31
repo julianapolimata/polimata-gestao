@@ -329,7 +329,7 @@ export default function Dashboard() {
           <div style={chartTitle}>Mês a Mês</div>
           <div style={chartSubtitle}>Entradas, saídas e saldo mês a mês</div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'visible' }}>
           <table style={tbl}>
             <thead>
               <tr style={{ background: 'var(--navy)', color: '#fff' }}>

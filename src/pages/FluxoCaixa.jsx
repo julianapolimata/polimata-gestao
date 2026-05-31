@@ -367,7 +367,7 @@ export default function FluxoCaixa() {
         <div style={chartHeader}>
           <div style={chartTitle}>Resumo por Mês</div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'visible' }}>
           <table style={tbl}>
             <thead>
               <tr>

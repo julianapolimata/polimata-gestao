@@ -198,7 +198,7 @@ export default function DRE() {
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'visible' }}>
             <table style={tbl}>
               <thead>
                 <tr style={{ background: 'var(--navy)', color: '#fff' }}>
