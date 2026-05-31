@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
@@ -30,6 +31,7 @@ export default function App() {
     <AuthProvider>
       <ToastContainer />
       <BrowserRouter>
+        <ErrorBoundary>
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
@@ -56,6 +58,7 @@ export default function App() {
           <Route path="/relatorios" element={<ProtectedRoute><EmConstrucaoModulo titulo="Exportar Relatório" descricao="Exportação de relatórios financeiros consolidados." /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </BrowserRouter>
     </AuthProvider>
   )
