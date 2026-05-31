@@ -93,7 +93,12 @@ export default function Conciliacao() {
     if (!user) { showToast('Sessão expirada.', 'error'); return }
     setUploading(true)
     try {
-      const texto = await file.text()
+      // Banco BR geralmente exporta OFX em Windows-1252. Decodifica
+      // explicitamente pra preservar acentos (DÉB, JUROS, etc).
+      const buf = await file.arrayBuffer()
+      let texto
+      try { texto = new TextDecoder('windows-1252').decode(buf) }
+      catch { texto = new TextDecoder('utf-8').decode(buf) }
       const { transacoes, saldoFinal } = parseOFX(texto)
       if (!transacoes.length) {
         showToast('Nenhuma transação encontrada no OFX.', 'warning')
