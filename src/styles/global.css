@@ -60,46 +60,55 @@ button, input, select, textarea {
   font-weight: 300;
 }
 
+
 /* ============================================================================
-   Scrollbars — área principal e sidebar têm tratamento distinto
+   Scrollbars distintas: main (gold suave) vs sidebar (quase invisível)
    ============================================================================ */
 
-/* Área principal (main content) — scrollbar fina, gold suave */
-main > div::-webkit-scrollbar {
+.scroll-main::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
-main > div::-webkit-scrollbar-track {
+.scroll-main::-webkit-scrollbar-track {
   background: var(--cream);
 }
-main > div::-webkit-scrollbar-thumb {
+.scroll-main::-webkit-scrollbar-thumb {
   background: rgba(204, 145, 94, 0.35);
   border-radius: 6px;
   border: 2px solid var(--cream);
 }
-main > div::-webkit-scrollbar-thumb:hover {
-  background: rgba(204, 145, 94, 0.6);
+.scroll-main::-webkit-scrollbar-thumb:hover {
+  background: rgba(204, 145, 94, 0.7);
 }
-main > div {
+.scroll-main {
   scrollbar-width: thin;
   scrollbar-color: rgba(204, 145, 94, 0.4) var(--cream);
 }
 
-/* Sidebar (navy) — scrollbar quase invisível, integrada ao fundo navy */
-nav::-webkit-scrollbar {
+.scroll-sidebar::-webkit-scrollbar {
   width: 6px;
 }
-nav::-webkit-scrollbar-track {
+.scroll-sidebar::-webkit-scrollbar-track {
   background: transparent;
 }
-nav::-webkit-scrollbar-thumb {
-  background: rgba(243, 238, 228, 0.12);
+.scroll-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(243, 238, 228, 0.18);
   border-radius: 4px;
 }
-nav::-webkit-scrollbar-thumb:hover {
-  background: rgba(243, 238, 228, 0.25);
+.scroll-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(243, 238, 228, 0.35);
 }
-nav {
+.scroll-sidebar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(243, 238, 228, 0.15) transparent;
+  scrollbar-color: rgba(243, 238, 228, 0.2) transparent;
+}
+
+/* ============================================================================
+   Cabeçalhos de tabela ficam fixos quando rola a tela
+   ============================================================================ */
+
+table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }

@@ -111,7 +111,7 @@ export default function Sidebar() {
       >{collapsed ? '›' : '‹'}</button>
 
       {/* Navegação */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
+      <div className="scroll-sidebar" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
         <Section collapsed={collapsed}>Visão Geral</Section>
         <NavItem to="/dashboard" collapsed={collapsed} label="Painel Financeiro" icon={ico(<><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>)} />
 
