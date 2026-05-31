@@ -244,14 +244,7 @@ export default function Conciliacao() {
               Conta Bancária
             </label>
             <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null) }} style={select}>
-            {contas.map(c => {
-              const d = c.data || {}
-              const partes = [d.nome]
-              if (d.banco && d.banco !== d.nome) partes.push(d.banco)
-              if (d.agencia) partes.push(`Ag ${d.agencia}`)
-              if (d.conta) partes.push(`CC ${d.conta}`)
-              return <option key={c.id} value={c.id}>{partes.filter(Boolean).join(' · ')}</option>
-            })}
+            {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
           </select>
           </div>
           <label style={btnUpload}>
