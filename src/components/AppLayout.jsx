@@ -3,7 +3,7 @@ import Topbar from './Topbar'
 
 export default function AppLayout({ title, children }) {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--cream)' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--cream)' }}>
       <Sidebar />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={title} />
