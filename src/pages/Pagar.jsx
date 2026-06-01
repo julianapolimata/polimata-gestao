@@ -33,6 +33,9 @@ export default function Pagar() {
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
+  const [tipoData, setTipoData] = useState('due') // due | data_pagamento | data_competencia
   const [filtrosAvancados, setFiltrosAvancados] = useState({ periodo: '', dataDe: '', dataAte: '', categoria: '', vmin: '', vmax: '' })
   const [filtrosExpanded, setFiltrosExpanded] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -68,6 +71,15 @@ export default function Pagar() {
         return blob.includes(q)
       })
     }
+    if (dataDe || dataAte) {
+      r = r.filter(item => {
+        const v = tipoData === 'due' ? item.data?.due : item.data?.[tipoData]
+        if (!v) return false
+        if (dataDe && v < dataDe) return false
+        if (dataAte && v > dataAte) return false
+        return true
+      })
+    }
     const range = resolveDateRange(filtrosAvancados.periodo, filtrosAvancados.dataDe, filtrosAvancados.dataAte)
     if (range) {
       r = r.filter(item => {
@@ -90,7 +102,7 @@ export default function Pagar() {
       else cmp = va.localeCompare(vb)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rows, busca, filtroStatus, filtrosAvancados, sortCol, sortDir])
+  }, [rows, busca, filtroStatus, dataDe, dataAte, tipoData, filtrosAvancados, sortCol, sortDir])
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -207,6 +219,22 @@ export default function Pagar() {
               <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
               <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
             </div>
+          </div>
+
+          {/* Filtro por data: De/Até + seletor de tipo */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }}>
+            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            {(dataDe || dataAte) && (
+              <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar período">×</button>
+            )}
+            <div style={{ width: 1, height: 22, background: 'var(--cream-dark)', margin: '0 4px' }} />
+            <select value={tipoData} onChange={e => setTipoData(e.target.value)} style={selectTipoData} title="Tipo de data">
+              <option value="due">Vencimento</option>
+              <option value="data_pagamento">Pagamento</option>
+              <option value="data_competencia">Competência</option>
+            </select>
           </div>
 
           {/* Filtros avançados */}
@@ -326,6 +354,8 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
 }
 
 // ─── styles ───────────────────────────────────────────────────────────────
+const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const selectTipoData = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const btnNovo = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '8px 16px', borderRadius: 6,

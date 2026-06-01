@@ -293,21 +293,41 @@ function PendingCard({ pending, processando, onAprovar, onRejeitar }) {
 }
 
 function HistoricoTable({ historico }) {
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
+  const filtrado = historico.filter(h => {
+    const v = h.created_at ? h.created_at.slice(0, 10) : ''
+    if (!v) return true
+    if (dataDe && v < dataDe) return false
+    if (dataAte && v > dataAte) return false
+    return true
+  })
   return (
-    <div style={tableWrap}>
-      <table style={tbl}>
-        <thead>
-          <tr>
-            <th style={th}>Data</th>
-            <th style={th}>Tipo</th>
-            <th style={{ ...th, width: 110 }}>Nº NF</th>
-            <th style={th}>Parte</th>
-            <th style={{ ...th, width: 130, textAlign: 'right' }}>Valor</th>
-            <th style={{ ...th, width: 200 }}>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {historico.map(h => (
+    <>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-mid)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Data</span>
+        <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputDataNF} title="De" />
+        <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+        <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputDataNF} title="Até" />
+        {(dataDe || dataAte) && (
+          <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar">×</button>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-mid)' }}>{filtrado.length} de {historico.length}</span>
+      </div>
+      <div style={tableWrap}>
+        <table style={tbl}>
+          <thead>
+            <tr>
+              <th style={th}>Data</th>
+              <th style={th}>Tipo</th>
+              <th style={{ ...th, width: 110 }}>Nº NF</th>
+              <th style={th}>Parte</th>
+              <th style={{ ...th, width: 130, textAlign: 'right' }}>Valor</th>
+              <th style={{ ...th, width: 200 }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrado.map(h => (
             <tr key={h.id}>
               <td style={{ ...td, color: 'var(--text-mid)' }}>{new Date(h.created_at).toLocaleDateString('pt-BR')}</td>
               <td style={{ ...td }}>{h.data?.tipo_documento || '—'}</td>
@@ -317,9 +337,10 @@ function HistoricoTable({ historico }) {
               <td style={{ ...td, fontSize: 11, color: 'var(--text-mid)' }}>{h.data?.status || '—'}</td>
             </tr>
           ))}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }
 
@@ -341,6 +362,7 @@ const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const chip = { padding: '2px 7px', borderRadius: 999, fontSize: 10, background: 'rgba(0,0,0,0.10)' }
+const inputDataNF = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const lista = { display: 'flex', flexDirection: 'column', gap: 10 }
 const card = { background: 'var(--white)', borderRadius: 10, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const btnGhost = { padding: '7px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase' }

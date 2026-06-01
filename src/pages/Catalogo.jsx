@@ -21,6 +21,8 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
 
@@ -44,14 +46,27 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(item => {
-      const d = item.data || {}
-      const blob = [item.codigo, d.name, d.party, d.client, d.object, d.value, d.status, d.notes]
-        .filter(Boolean).join(' ').toLowerCase()
-      return blob.includes(q)
-    })
-  }, [rows, busca])
+    const campoData = isContrato ? 'start' : 'deadline'
+    let r = rows
+    if (q) {
+      r = r.filter(item => {
+        const d = item.data || {}
+        const blob = [item.codigo, d.name, d.party, d.client, d.object, d.value, d.status, d.notes]
+          .filter(Boolean).join(' ').toLowerCase()
+        return blob.includes(q)
+      })
+    }
+    if (dataDe || dataAte) {
+      r = r.filter(item => {
+        const v = item.data?.[campoData]
+        if (!v) return false
+        if (dataDe && v < dataDe) return false
+        if (dataAte && v > dataAte) return false
+        return true
+      })
+    }
+    return r
+  }, [rows, busca, dataDe, dataAte, isContrato])
 
   const total = useMemo(
     () => filtrados.reduce((s, x) => s + (parseFloat(x.data?.value) || 0), 0),
@@ -108,6 +123,18 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
               </button>
             </div>
           </div>
+
+          {/* Filtro por data */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-mid)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>{isContrato ? 'Início' : 'Prazo'}</span>
+            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            {(dataDe || dataAte) && (
+              <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar">×</button>
+            )}
+          </div>
+
           {temDados && (
             <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
               <table style={{ ...tbl, tableLayout: 'fixed' }}>
@@ -170,6 +197,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   )
 }
 
+const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const btnNovo = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '8px 16px', borderRadius: 6,
