@@ -13,6 +13,7 @@ import Catalogo from './pages/Catalogo'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
 import Cartoes from './pages/Cartoes'
 import ContasBancarias from './pages/ContasBancarias'
+import Emprestimos from './pages/Emprestimos'
 import ConferenciaFatura from './pages/ConferenciaFatura'
 import { ToastContainer } from './components/Toast'
 import FluxoCaixa from './pages/FluxoCaixa'
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="/recorrencias" element={<ProtectedRoute><EmConstrucaoModulo titulo="Recorrências" descricao="Lançamentos mestre com projeção automática mensal." /></ProtectedRoute>} />
           <Route path="/cartoes" element={<ProtectedRoute><Cartoes /></ProtectedRoute>} />
           <Route path="/contas-bancarias" element={<ProtectedRoute><ContasBancarias /></ProtectedRoute>} />
+          <Route path="/emprestimos" element={<ProtectedRoute><Emprestimos /></ProtectedRoute>} />
           <Route path="/conferencia-fatura" element={<ProtectedRoute><ConferenciaFatura /></ProtectedRoute>} />
           <Route path="/relatorios" element={<ProtectedRoute><EmConstrucaoModulo titulo="Exportar Relatório" descricao="Exportação de relatórios financeiros consolidados." /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
