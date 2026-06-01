@@ -19,7 +19,7 @@ const ALLOWED_MODELS = new Set([
 
 // Limites de proteção contra abuso/custo
 const MAX_TOKENS_HARD_CAP = 4096;
-const MAX_BODY_BYTES = 200 * 1024; // 200 KB de payload (entrada multimodal pode ser grande, mas não absurda)
+const MAX_BODY_BYTES = 600 * 1024; // 200 KB de payload (entrada multimodal pode ser grande, mas não absurda)
 
 // CORS: só permite origem própria do app gerencial
 const ALLOWED_ORIGINS = new Set([
