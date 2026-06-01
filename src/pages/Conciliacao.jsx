@@ -8,13 +8,13 @@ import { parseOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
 
 // =====================================================================
-// CONCILIAÇÃO BANCÁRIA v1.5 — refatoração UX baseada em YNAB + Xero +
-// Conta Azul.
-//   - Tabela densa (não cards)
-//   - Header sticky por mês com saldo do período
-//   - Badge de status visível na linha (clique expande inline)
-//   - Filtros: período (chips) + busca + valor min/max + status
-//   - 4 ações por linha pendente: Vincular / Criar / Transferência / Ignorar
+// CONCILIAÇÃO BANCÁRIA v1.6
+// Mudanças vs v1.5 (Juliana 31/05):
+//   - Filtros estilo extrato bancário: inputs De/Até (não chips de período)
+//   - Tabela HTML real com <thead> sticky (cabeçalho Data/Descrição/Valor/
+//     Status fica fixo no topo ao rolar)
+//   - Sem agrupamento por mês (não precisava do sticky problemático)
+//   - Período padrão = range das transações importadas
 // =====================================================================
 
 function fmtDataBR(s) {
@@ -22,19 +22,6 @@ function fmtDataBR(s) {
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
-function mesLabel(ym) {
-  const [y, m] = ym.split('-')
-  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
-  return `${meses[parseInt(m, 10) - 1]} ${y}`
-}
-function ymDe(dataISO) { return dataISO ? dataISO.slice(0, 7) : '' }
-
-const PERIODOS = [
-  { k: 'mes_atual', l: 'Mês atual' },
-  { k: '30d', l: 'Últimos 30 dias' },
-  { k: '90d', l: 'Últimos 90 dias' },
-  { k: 'todos', l: 'Todos' },
-]
 
 export default function Conciliacao() {
   const { user } = useAuth()
@@ -48,15 +35,15 @@ export default function Conciliacao() {
   const [saldoBanco, setSaldoBanco] = useState(null)
 
   // Filtros
-  const [filtroPeriodo, setFiltroPeriodo] = useState('mes_atual')
+  const [dataDe, setDataDe] = useState('')
+  const [dataAte, setDataAte] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
   const [filtroValorMin, setFiltroValorMin] = useState('')
   const [filtroValorMax, setFiltroValorMax] = useState('')
-  const [mesVisivel, setMesVisivel] = useState(null)
+  const [periodoInicializado, setPeriodoInicializado] = useState(false)
 
-  // Expand inline (qual linha está aberta)
-  const [expandido, setExpandido] = useState(null) // id do extrato
+  const [expandido, setExpandido] = useState(null)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -79,43 +66,31 @@ export default function Conciliacao() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  // IntersectionObserver detecta qual grupo de mês está visível no topo
-  useEffect(() => {
-    const headers = document.querySelectorAll('[data-mes-header]')
-    if (!headers.length) return undefined
-    const obs = new IntersectionObserver(entries => {
-      const visiveis = entries.filter(e => e.isIntersecting)
-        .map(e => e.target.getAttribute('data-mes-header'))
-      if (visiveis.length) setMesVisivel(visiveis[0])
-    }, { threshold: 0, rootMargin: '0px 0px -85% 0px' })
-    headers.forEach(h => obs.observe(h))
-    return () => obs.disconnect()
-  })
-
   const conta = useMemo(() => contas.find(c => c.id === contaId), [contas, contaId])
 
-  // ── Aplica filtros ───────────────────────────────────────────────────
-  const periodoLimite = useMemo(() => {
-    const hoje = new Date()
-    if (filtroPeriodo === 'mes_atual') {
-      const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-      return ini.toISOString().slice(0, 10)
-    }
-    if (filtroPeriodo === '30d') {
-      const ini = new Date(hoje); ini.setDate(ini.getDate() - 30)
-      return ini.toISOString().slice(0, 10)
-    }
-    if (filtroPeriodo === '90d') {
-      const ini = new Date(hoje); ini.setDate(ini.getDate() - 90)
-      return ini.toISOString().slice(0, 10)
-    }
-    return null
-  }, [filtroPeriodo])
+  // Range de datas das transações da conta atual — define o período padrão
+  const rangeImportado = useMemo(() => {
+    const arr = extratos.filter(e => e.conta_id === contaId).map(e => e.data?.data).filter(Boolean).sort()
+    if (!arr.length) return null
+    return { min: arr[0], max: arr[arr.length - 1] }
+  }, [extratos, contaId])
 
+  // Inicializa período com o range importado uma única vez por mudança de conta
+  useEffect(() => {
+    if (rangeImportado && !periodoInicializado) {
+      setDataDe(rangeImportado.min)
+      setDataAte(rangeImportado.max)
+      setPeriodoInicializado(true)
+    }
+  }, [rangeImportado, periodoInicializado])
+  useEffect(() => { setPeriodoInicializado(false) }, [contaId])
+
+  // ── Aplica filtros ───────────────────────────────────────────────────
   const extratosFiltrados = useMemo(() => {
     let arr = extratos.filter(e => e.conta_id === contaId)
     if (filtroStatus !== 'todos') arr = arr.filter(e => e.status === filtroStatus)
-    if (periodoLimite) arr = arr.filter(e => (e.data?.data || '') >= periodoLimite)
+    if (dataDe) arr = arr.filter(e => (e.data?.data || '') >= dataDe)
+    if (dataAte) arr = arr.filter(e => (e.data?.data || '') <= dataAte)
     if (filtroBusca.trim()) {
       const q = filtroBusca.trim().toLowerCase()
       arr = arr.filter(e => (e.data?.descricao || '').toLowerCase().includes(q))
@@ -124,27 +99,11 @@ export default function Conciliacao() {
     const vmax = parseFloat(filtroValorMax)
     if (!isNaN(vmin)) arr = arr.filter(e => Number(e.data?.valor || 0) >= vmin)
     if (!isNaN(vmax)) arr = arr.filter(e => Number(e.data?.valor || 0) <= vmax)
-    // Ordena por data desc
     arr.sort((a, b) => (b.data?.data || '').localeCompare(a.data?.data || ''))
     return arr
-  }, [extratos, contaId, filtroStatus, periodoLimite, filtroBusca, filtroValorMin, filtroValorMax])
+  }, [extratos, contaId, filtroStatus, dataDe, dataAte, filtroBusca, filtroValorMin, filtroValorMax])
 
-  // ── Agrupamento por mês pra header sticky ────────────────────────────
-  const gruposMes = useMemo(() => {
-    const out = []
-    let mesAtual = null
-    for (const e of extratosFiltrados) {
-      const ym = ymDe(e.data?.data)
-      if (ym !== mesAtual) {
-        out.push({ tipo: 'header', ym, items: [] })
-        mesAtual = ym
-      }
-      out[out.length - 1].items.push(e)
-    }
-    return out
-  }, [extratosFiltrados])
-
-  // ── Contadores por status (badges nos chips) ─────────────────────────
+  // ── Contadores ───────────────────────────────────────────────────────
   const counts = useMemo(() => {
     const c = { pendente: 0, conciliado: 0, ignorado: 0 }
     for (const e of extratos) {
@@ -153,7 +112,7 @@ export default function Conciliacao() {
     return c
   }, [extratos, contaId])
 
-  // ── Saldo sistema ────────────────────────────────────────────────────
+  // ── Saldos ───────────────────────────────────────────────────────────
   const saldoSistema = useMemo(() => {
     if (!conta) return 0
     const sIni = Number(conta.data?.saldo_inicial || 0)
@@ -162,9 +121,6 @@ export default function Conciliacao() {
     return sIni + tIn - tOut
   }, [conta, receivable, payable])
 
-  // Saldo do banco = saldo inicial cadastrado + soma de TODAS as transações
-  // importadas via OFX nesta conta (entradas - saídas). Se o último OFX trouxe
-  // o BALAMT, usa esse valor; senão, recalcula.
   const saldoBancoCalculado = useMemo(() => {
     if (!conta) return null
     const sIni = Number(conta.data?.saldo_inicial || 0)
@@ -176,10 +132,9 @@ export default function Conciliacao() {
   }, [conta, contaId, extratos])
 
   const saldoBancoFinal = saldoBanco != null ? saldoBanco : saldoBancoCalculado
-
   const divergencia = saldoBancoFinal != null ? saldoBancoFinal - saldoSistema : null
 
-  // ── Upload OFX ───────────────────────────────────────────────────────
+  // ── Upload ───────────────────────────────────────────────────────────
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -207,6 +162,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`${novos.length} transações importadas.`, 'success')
       if (saldoFinal != null) setSaldoBanco(saldoFinal)
+      setPeriodoInicializado(false) // re-aplica range com o que foi importado
       carregar()
     } catch (err) {
       console.error(err)
@@ -217,7 +173,7 @@ export default function Conciliacao() {
     }
   }
 
-  // ── Ações por linha ──────────────────────────────────────────────────
+  // ── Ações ────────────────────────────────────────────────────────────
   async function vincular(extrato, lancamento) {
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
     const agora = new Date().toISOString()
@@ -229,8 +185,7 @@ export default function Conciliacao() {
       const merged = { ...(lancamento.data || {}), status: statusNovo, data_pagamento: lancamento.data?.data_pagamento || extrato.data?.data }
       await supabase.from(tipoTabela).update({ data: merged, conciliado_em: agora, extrato_id: extrato.id }).eq('id', lancamento.id)
       showToast('Conciliado.', 'success')
-      setExpandido(null)
-      carregar()
+      setExpandido(null); carregar()
     } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
@@ -255,44 +210,38 @@ export default function Conciliacao() {
       status: 'conciliado', lancamento_tipo: tipoTabela, lancamento_id: inserted.id,
     }).eq('id', extrato.id)
     showToast('Lançamento criado e conciliado.', 'success')
-    setExpandido(null)
-    carregar()
+    setExpandido(null); carregar()
   }
 
   async function marcarTransferencia(extrato) {
-    if (!confirm('Marcar como transferência entre contas próprias? Não vira despesa nem receita.')) return
+    if (!confirm('Marcar como transferência entre contas próprias?')) return
     await supabase.from('transacoes_extrato').update({
       status: 'ignorado',
       data: { ...(extrato.data || {}), motivo: 'transferencia_propria' },
     }).eq('id', extrato.id)
     showToast('Marcado como transferência interna.', 'info')
-    setExpandido(null)
-    carregar()
+    setExpandido(null); carregar()
   }
 
   async function ignorar(extrato) {
     if (!confirm('Ignorar essa transação?')) return
     await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
-    showToast('Ignorada.', 'info')
-    setExpandido(null)
-    carregar()
+    showToast('Ignorada.', 'info'); setExpandido(null); carregar()
   }
-
   async function restaurar(extrato) {
     await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
-    showToast('Voltou pra pendentes.', 'info')
-    setExpandido(null)
-    carregar()
+    showToast('Voltou pra pendentes.', 'info'); setExpandido(null); carregar()
   }
-
   async function desconciliar(extrato) {
     if (!confirm('Desconciliar? Lançamento vinculado volta pra pendente.')) return
     const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
     await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
     if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
-    showToast('Desconciliado.', 'info')
-    setExpandido(null)
-    carregar()
+    showToast('Desconciliado.', 'info'); setExpandido(null); carregar()
+  }
+
+  function limparPeriodo() {
+    setDataDe(''); setDataAte('')
   }
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
@@ -306,12 +255,12 @@ export default function Conciliacao() {
 
   return (
     <AppLayout title="Conciliação Bancária">
-      {/* Topo: conta + saldos + upload */}
+      {/* Topo: conta + upload + saldos */}
       <div style={topo}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={labelTopo}>Conta Bancária</label>
-            <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null) }} style={select}>
+            <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null); setPeriodoInicializado(false) }} style={select}>
               {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
             </select>
           </div>
@@ -321,17 +270,8 @@ export default function Conciliacao() {
           </label>
         </div>
         <div style={saldosBox}>
-          <Saldo
-            label="Saldo no Banco"
-            sub="da conta no banco"
-            valor={saldoBancoFinal}
-            dim={saldoBancoFinal == null}
-          />
-          <Saldo
-            label="Saldo no Sistema"
-            sub="recebido − pago"
-            valor={saldoSistema}
-          />
+          <Saldo label="Saldo no Banco" sub="da conta no banco" valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
+          <Saldo label="Saldo no Sistema" sub="recebido − pago" valor={saldoSistema} />
           <Saldo
             label="Divergência"
             sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
@@ -342,56 +282,67 @@ export default function Conciliacao() {
         </div>
       </div>
 
-      {/* Indicador fixo do mês visível */}
-      {mesVisivel && (
-        <div style={mesChip}>
-          <span style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Visualizando:</span>
-          <span style={{ fontSize: 13, color: 'var(--navy)', fontWeight: 700, marginLeft: 8 }}>{mesLabel(mesVisivel)}</span>
-        </div>
-      )}
-
       {/* Filtros */}
       <div style={filtrosBar}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {PERIODOS.map(p => (
-            <button key={p.k} onClick={() => setFiltroPeriodo(p.k)} style={filtroPeriodo === p.k ? chipActive : chipInactive}>{p.l}</button>
-          ))}
+        <div style={filtroBloco}>
+          <label style={filtroLabel}>Período</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} />
+            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} />
+            {(dataDe || dataAte) && (
+              <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">× limpar</button>
+            )}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[
-            { k: 'todos', l: 'Todos', c: counts.pendente + counts.conciliado + counts.ignorado },
-            { k: 'pendente', l: '⏳ Pendentes', c: counts.pendente },
-            { k: 'conciliado', l: '✓ Conciliados', c: counts.conciliado },
-            { k: 'ignorado', l: '⨯ Ignorados', c: counts.ignorado },
-          ].map(s => (
-            <button key={s.k} onClick={() => setFiltroStatus(s.k)} style={filtroStatus === s.k ? chipActive : chipInactive}>
-              {s.l} <span style={{ marginLeft: 4, opacity: 0.7 }}>{s.c}</span>
-            </button>
-          ))}
+
+        <div style={filtroBloco}>
+          <label style={filtroLabel}>Status</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { k: 'todos', l: 'Todos', c: counts.pendente + counts.conciliado + counts.ignorado },
+              { k: 'pendente', l: '⏳ Pendentes', c: counts.pendente },
+              { k: 'conciliado', l: '✓ Conciliados', c: counts.conciliado },
+              { k: 'ignorado', l: '⨯ Ignorados', c: counts.ignorado },
+            ].map(s => (
+              <button key={s.k} onClick={() => setFiltroStatus(s.k)} style={filtroStatus === s.k ? chipActive : chipInactive}>
+                {s.l} <span style={{ marginLeft: 4, opacity: 0.7 }}>{s.c}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="Buscar descrição..." style={{ ...inputFiltro, width: 200 }} />
-          <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="Valor mín" style={{ ...inputFiltro, width: 90 }} />
-          <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="Valor máx" style={{ ...inputFiltro, width: 90 }} />
+
+        <div style={filtroBloco}>
+          <label style={filtroLabel}>Busca e valor</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="Buscar descrição..." style={{ ...inputFiltro, width: 240 }} />
+            <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="R$ mín" style={{ ...inputFiltro, width: 110 }} />
+            <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 110 }} />
+          </div>
         </div>
       </div>
 
-      {/* Tabela densa com agrupamento por mês */}
-      {gruposMes.length === 0 ? (
-        <div style={emptyState}>
-          {extratos.filter(e => e.conta_id === contaId).length === 0
-            ? 'Importe um OFX pra começar.'
-            : 'Nenhuma transação com os filtros aplicados.'}
-        </div>
-      ) : (
-        <div style={tabela}>
-          {gruposMes.map(grupo => (
-            <div key={grupo.ym}>
-              <div style={headerMes} data-mes-header={grupo.ym}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: '#fff', textTransform: 'uppercase', letterSpacing: 1.5 }}>{mesLabel(grupo.ym)}</span>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{grupo.items.length} transações</span>
-              </div>
-              {grupo.items.map(ext => (
+      {/* Tabela */}
+      <div style={tableWrap}>
+        {extratosFiltrados.length === 0 ? (
+          <div style={emptyState}>
+            {extratos.filter(e => e.conta_id === contaId).length === 0
+              ? 'Importe um OFX pra começar.'
+              : 'Nenhuma transação com os filtros aplicados.'}
+          </div>
+        ) : (
+          <table style={tbl}>
+            <thead>
+              <tr>
+                <th style={{ ...th, width: 110 }}>Data</th>
+                <th style={th}>Descrição</th>
+                <th style={{ ...th, width: 150, textAlign: 'right' }}>Valor</th>
+                <th style={{ ...th, width: 150, textAlign: 'center' }}>Status</th>
+                <th style={{ ...th, width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {extratosFiltrados.map(ext => (
                 <LinhaExtrato
                   key={ext.id}
                   extrato={ext}
@@ -407,10 +358,10 @@ export default function Conciliacao() {
                   onDesconciliar={() => desconciliar(ext)}
                 />
               ))}
-            </div>
-          ))}
-        </div>
-      )}
+            </tbody>
+          </table>
+        )}
+      </div>
     </AppLayout>
   )
 }
@@ -429,68 +380,67 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
     [extrato, candidatos, tipo, status],
   )
   const temSugestao = sugestoes.length > 0
+  const corValor = tipo === 'entrada' ? 'var(--green)' : 'var(--red)'
 
-  // Badge de status
   let badge
   if (status === 'pendente') badge = { txt: temSugestao ? '💡 Sugestão' : '⏳ Pendente', bg: temSugestao ? 'rgba(204,145,94,0.15)' : 'rgba(230,126,34,0.12)', cor: temSugestao ? 'var(--gold-dark)' : 'var(--orange)' }
   else if (status === 'conciliado') badge = { txt: '✓ Conciliado', bg: 'rgba(39,174,96,0.10)', cor: 'var(--green)' }
   else badge = { txt: '⨯ Ignorado', bg: 'rgba(0,0,0,0.05)', cor: 'var(--text-mid)' }
 
-  const corValor = tipo === 'entrada' ? 'var(--green)' : 'var(--red)'
-
   return (
     <>
-      <div style={{ ...linha, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1 }} onClick={onToggle}>
-        <div style={{ width: 80, fontSize: 11, color: 'var(--text-mid)' }}>{fmtDataBR(data)}</div>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--navy)' }}>
+      <tr onClick={onToggle} style={{ cursor: 'pointer', borderBottom: '1px solid var(--cream-dark)', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1 }}>
+        <td style={td}>{fmtDataBR(data)}</td>
+        <td style={{ ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
           {cnpj && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {cnpj}</div>}
-        </div>
-        <div style={{ width: 130, textAlign: 'right', fontSize: 13, fontWeight: 700, color: corValor }}>
+        </td>
+        <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corValor, fontSize: 13 }}>
           {tipo === 'entrada' ? '+' : '−'} {fmtMoney(valor)}
-        </div>
-        <div style={{ width: 150, textAlign: 'center' }}>
+        </td>
+        <td style={{ ...td, textAlign: 'center' }}>
           <span style={{ background: badge.bg, color: badge.cor, padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{badge.txt}</span>
-        </div>
-        <div style={{ width: 24, fontSize: 11, color: 'var(--text-mid)', textAlign: 'center' }}>{expandido ? '▾' : '▸'}</div>
-      </div>
-
+        </td>
+        <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{expandido ? '▾' : '▸'}</td>
+      </tr>
       {expandido && (
-        <div style={expand}>
-          {status === 'pendente' ? (
-            <>
-              {temSugestao && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Sugestões automáticas</div>
-                  {sugestoes.slice(0, 3).map((s, i) => (
-                    <div key={i} style={sugestaoRow}>
-                      <div style={{ flex: 1, fontSize: 12 }}>
-                        <strong>{s.lancamento.codigo}</strong> — <span style={{ color: 'var(--text-mid)' }}>{s.lancamento.desc || s.lancamento.client || s.lancamento.supplier}</span>
-                        <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>{s.motivo}</div>
+        <tr style={{ background: 'var(--cream)' }}>
+          <td colSpan={5} style={{ padding: '14px 18px' }}>
+            {status === 'pendente' ? (
+              <>
+                {temSugestao && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Sugestões automáticas</div>
+                    {sugestoes.slice(0, 3).map((s, i) => (
+                      <div key={i} style={sugestaoRow}>
+                        <div style={{ flex: 1, fontSize: 12 }}>
+                          <strong>{s.lancamento.codigo}</strong> — <span style={{ color: 'var(--text-mid)' }}>{s.lancamento.desc || s.lancamento.client || s.lancamento.supplier}</span>
+                          <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>{s.motivo}</div>
+                        </div>
+                        <button onClick={() => onVincular(s.lancamento)} style={btnOk}>✓ Vincular</button>
                       </div>
-                      <button onClick={() => onVincular(s.lancamento)} style={btnOk}>✓ Vincular</button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {!temSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)', marginRight: 8, alignSelf: 'center' }}>Nenhuma sugestão automática.</em>}
+                  <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
+                  <button onClick={onTransferencia} style={btnAcao}>↔ Transferência entre contas</button>
+                  <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {!temSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)', marginRight: 8, alignSelf: 'center' }}>Nenhuma sugestão automática.</em>}
-                <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
-                <button onClick={onTransferencia} style={btnAcao}>↔ Transferência entre contas</button>
-                <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
+              </>
+            ) : status === 'conciliado' ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>Vinculado a {extrato.lancamento_tipo} {extrato.lancamento_id?.substring(0, 8)}</span>
+                <button onClick={onDesconciliar} style={btnLink}>↶ Desconciliar</button>
               </div>
-            </>
-          ) : status === 'conciliado' ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>Vinculado a {extrato.lancamento_tipo} {extrato.lancamento_id?.substring(0, 8)}</span>
-              <button onClick={onDesconciliar} style={btnLink}>↶ Desconciliar</button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra pendentes</button>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra pendentes</button>
+              </div>
+            )}
+          </td>
+        </tr>
       )}
     </>
   )
@@ -512,17 +462,20 @@ const saldosBox = { display: 'flex', gap: 24, alignItems: 'center' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 200 }
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 
-const mesChip = { display: 'inline-flex', alignItems: 'center', padding: '8px 14px', background: 'var(--white)', borderRadius: 999, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 10, position: 'sticky', top: 0, zIndex: 20, width: 'fit-content' }
-const filtrosBar = { display: 'flex', flexDirection: 'column', gap: 8, padding: 14, background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 12 }
-const chipBase = { border: 'none', padding: '5px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
+const filtrosBar = { display: 'flex', flexDirection: 'column', gap: 16, padding: 16, background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14 }
+const filtroBloco = { display: 'flex', flexDirection: 'column', gap: 6 }
+const filtroLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', fontFamily: 'var(--body)' }
+const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--body)' }
+const chipBase = { border: 'none', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
 const chipActive = { ...chipBase, background: 'var(--navy)', color: '#fff' }
 const chipInactive = { ...chipBase, background: 'var(--cream)', color: 'var(--text-mid)' }
-const inputFiltro = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tabela = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
-const headerMes = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: 'var(--navy)', color: '#fff', borderTop: '2px solid var(--gold)' }
-const linha = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--cream-dark)', transition: 'background .15s' }
-const expand = { padding: '14px 16px 16px 96px', background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)' }
+const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
+const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
+const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
+const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
 const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
