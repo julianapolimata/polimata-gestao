@@ -471,8 +471,8 @@ const toggleInactive = { ...toggleBtnBase, background: 'transparent', color: 'va
 const tbl = { width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = {
   textAlign: 'left', padding: '12px 14px',
-  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: 'var(--text-mid)',
-  textTransform: 'uppercase', background: 'var(--cream)',
-  borderBottom: '1px solid var(--cream-dark)',
+  fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff',
+  textTransform: 'uppercase', background: 'var(--navy)',
+  borderBottom: '2px solid var(--gold)',
 }
 const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)' }
