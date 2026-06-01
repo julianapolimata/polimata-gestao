@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
+import { parseOFX } from '../lib/ofx'
 
 // =====================================================================
 // CONFERÊNCIA DE FATURA — soma os lançamentos do cartão no período da
@@ -28,6 +30,7 @@ export default function ConferenciaFatura() {
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth())
   const [valorFatura, setValorFatura] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -46,6 +49,61 @@ export default function ConferenciaFatura() {
   }, [user, cartaoId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // ── Import OFX da fatura ─────────────────────────────────────────────
+  async function handleUploadFatura(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!cartaoId) { showToast('Selecione um cartão antes.', 'warning'); return }
+    if (!user) { showToast('Sessão expirada.', 'error'); return }
+    if (!periodo) { showToast('Selecione mês/ano antes.', 'warning'); return }
+    setUploading(true)
+    try {
+      const buf = await file.arrayBuffer()
+      let texto
+      try { texto = new TextDecoder('windows-1252').decode(buf) }
+      catch { texto = new TextDecoder('utf-8').decode(buf) }
+      const { transacoes } = parseOFX(texto)
+      if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
+      // Dedup por fit_id dentro dos lançamentos do cartão
+      const fitsExistentes = new Set(payable.filter(p => p.cartao_id === cartaoId && p.fit_id).map(p => p.fit_id))
+      const debitos = transacoes.filter(t => t.tipo === 'saida' && (!t.fit_id || !fitsExistentes.has(t.fit_id)))
+      if (!debitos.length) {
+        showToast(`Todas as ${transacoes.length} transações já estavam importadas.`, 'info')
+        return
+      }
+      // Cria N lançamentos em payable
+      const payload = debitos.map(t => ({
+        user_id: user.id,
+        cartao_id: cartaoId,
+        fit_id: t.fit_id || null,
+        data: {
+          supplier: (t.descricao || '').substring(0, 80),
+          desc: t.descricao,
+          value: Math.abs(Number(t.valor || 0)),
+          data_competencia: t.data,
+          due: periodo.vencimento,
+          status: 'Pendente',
+          cat: '',
+          subcat: '',
+          forma_pagamento: 'Cartão Crédito',
+          criado_via_import_fatura: true,
+          created: new Date().toISOString().slice(0, 10),
+        },
+      }))
+      const { error } = await supabase.from('payable').insert(payload)
+      if (error) throw error
+      showToast(`${debitos.length} lançamentos importados da fatura.`, 'success')
+      carregar()
+    } catch (err) {
+      console.error(err)
+      showToast('Erro: ' + err.message, 'error')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
 
   const cartao = useMemo(() => cartoes.find(c => c.id === cartaoId), [cartoes, cartaoId])
 
@@ -116,6 +174,10 @@ export default function ConferenciaFatura() {
                 {anos.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </Field>
+            <label style={btnUploadFatura}>
+              <input type="file" onChange={handleUploadFatura} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
+              {uploading ? '⏳ Processando…' : '📥 Importar OFX da fatura'}
+            </label>
           </div>
 
           {periodo && (
@@ -234,6 +296,7 @@ function Card({ label, valor, sub, color }) {
 }
 
 const topo = { display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }
+const btnUploadFatura = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 180 }
 const periodoBox = { background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', padding: 14, borderRadius: 6, marginBottom: 18 }
 const resumoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 18 }

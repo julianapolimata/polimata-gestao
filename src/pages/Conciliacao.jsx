@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
+import ModalConciliarFatura from './components/ModalConciliarFatura'
 import { fmtMoney, flatten } from '../lib/finance'
 import { parseOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
@@ -46,6 +47,7 @@ export default function Conciliacao() {
 
 
   const [expandido, setExpandido] = useState(null)
+  const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -343,15 +345,22 @@ export default function Conciliacao() {
               onIgnorar={() => ignorar(ext)}
               onRestaurar={() => restaurar(ext)}
               onDesconciliar={() => desconciliar(ext)}
+              onFaturaCartao={() => setModalFaturaExtrato(ext)}
             />
           ))}
         </div>
       )}
+      <ModalConciliarFatura
+        open={modalFaturaExtrato != null}
+        onClose={() => setModalFaturaExtrato(null)}
+        extrato={modalFaturaExtrato}
+        onConciliado={() => { setModalFaturaExtrato(null); carregar() }}
+      />
     </AppLayout>
   )
 }
 
-function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVincular, onCriar, onTransferencia, onIgnorar, onRestaurar, onDesconciliar }) {
+function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVincular, onCriar, onTransferencia, onIgnorar, onRestaurar, onDesconciliar, onFaturaCartao }) {
   const tipo = extrato.data?.tipo
   const valor = Number(extrato.data?.valor || 0)
   const desc = extrato.data?.descricao || '(sem descrição)'
@@ -410,6 +419,9 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {!temSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)', marginRight: 8, alignSelf: 'center' }}>Nenhuma sugestão automática.</em>}
                   <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
+                  {tipo === 'saida' && (
+                    <button onClick={onFaturaCartao} style={btnAcao}>🪪 Conciliar com fatura de cartão</button>
+                  )}
                   <button onClick={onTransferencia} style={btnAcao}>↔ Transferência entre contas</button>
                   <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
                 </div>
