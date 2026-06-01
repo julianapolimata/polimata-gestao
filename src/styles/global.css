@@ -114,7 +114,7 @@ table thead th {
   position: -webkit-sticky !important;
   position: sticky !important;
   top: 0 !important;
-  z-index: 5 !important;
+  z-index: 20 !important;
 }
 /* Quando thead tem cor de fundo via <tr style="background:..."> inline,
    esse background passa pro th sticky via inherit + isolation. */

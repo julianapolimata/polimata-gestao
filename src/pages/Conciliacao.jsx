@@ -291,20 +291,16 @@ export default function Conciliacao() {
           <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
         )}
         <div style={divisor} />
-        {[
-          { k: 'todos', l: 'Todos', c: counts.pendente + counts.conciliado + counts.ignorado },
-          { k: 'pendente', l: '⏳ Pend.', c: counts.pendente },
-          { k: 'conciliado', l: '✓ Conc.', c: counts.conciliado },
-          { k: 'ignorado', l: '⨯ Ign.', c: counts.ignorado },
-        ].map(s => (
-          <button key={s.k} onClick={() => setFiltroStatus(s.k)} style={filtroStatus === s.k ? chipActive : chipInactive}>
-            {s.l} <span style={{ marginLeft: 4, opacity: 0.7 }}>{s.c}</span>
-          </button>
-        ))}
+        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={selectFiltro} title="Status">
+          <option value="todos">Todos ({counts.pendente + counts.conciliado + counts.ignorado})</option>
+          <option value="pendente">⏳ Pendentes ({counts.pendente})</option>
+          <option value="conciliado">✓ Conciliados ({counts.conciliado})</option>
+          <option value="ignorado">⨯ Ignorados ({counts.ignorado})</option>
+        </select>
         <div style={divisor} />
-        <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="🔍 Buscar..." style={{ ...inputFiltro, flex: 1, minWidth: 160 }} />
-        <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="R$ mín" style={{ ...inputFiltro, width: 90 }} />
-        <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 90 }} />
+        <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="🔍 Buscar..." style={{ ...inputFiltro, flex: 1, minWidth: 140 }} />
+        <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="R$ mín" style={{ ...inputFiltro, width: 80 }} />
+        <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 80 }} />
       </div>
 
       {/* Tabela */}
@@ -374,7 +370,7 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
 
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer', borderBottom: '1px solid var(--cream-dark)', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1 }}>
+      <tr onClick={onToggle} style={{ cursor: 'pointer', borderBottom: '1px solid var(--cream-dark)', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, position: 'relative', zIndex: 0 }}>
         <td style={td}>{fmtDataBR(data)}</td>
         <td style={{ ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
@@ -452,14 +448,12 @@ const filtroSep = { fontSize: 11, color: 'var(--text-mid)' }
 const divisor = { width: 1, height: 22, background: 'var(--cream-dark)', margin: '0 4px' }
 const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, fontFamily: 'var(--body)', padding: '4px 6px' }
-const chipBase = { border: 'none', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
-const chipActive = { ...chipBase, background: 'var(--navy)', color: '#fff' }
-const chipInactive = { ...chipBase, background: 'var(--cream)', color: 'var(--text-mid)' }
+const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
+const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip', isolation: 'isolate', position: 'relative' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
-const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)', position: 'sticky', top: 0, zIndex: 20 }
+const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)', position: 'sticky', top: 0, zIndex: 50 }
 const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
