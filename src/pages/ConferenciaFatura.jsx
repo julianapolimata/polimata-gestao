@@ -6,6 +6,8 @@ import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
 import { parseOFX } from '../lib/ofx'
+import { proximoCodigoPayable } from '../lib/codigos'
+import ModalConciliarFatura from './components/ModalConciliarFatura'
 
 // =====================================================================
 // CONFERÊNCIA DE FATURA — soma os lançamentos do cartão no período da
@@ -29,8 +31,9 @@ export default function ConferenciaFatura() {
   const hoje = new Date()
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth())
-  const [valorFatura, setValorFatura] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [modalConciliar, setModalConciliar] = useState(false)
+  const [extratosDisponiveis, setExtratosDisponiveis] = useState([])
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -38,11 +41,12 @@ export default function ConferenciaFatura() {
     Promise.all([
       supabase.from('cartoes').select('*').order('updated_at', { ascending: false }),
       supabase.from('payable').select('*'),
-    ]).then(([rC, rP]) => {
+      supabase.from('transacoes_extrato').select('*').eq('status', 'pendente'),
+    ]).then(([rC, rP, rE]) => {
       const ativos = (rC.data || []).filter(c => c.data?.ativo !== false)
       setCartoes(ativos)
       setPayable((rP.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id, parent_id: r.parent_id })))
-      // Seleciona o primeiro cartão automaticamente
+      setExtratosDisponiveis((rE.data || []).filter(e => e.data?.tipo === 'saida'))
       if (ativos.length > 0 && !cartaoId) setCartaoId(ativos[0].id)
       setLoading(false)
     })
@@ -120,7 +124,13 @@ export default function ConferenciaFatura() {
           created: new Date().toISOString().slice(0, 10),
         },
       }))
-      const { error } = await supabase.from('payable').insert(payload)
+      let baseCodigo = await proximoCodigoPayable()
+      let baseNum = parseInt(baseCodigo.slice(1), 10)
+      const payloadComCodigo = payload.map((pl, i) => ({
+        ...pl,
+        codigo: `2${String(baseNum + i).padStart(5, '0')}`,
+      }))
+      const { error } = await supabase.from('payable').insert(payloadComCodigo)
       if (error) throw error
       let msg = `${debitos.length} compras importadas da fatura.`
       if (creditosOFX.length > 0) msg += ` ${creditosOFX.length} crédito(s) (estorno/pagamento) ignorado(s).`
@@ -159,8 +169,6 @@ export default function ConferenciaFatura() {
     () => lancamentos.reduce((s, x) => s + Number(x.value || 0), 0),
     [lancamentos],
   )
-  const valFatura = parseFloat(valorFatura) || 0
-  const diferenca = valFatura > 0 ? valFatura - totalSistema : 0
 
   // Anos disponíveis pro select — corrente e os 2 últimos
   const anos = [hoje.getFullYear(), hoje.getFullYear() - 1, hoje.getFullYear() - 2]
@@ -228,23 +236,15 @@ export default function ConferenciaFatura() {
             </div>
           )}
 
-          {/* Resumo */}
-          <div style={resumoGrid}>
-            <Card label="Total no sistema" valor={fmtMoney(totalSistema)} sub={`${lancamentos.length} lançamento(s)`} color="var(--navy)" />
-            <Card label="Valor da fatura real (você digita)" valor={
-              <input
-                type="number" step="0.01" value={valorFatura}
-                onChange={e => setValorFatura(e.target.value)}
-                placeholder="0,00"
-                style={{ ...select, fontSize: 22, fontWeight: 700, color: 'var(--navy)', padding: '4px 8px' }}
-              />
-            } sub="o que veio no app do cartão" color="var(--gold)" />
-            <Card
-              label="Diferença"
-              valor={fmtMoney(diferenca)}
-              sub={valFatura === 0 ? 'digite o valor da fatura' : (Math.abs(diferenca) < 0.01 ? '✓ batem!' : (diferenca > 0 ? 'fatura > sistema' : 'sistema > fatura'))}
-              color={valFatura === 0 ? 'var(--text-mid)' : (Math.abs(diferenca) < 0.01 ? 'var(--green)' : 'var(--red)')}
-            />
+          {/* Total da fatura + botão conciliar */}
+          <div style={totalBox}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>Total da fatura ({lancamentos.length} lançamento(s))</div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: 'var(--navy)', marginTop: 4, fontFamily: 'var(--body)' }}>{fmtMoney(totalSistema)}</div>
+            </div>
+            {totalSistema > 0 && (
+              <button onClick={() => setModalConciliar(true)} style={btnConciliar}>↔ Conciliar com débito da conta</button>
+            )}
           </div>
 
           {/* Header de colunas (sticky) */}
@@ -307,6 +307,25 @@ export default function ConferenciaFatura() {
               </table>
             )}
       </div>
+      {modalConciliar && (() => {
+        const candidato = extratosDisponiveis.find(e => {
+          const d = e.data?.data || ''
+          return periodo?.vencimento && d.startsWith(periodo.vencimento.slice(0, 7))
+        }) || extratosDisponiveis[0]
+        if (!candidato) {
+          // useEffect-like: notifica sem renderizar
+          setTimeout(() => { showToast('Nenhum débito pendente no extrato. Importe OFX da conta primeiro.', 'warning'); setModalConciliar(false) }, 0)
+          return null
+        }
+        return (
+          <ModalConciliarFatura
+            open={true}
+            onClose={() => setModalConciliar(false)}
+            extrato={candidato}
+            onConciliado={() => { setModalConciliar(false); carregar() }}
+          />
+        )
+      })()}
     </AppLayout>
   )
 }
@@ -320,22 +339,13 @@ function Field({ label, children }) {
   )
 }
 
-function Card({ label, valor, sub, color }) {
-  return (
-    <div style={{ ...cardBase, borderTop: `3px solid ${color}` }}>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontFamily: 'var(--body)' }}>{valor}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 6 }}>{sub}</div>
-    </div>
-  )
-}
 
 const topo = { display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }
 const btnUploadFatura = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
+const totalBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14, flexWrap: 'wrap', gap: 14 }
+const btnConciliar = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 180 }
 const periodoBox = { background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', padding: 14, borderRadius: 6, marginBottom: 18 }
-const resumoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 18 }
-const cardBase = { background: 'var(--white)', borderRadius: 12, padding: 20, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
