@@ -71,29 +71,65 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     recarregar()
   }
 
-  return (
-    <AppLayout title={titulo}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${titulo.toLowerCase()}...`} style={searchInput} />
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={resumo}>
-            <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'registro' : 'registros'}</span>
-            <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
-            <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
-          </div>
-          <button onClick={abrirNovo} style={btnNovo}>
-            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {novoLabel}
-          </button>
-        </div>
-      </div>
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: 110 }} />
+      <col />
+      <col />
+      <col style={{ width: 140 }} />
+      <col style={{ width: 110 }} />
+      <col style={{ width: 110 }} />
+      <col style={{ width: 50 }} />
+    </colgroup>
+  )
+  const temDados = !loading && filtrados.length > 0
 
-      <div style={tableWrap}>
+  return (
+    <AppLayout
+      title={titulo}
+      stickyTop={(
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${titulo.toLowerCase()}...`} style={searchInput} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={resumo}>
+                <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'registro' : 'registros'}</span>
+                <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
+                <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
+              </div>
+              <button onClick={abrirNovo} style={btnNovo}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {novoLabel}
+              </button>
+            </div>
+          </div>
+          {temDados && (
+            <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
+              <table style={{ ...tbl, tableLayout: 'fixed' }}>
+                {colgroup}
+                <thead>
+                  <tr>
+                    <th style={th}>Cód.</th>
+                    <th style={th}>{isContrato ? 'Objeto' : 'Nome'}</th>
+                    <th style={th}>{labelParte}</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Valor</th>
+                    <th style={th}>{isContrato ? 'Início' : 'Prazo'}</th>
+                    <th style={th}>Status</th>
+                    <th style={{ ...th, textAlign: 'center' }}></th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    >
+      <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : filtrados.length === 0 ? (
@@ -101,18 +137,8 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
             {rows.length === 0 ? `Nenhum ${novoLabel} cadastrado. Clique em "Novo ${novoLabel}" pra começar.` : 'Nenhum resultado para a busca.'}
           </div>
         ) : (
-          <table style={tbl}>
-            <thead>
-              <tr>
-                <th style={{ ...th, width: 110 }}>Cód.</th>
-                <th style={th}>{isContrato ? 'Objeto' : 'Nome'}</th>
-                <th style={th}>{labelParte}</th>
-                <th style={{ ...th, width: 140, textAlign: 'right' }}>Valor</th>
-                <th style={{ ...th, width: 110 }}>{isContrato ? 'Início' : 'Prazo'}</th>
-                <th style={{ ...th, width: 110 }}>Status</th>
-                <th style={{ ...th, width: 50, textAlign: 'center' }}></th>
-              </tr>
-            </thead>
+          <table style={{ ...tbl, tableLayout: 'fixed' }}>
+            {colgroup}
             <tbody>
               {filtrados.map(p => {
                 const d = p.data || {}

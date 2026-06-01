@@ -69,13 +69,33 @@ export default function ConferenciaFatura() {
   // Anos disponíveis pro select — corrente e os 2 últimos
   const anos = [hoje.getFullYear(), hoje.getFullYear() - 1, hoje.getFullYear() - 2]
 
-  return (
-    <AppLayout title="Conferência de Fatura">
-      {cartoes.length === 0 && !loading ? (
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: 90 }} />
+      <col />
+      <col />
+      <col style={{ width: 90 }} />
+      <col style={{ width: 110 }} />
+      <col style={{ width: 130 }} />
+      <col style={{ width: 90 }} />
+    </colgroup>
+  )
+  const temDados = !loading && cartoes.length > 0 && lancamentos.length > 0
+
+  if (cartoes.length === 0 && !loading) {
+    return (
+      <AppLayout title="Conferência de Fatura">
         <div style={emptyState}>
           Nenhum cartão ativo cadastrado. <a href="/cartoes" style={{ color: 'var(--gold)', textDecoration: 'underline', fontWeight: 600 }}>Cadastrar cartão</a>.
         </div>
-      ) : (
+      </AppLayout>
+    )
+  }
+
+  return (
+    <AppLayout
+      title="Conferência de Fatura"
+      stickyTop={(
         <>
           {/* Seletor */}
           <div style={topo}>
@@ -127,29 +147,41 @@ export default function ConferenciaFatura() {
             />
           </div>
 
-          {/* Lista de lançamentos */}
-          <div style={tableWrap}>
-            <div style={tableHeader}>
-              <div style={chartTitle}>Lançamentos do período</div>
-            </div>
-            {loading ? (
-              <div style={emptyState}>Carregando…</div>
-            ) : lancamentos.length === 0 ? (
-              <div style={emptyState}>Nenhum lançamento neste cartão no período {fmtDataBR(periodo?.ini)} → {fmtDataBR(periodo?.fim)}.</div>
-            ) : (
-              <table style={tbl}>
+          {/* Header de colunas (sticky) */}
+          {temDados && (
+            <div style={{ ...tableWrap, marginTop: 14, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
+              <div style={tableHeader}>
+                <div style={chartTitle}>Lançamentos do período</div>
+              </div>
+              <table style={{ ...tbl, tableLayout: 'fixed' }}>
+                {colgroup}
                 <thead>
                   <tr>
-                    <th style={{ ...th, width: 90 }}>Cód.</th>
+                    <th style={th}>Cód.</th>
                     <th style={th}>Fornecedor</th>
                     <th style={th}>Descrição</th>
-                    <th style={{ ...th, width: 90, textAlign: 'center' }}>Parcela</th>
-                    <th style={{ ...th, width: 110 }}>Vencimento</th>
-                    <th style={{ ...th, width: 130, textAlign: 'right' }}>Valor</th>
-                    <th style={{ ...th, width: 90, textAlign: 'center' }}>Status</th>
+                    <th style={{ ...th, textAlign: 'center' }}>Parcela</th>
+                    <th style={th}>Vencimento</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Valor</th>
+                    <th style={{ ...th, textAlign: 'center' }}>Status</th>
                   </tr>
                 </thead>
-                <tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    >
+      {/* Lista de lançamentos (body só) */}
+      <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
+        {loading ? (
+          <div style={emptyState}>Carregando…</div>
+        ) : lancamentos.length === 0 ? (
+          <div style={emptyState}>Nenhum lançamento neste cartão no período {fmtDataBR(periodo?.ini)} → {fmtDataBR(periodo?.fim)}.</div>
+        ) : (
+          <table style={{ ...tbl, tableLayout: 'fixed' }}>
+            {colgroup}
+            <tbody>
                   {lancamentos.map(p => {
                     const parc = (p.data?.parcela_atual && p.data?.parcela_total) ? `${p.data.parcela_atual}/${p.data.parcela_total}` : '—'
                     const isPago = p.status === 'Pago'
@@ -177,9 +209,7 @@ export default function ConferenciaFatura() {
                 </tbody>
               </table>
             )}
-          </div>
-        </>
-      )}
+      </div>
     </AppLayout>
   )
 }

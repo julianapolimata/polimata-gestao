@@ -190,18 +190,22 @@ export default function ImportarNFs() {
   }
 
   return (
-    <AppLayout title="Importar NFs">
-      <div style={tabsBar}>
-        <button onClick={() => setAba('aguardando')} style={aba === 'aguardando' ? tabActive : tabInactive}>
-          Aguardando <span style={chip}>{pendentes.length}</span>
-        </button>
-        <button onClick={() => setAba('historico')} style={aba === 'historico' ? tabActive : tabInactive}>
-          Histórico <span style={chip}>{historico.length}</span>
-        </button>
-        <button onClick={() => setAba('upload')} style={aba === 'upload' ? tabActive : tabInactive}>
-          Upload Manual
-        </button>
-      </div>
+    <AppLayout
+      title="Importar NFs"
+      stickyTop={(
+        <div style={tabsBar}>
+          <button onClick={() => setAba('aguardando')} style={aba === 'aguardando' ? tabActive : tabInactive}>
+            Aguardando <span style={chip}>{pendentes.length}</span>
+          </button>
+          <button onClick={() => setAba('historico')} style={aba === 'historico' ? tabActive : tabInactive}>
+            Histórico <span style={chip}>{historico.length}</span>
+          </button>
+          <button onClick={() => setAba('upload')} style={aba === 'upload' ? tabActive : tabInactive}>
+            Upload Manual
+          </button>
+        </div>
+      )}
+    >
 
       {loading ? (
         <div style={emptyState}>Carregando…</div>
