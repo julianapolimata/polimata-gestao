@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -42,6 +42,34 @@ export default function Conciliacao() {
   const [filtroValorMin, setFiltroValorMin] = useState('')
   const [filtroValorMax, setFiltroValorMax] = useState('')
   const [periodoInicializado, setPeriodoInicializado] = useState(false)
+
+  // ── JS-controlled sticky header (CSS sticky não escapa do padding do scroll-main) ──
+  const headerRef = useRef(null)
+  const [fixedHdr, setFixedHdr] = useState(null) // null = não fixo; objeto {top,left,width} = fixo nessa pos
+
+  useEffect(() => {
+    const scrollMain = document.querySelector('.scroll-main')
+    if (!scrollMain || !headerRef.current) return
+    function onScroll() {
+      if (!headerRef.current) return
+      const hdrRect = headerRef.current.getBoundingClientRect()
+      const scrRect = scrollMain.getBoundingClientRect()
+      // header natural escondeu acima do topo do scroll-main → ativa fixed
+      if (hdrRect.top < scrRect.top) {
+        setFixedHdr({ top: scrRect.top, left: hdrRect.left, width: hdrRect.width })
+      } else {
+        setFixedHdr(null)
+      }
+    }
+    scrollMain.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    onScroll()
+    return () => {
+      scrollMain.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [contaId])
+
 
   const [expandido, setExpandido] = useState(null)
 
@@ -312,15 +340,25 @@ export default function Conciliacao() {
         </div>
       ) : (
         <>
-          {/* Header sticky FORA do tableWrap — filho direto de scroll-main pra
-              sticky usar scroll-main como containing block sem interferência. */}
-          <div style={headerSticky}>
+          {/* Header — JS-controlled. Renderiza sempre o natural (pra ocupar
+              espaço) e adicionalmente um clone position:fixed no topo do
+              scroll-main quando rolar pra baixo. */}
+          <div ref={headerRef} style={headerNatural}>
             <div style={{ padding: '12px 14px' }}>DATA</div>
             <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
             <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
             <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
             <div style={{ padding: '12px 14px' }}></div>
           </div>
+          {fixedHdr && (
+            <div style={{ ...headerNatural, position: 'fixed', top: fixedHdr.top, left: fixedHdr.left, width: fixedHdr.width, zIndex: 100, borderRadius: 0, boxShadow: '0 4px 12px rgba(0,32,62,0.18)' }}>
+              <div style={{ padding: '12px 14px' }}>DATA</div>
+              <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
+              <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
+              <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
+              <div style={{ padding: '12px 14px' }}></div>
+            </div>
+          )}
           <div style={tableWrap}>
             {extratosFiltrados.map(ext => (
               <LinhaExtrato
@@ -452,7 +490,7 @@ const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark
 const tableWrap = { background: 'var(--white)', borderRadius: '0 0 10px 10px', border: '1px solid var(--cream-dark)', borderTop: 'none', boxShadow: 'var(--shadow)' }
 const GRID_COLS = '110px 1fr 150px 150px 40px'
 const rowGrid = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', gap: 0 }
-const headerSticky = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', borderRadius: '10px 10px 0 0', fontFamily: 'var(--body)', boxShadow: 'var(--shadow)' }
+const headerNatural = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', borderRadius: '10px 10px 0 0', fontFamily: 'var(--body)', boxShadow: 'var(--shadow)' }
 const cell = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
