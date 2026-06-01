@@ -370,7 +370,7 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
 
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer', borderBottom: '1px solid var(--cream-dark)', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, position: 'relative', zIndex: 0 }}>
+      <tr onClick={onToggle} style={{ cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, position: 'relative', zIndex: 0 }}>
         <td style={td}>{fmtDataBR(data)}</td>
         <td style={{ ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
@@ -452,9 +452,9 @@ const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
 const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
-const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
+const tbl = { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)', position: 'sticky', top: 0, zIndex: 50 }
-const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle' }
+const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle', borderBottom: '1px solid var(--cream-dark)' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
 const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
