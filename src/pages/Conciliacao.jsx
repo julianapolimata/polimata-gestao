@@ -159,8 +159,26 @@ export default function Conciliacao() {
         if (saldoFinal != null) setSaldoBanco(saldoFinal)
         return
       }
+      // 1) Upload arquivo + registrar import
+      const path = `${user.id}/importacoes/ofx_extrato/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      let arquivoPath = null
+      try {
+        const { error: upErr } = await supabase.storage.from('anexos-fiscais').upload(path, file)
+        if (!upErr) arquivoPath = path
+      } catch (e) { console.warn('upload arquivo OFX falhou:', e.message) }
+      const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
+        user_id: user.id,
+        tipo: 'ofx_extrato',
+        arquivo_nome: file.name,
+        arquivo_path: arquivoPath,
+        qtd_registros: novos.length,
+        metadata: { conta_id: contaId, saldo_final: saldoFinal },
+      }).select('id').single()
+      if (errImp) console.warn('insert importacao falhou:', errImp.message)
+      // 2) Inserir transações com importacao_id
       const payload = novos.map(t => ({
-        user_id: user.id, conta_id: contaId, status: 'pendente', fit_id: t.fit_id, data: t,
+        user_id: user.id, conta_id: contaId, status: 'pendente', fit_id: t.fit_id,
+        importacao_id: imp?.id || null, data: t,
       }))
       const { error } = await supabase.from('transacoes_extrato').insert(payload)
       if (error) throw error

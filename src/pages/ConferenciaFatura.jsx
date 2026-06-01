@@ -83,10 +83,28 @@ export default function ConferenciaFatura() {
         showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
         return
       }
+      // Upload arquivo + registrar import
+      const path = `${user.id}/importacoes/ofx_fatura_cartao/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      let arquivoPath = null
+      try {
+        const { error: upErr } = await supabase.storage.from('anexos-fiscais').upload(path, file)
+        if (!upErr) arquivoPath = path
+      } catch (er) { console.warn('upload OFX fatura falhou:', er.message) }
+      const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
+        user_id: user.id,
+        tipo: 'ofx_fatura_cartao',
+        arquivo_nome: file.name,
+        arquivo_path: arquivoPath,
+        qtd_registros: debitos.length,
+        metadata: { cartao_id: cartaoId, mes, ano, periodo_ini: periodo.ini, periodo_fim: periodo.fim, vencimento: periodo.vencimento },
+      }).select('id').single()
+      if (errImp) console.warn('insert importacao falhou:', errImp.message)
+      const importacaoId = imp?.id || null
       // Cria N lançamentos em payable (fit_id dentro do JSONB data)
       const payload = debitos.map(t => ({
         user_id: user.id,
         cartao_id: cartaoId,
+        importacao_id: importacaoId,
         data: {
           supplier: (t.descricao || '').substring(0, 80),
           desc: t.descricao,
@@ -320,8 +338,6 @@ const resumoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, min
 const cardBase = { background: 'var(--white)', borderRadius: 12, padding: 20, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
-const tableHeader = { padding: '18px 24px 14px', borderBottom: '1px solid var(--cream-dark)' }
-const chartTitle = { fontSize: 14, fontWeight: 600, color: 'var(--navy)', fontFamily: 'var(--body)' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
 const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', borderBottom: '1px solid var(--cream-dark)', verticalAlign: 'middle' }
