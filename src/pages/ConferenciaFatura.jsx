@@ -65,18 +65,28 @@ export default function ConferenciaFatura() {
       catch { texto = new TextDecoder('utf-8').decode(buf) }
       const { transacoes } = parseOFX(texto)
       if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
-      // Dedup por fit_id dentro dos lançamentos do cartão
-      const fitsExistentes = new Set(payable.filter(p => p.cartao_id === cartaoId && p.fit_id).map(p => p.fit_id))
-      const debitos = transacoes.filter(t => t.tipo === 'saida' && (!t.fit_id || !fitsExistentes.has(t.fit_id)))
+      // Separar débitos (compras) de créditos (estornos/pagamentos)
+      const debitosOFX = transacoes.filter(t => t.tipo === 'saida')
+      const creditosOFX = transacoes.filter(t => t.tipo === 'entrada')
+      if (!debitosOFX.length) { showToast('Nenhuma compra encontrada no OFX.', 'warning'); return }
+      // Sanity check: maior data dos débitos deve estar dentro do período da fatura
+      const datasDebito = debitosOFX.map(t => t.data).filter(Boolean).sort()
+      const maxData = datasDebito[datasDebito.length - 1]
+      if (maxData && periodo && (maxData < periodo.ini || maxData > periodo.fim)) {
+        const ok = confirm(`Atenção: maior data do OFX (${maxData}) está fora do período selecionado (${periodo.ini} → ${periodo.fim}). Continuar mesmo assim?`)
+        if (!ok) return
+      }
+      // Dedup por fit_id (guardado dentro de data.fit_id_ofx pq payable não tem coluna fit_id)
+      const fitsExistentes = new Set(payable.filter(p => p.cartao_id === cartaoId && p.fit_id_ofx).map(p => p.fit_id_ofx))
+      const debitos = debitosOFX.filter(t => !t.fit_id || !fitsExistentes.has(t.fit_id))
       if (!debitos.length) {
-        showToast(`Todas as ${transacoes.length} transações já estavam importadas.`, 'info')
+        showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
         return
       }
-      // Cria N lançamentos em payable
+      // Cria N lançamentos em payable (fit_id dentro do JSONB data)
       const payload = debitos.map(t => ({
         user_id: user.id,
         cartao_id: cartaoId,
-        fit_id: t.fit_id || null,
         data: {
           supplier: (t.descricao || '').substring(0, 80),
           desc: t.descricao,
@@ -87,13 +97,16 @@ export default function ConferenciaFatura() {
           cat: '',
           subcat: '',
           forma_pagamento: 'Cartão Crédito',
+          fit_id_ofx: t.fit_id || null,
           criado_via_import_fatura: true,
           created: new Date().toISOString().slice(0, 10),
         },
       }))
       const { error } = await supabase.from('payable').insert(payload)
       if (error) throw error
-      showToast(`${debitos.length} lançamentos importados da fatura.`, 'success')
+      let msg = `${debitos.length} compras importadas da fatura.`
+      if (creditosOFX.length > 0) msg += ` ${creditosOFX.length} crédito(s) (estorno/pagamento) ignorado(s).`
+      showToast(msg, 'success')
       carregar()
     } catch (err) {
       console.error(err)
