@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -43,32 +43,6 @@ export default function Conciliacao() {
   const [filtroValorMax, setFiltroValorMax] = useState('')
   const [periodoInicializado, setPeriodoInicializado] = useState(false)
 
-  // ── JS-controlled sticky header (CSS sticky não escapa do padding do scroll-main) ──
-  const headerRef = useRef(null)
-  const [fixedHdr, setFixedHdr] = useState(null) // null = não fixo; objeto {top,left,width} = fixo nessa pos
-
-  useEffect(() => {
-    const scrollMain = document.querySelector('.scroll-main')
-    if (!scrollMain || !headerRef.current) return
-    function onScroll() {
-      if (!headerRef.current) return
-      const hdrRect = headerRef.current.getBoundingClientRect()
-      const scrRect = scrollMain.getBoundingClientRect()
-      // header natural escondeu acima do topo do scroll-main → ativa fixed
-      if (hdrRect.top < scrRect.top) {
-        setFixedHdr({ top: scrRect.top, left: hdrRect.left, width: hdrRect.width })
-      } else {
-        setFixedHdr(null)
-      }
-    }
-    scrollMain.addEventListener('scroll', onScroll, { passive: true })
-    window.addEventListener('resize', onScroll)
-    onScroll()
-    return () => {
-      scrollMain.removeEventListener('scroll', onScroll)
-      window.removeEventListener('resize', onScroll)
-    }
-  }, [contaId])
 
 
   const [expandido, setExpandido] = useState(null)
@@ -282,76 +256,61 @@ export default function Conciliacao() {
   )
 
   return (
-    <AppLayout title="Conciliação Bancária">
-      {/* Topo: conta + upload + saldos */}
-      <div style={topo}>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={labelTopo}>Conta Bancária</label>
-            <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null); setPeriodoInicializado(false) }} style={select}>
-              {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
-            </select>
-          </div>
-          <label style={btnUpload}>
-            <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
-            {uploading ? '⏳ Processando…' : '📥 Importar OFX'}
-          </label>
-        </div>
-        <div style={saldosBox}>
-          <Saldo label="Saldo no Banco" sub="da conta no banco" valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
-          <Saldo label="Saldo no Sistema" sub="recebido − pago" valor={saldoSistema} />
-          <Saldo
-            label="Divergência"
-            sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
-            valor={divergencia}
-            cor={divergencia == null ? 'var(--text-mid)' : (Math.abs(divergencia) < 0.01 ? 'var(--green)' : 'var(--red)')}
-            dim={divergencia == null}
-          />
-        </div>
-      </div>
-
-      {/* Filtros — tudo em uma linha */}
-      <div style={filtrosBar}>
-        <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
-        <span style={filtroSep}>até</span>
-        <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
-        {(dataDe || dataAte) && (
-          <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
-        )}
-        <div style={divisor} />
-        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={selectFiltro} title="Status">
-          <option value="todos">Todos ({counts.pendente + counts.conciliado + counts.ignorado})</option>
-          <option value="pendente">⏳ Pendentes ({counts.pendente})</option>
-          <option value="conciliado">✓ Conciliados ({counts.conciliado})</option>
-          <option value="ignorado">⨯ Ignorados ({counts.ignorado})</option>
-        </select>
-        <div style={divisor} />
-        <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="🔍 Buscar..." style={{ ...inputFiltro, flex: 1, minWidth: 140 }} />
-        <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="R$ mín" style={{ ...inputFiltro, width: 80 }} />
-        <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 80 }} />
-      </div>
-
-      {/* Tabela */}
-      {extratosFiltrados.length === 0 ? (
-        <div style={emptyState}>
-          {extratos.filter(e => e.conta_id === contaId).length === 0
-            ? 'Importe um OFX pra começar.'
-            : 'Nenhuma transação com os filtros aplicados.'}
-        </div>
-      ) : (
+    <AppLayout
+      title="Conciliação Bancária"
+      stickyTop={(
         <>
-          {/* Header — JS-controlled. Renderiza sempre o natural (pra ocupar
-              espaço) e adicionalmente um clone position:fixed no topo do
-              scroll-main quando rolar pra baixo. */}
-          <div ref={headerRef} style={headerNatural}>
-            <div style={{ padding: '12px 14px' }}>DATA</div>
-            <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
-            <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
-            <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
-            <div style={{ padding: '12px 14px' }}></div>
+          {/* Topo: conta + upload + saldos */}
+          <div style={topo}>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={labelTopo}>Conta Bancária</label>
+                <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null); setPeriodoInicializado(false) }} style={select}>
+                  {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
+                </select>
+              </div>
+              <label style={btnUpload}>
+                <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
+                {uploading ? '⏳ Processando…' : '📥 Importar OFX'}
+              </label>
+            </div>
+            <div style={saldosBox}>
+              <Saldo label="Saldo no Banco" sub="da conta no banco" valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
+              <Saldo label="Saldo no Sistema" sub="recebido − pago" valor={saldoSistema} />
+              <Saldo
+                label="Divergência"
+                sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
+                valor={divergencia}
+                cor={divergencia == null ? 'var(--text-mid)' : (Math.abs(divergencia) < 0.01 ? 'var(--green)' : 'var(--red)')}
+                dim={divergencia == null}
+              />
+            </div>
           </div>
-          {fixedHdr && (
-            <div style={{ ...headerNatural, position: 'fixed', top: fixedHdr.top, left: fixedHdr.left, width: fixedHdr.width, zIndex: 100, borderRadius: 0, boxShadow: '0 4px 12px rgba(0,32,62,0.18)' }}>
+
+          {/* Filtros — tudo em uma linha */}
+          <div style={filtrosBar}>
+            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <span style={filtroSep}>até</span>
+            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            {(dataDe || dataAte) && (
+              <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
+            )}
+            <div style={divisor} />
+            <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={selectFiltro} title="Status">
+              <option value="todos">Todos ({counts.pendente + counts.conciliado + counts.ignorado})</option>
+              <option value="pendente">⏳ Pendentes ({counts.pendente})</option>
+              <option value="conciliado">✓ Conciliados ({counts.conciliado})</option>
+              <option value="ignorado">⨯ Ignorados ({counts.ignorado})</option>
+            </select>
+            <div style={divisor} />
+            <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="🔍 Buscar..." style={{ ...inputFiltro, flex: 1, minWidth: 140 }} />
+            <input type="number" value={filtroValorMin} onChange={e => setFiltroValorMin(e.target.value)} placeholder="R$ mín" style={{ ...inputFiltro, width: 80 }} />
+            <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 80 }} />
+          </div>
+
+          {/* Header de colunas */}
+          {extratosFiltrados.length > 0 && (
+            <div style={headerNatural}>
               <div style={{ padding: '12px 14px' }}>DATA</div>
               <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
               <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
@@ -359,25 +318,34 @@ export default function Conciliacao() {
               <div style={{ padding: '12px 14px' }}></div>
             </div>
           )}
-          <div style={tableWrap}>
-            {extratosFiltrados.map(ext => (
-              <LinhaExtrato
-                key={ext.id}
-                extrato={ext}
-                receivable={receivable}
-                payable={payable}
-                expandido={expandido === ext.id}
-                onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
-                onVincular={lanc => vincular(ext, lanc)}
-                onCriar={() => criarLancamento(ext)}
-                onTransferencia={() => marcarTransferencia(ext)}
-                onIgnorar={() => ignorar(ext)}
-                onRestaurar={() => restaurar(ext)}
-                onDesconciliar={() => desconciliar(ext)}
-              />
-            ))}
-          </div>
         </>
+      )}
+    >
+      {extratosFiltrados.length === 0 ? (
+        <div style={emptyState}>
+          {extratos.filter(e => e.conta_id === contaId).length === 0
+            ? 'Importe um OFX pra começar.'
+            : 'Nenhuma transação com os filtros aplicados.'}
+        </div>
+      ) : (
+        <div style={tableWrap}>
+          {extratosFiltrados.map(ext => (
+            <LinhaExtrato
+              key={ext.id}
+              extrato={ext}
+              receivable={receivable}
+              payable={payable}
+              expandido={expandido === ext.id}
+              onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
+              onVincular={lanc => vincular(ext, lanc)}
+              onCriar={() => criarLancamento(ext)}
+              onTransferencia={() => marcarTransferencia(ext)}
+              onIgnorar={() => ignorar(ext)}
+              onRestaurar={() => restaurar(ext)}
+              onDesconciliar={() => desconciliar(ext)}
+            />
+          ))}
+        </div>
       )}
     </AppLayout>
   )
@@ -487,7 +455,7 @@ const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)'
 const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tableWrap = { background: 'var(--white)', borderRadius: '0 0 10px 10px', border: '1px solid var(--cream-dark)', borderTop: 'none', boxShadow: 'var(--shadow)' }
+const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
 const GRID_COLS = '110px 1fr 150px 150px 40px'
 const rowGrid = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', gap: 0 }
 const headerNatural = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', borderRadius: '10px 10px 0 0', fontFamily: 'var(--body)', boxShadow: 'var(--shadow)' }
