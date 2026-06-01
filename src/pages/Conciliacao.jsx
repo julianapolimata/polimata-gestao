@@ -304,22 +304,24 @@ export default function Conciliacao() {
       </div>
 
       {/* Tabela */}
-      <div style={tableWrap}>
-        {extratosFiltrados.length === 0 ? (
-          <div style={emptyState}>
-            {extratos.filter(e => e.conta_id === contaId).length === 0
-              ? 'Importe um OFX pra começar.'
-              : 'Nenhuma transação com os filtros aplicados.'}
+      {extratosFiltrados.length === 0 ? (
+        <div style={emptyState}>
+          {extratos.filter(e => e.conta_id === contaId).length === 0
+            ? 'Importe um OFX pra começar.'
+            : 'Nenhuma transação com os filtros aplicados.'}
+        </div>
+      ) : (
+        <>
+          {/* Header sticky FORA do tableWrap — filho direto de scroll-main pra
+              sticky usar scroll-main como containing block sem interferência. */}
+          <div style={headerSticky}>
+            <div style={{ padding: '12px 14px' }}>DATA</div>
+            <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
+            <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
+            <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
+            <div style={{ padding: '12px 14px' }}></div>
           </div>
-        ) : (
-          <>
-            <div style={headerSticky}>
-              <div style={{ padding: '12px 14px' }}>DATA</div>
-              <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
-              <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
-              <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
-              <div style={{ padding: '12px 14px' }}></div>
-            </div>
+          <div style={tableWrap}>
             {extratosFiltrados.map(ext => (
               <LinhaExtrato
                 key={ext.id}
@@ -336,9 +338,9 @@ export default function Conciliacao() {
                 onDesconciliar={() => desconciliar(ext)}
               />
             ))}
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </AppLayout>
   )
 }
@@ -447,10 +449,10 @@ const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)'
 const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+const tableWrap = { background: 'var(--white)', borderRadius: '0 0 10px 10px', border: '1px solid var(--cream-dark)', borderTop: 'none', boxShadow: 'var(--shadow)' }
 const GRID_COLS = '110px 1fr 150px 150px 40px'
 const rowGrid = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', gap: 0 }
-const headerSticky = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', fontFamily: 'var(--body)' }
+const headerSticky = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', borderRadius: '10px 10px 0 0', fontFamily: 'var(--body)', boxShadow: 'var(--shadow)' }
 const cell = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
