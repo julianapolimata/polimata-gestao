@@ -68,7 +68,10 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
     if (!cartao || !periodo) return []
     return payable
       .filter(p => p.cartao_id === cartaoId)
-      .filter(p => p.due && p.due >= periodo.ini && p.due <= periodo.fim)
+      .filter(p => {
+        const dataCompra = p.data_competencia || p.due
+        return dataCompra && dataCompra >= periodo.ini && dataCompra <= periodo.fim
+      })
       .filter(p => p.status !== 'Pago')
       .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
   }, [payable, cartao, periodo, cartaoId])

@@ -126,8 +126,12 @@ export default function ConferenciaFatura() {
     if (!cartao || !periodo) return []
     return payable
       .filter(p => p.cartao_id === cartaoId)
-      .filter(p => p.due && p.due >= periodo.ini && p.due <= periodo.fim)
-      .sort((a, b) => a.due.localeCompare(b.due))
+      .filter(p => {
+        // Filtra por data da compra (data_competencia). Fallback: due.
+        const dataCompra = p.data_competencia || p.due
+        return dataCompra && dataCompra >= periodo.ini && dataCompra <= periodo.fim
+      })
+      .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
   }, [payable, cartao, periodo, cartaoId])
 
   const totalSistema = useMemo(
