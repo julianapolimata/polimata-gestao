@@ -312,35 +312,31 @@ export default function Conciliacao() {
               : 'Nenhuma transação com os filtros aplicados.'}
           </div>
         ) : (
-          <table style={tbl}>
-            <thead>
-              <tr>
-                <th style={{ ...th, width: 110 }}>Data</th>
-                <th style={th}>Descrição</th>
-                <th style={{ ...th, width: 150, textAlign: 'right' }}>Valor</th>
-                <th style={{ ...th, width: 150, textAlign: 'center' }}>Status</th>
-                <th style={{ ...th, width: 40 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {extratosFiltrados.map(ext => (
-                <LinhaExtrato
-                  key={ext.id}
-                  extrato={ext}
-                  receivable={receivable}
-                  payable={payable}
-                  expandido={expandido === ext.id}
-                  onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
-                  onVincular={lanc => vincular(ext, lanc)}
-                  onCriar={() => criarLancamento(ext)}
-                  onTransferencia={() => marcarTransferencia(ext)}
-                  onIgnorar={() => ignorar(ext)}
-                  onRestaurar={() => restaurar(ext)}
-                  onDesconciliar={() => desconciliar(ext)}
-                />
-              ))}
-            </tbody>
-          </table>
+          <>
+            <div style={headerSticky}>
+              <div style={{ padding: '12px 14px' }}>DATA</div>
+              <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
+              <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
+              <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
+              <div style={{ padding: '12px 14px' }}></div>
+            </div>
+            {extratosFiltrados.map(ext => (
+              <LinhaExtrato
+                key={ext.id}
+                extrato={ext}
+                receivable={receivable}
+                payable={payable}
+                expandido={expandido === ext.id}
+                onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
+                onVincular={lanc => vincular(ext, lanc)}
+                onCriar={() => criarLancamento(ext)}
+                onTransferencia={() => marcarTransferencia(ext)}
+                onIgnorar={() => ignorar(ext)}
+                onRestaurar={() => restaurar(ext)}
+                onDesconciliar={() => desconciliar(ext)}
+              />
+            ))}
+          </>
         )}
       </div>
     </AppLayout>
@@ -370,23 +366,23 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
 
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, position: 'relative', zIndex: 0 }}>
-        <td style={td}>{fmtDataBR(data)}</td>
-        <td style={{ ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>
+      <div onClick={onToggle} style={{ ...rowGrid, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, borderBottom: '1px solid var(--cream-dark)' }}>
+        <div style={cell}>{fmtDataBR(data)}</div>
+        <div style={{ ...cell, minWidth: 0 }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
           {cnpj && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {cnpj}</div>}
-        </td>
-        <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: corValor, fontSize: 13 }}>
+        </div>
+        <div style={{ ...cell, textAlign: 'right', fontWeight: 700, color: corValor, fontSize: 13 }}>
           {tipo === 'entrada' ? '+' : '−'} {fmtMoney(valor)}
-        </td>
-        <td style={{ ...td, textAlign: 'center' }}>
+        </div>
+        <div style={{ ...cell, textAlign: 'center' }}>
           <span style={{ background: badge.bg, color: badge.cor, padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{badge.txt}</span>
-        </td>
-        <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{expandido ? '▾' : '▸'}</td>
-      </tr>
+        </div>
+        <div style={{ ...cell, textAlign: 'center', color: 'var(--text-mid)' }}>{expandido ? '▾' : '▸'}</div>
+      </div>
       {expandido && (
-        <tr style={{ background: 'var(--cream)' }}>
-          <td colSpan={5} style={{ padding: '14px 18px' }}>
+        <div style={{ background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)', padding: '14px 18px' }}>
+          <div>
             {status === 'pendente' ? (
               <>
                 {temSugestao && (
@@ -420,8 +416,8 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
                 <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra pendentes</button>
               </div>
             )}
-          </td>
-        </tr>
+          </div>
+        </div>
       )}
     </>
   )
@@ -452,9 +448,10 @@ const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
 const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
-const tbl = { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontFamily: 'var(--body)' }
-const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)', position: 'sticky', top: 0, zIndex: 50 }
-const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', verticalAlign: 'middle', borderBottom: '1px solid var(--cream-dark)' }
+const GRID_COLS = '110px 1fr 150px 150px 40px'
+const rowGrid = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', gap: 0 }
+const headerSticky = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', position: 'sticky', top: 0, zIndex: 50, background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', fontFamily: 'var(--body)' }
+const cell = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)' }
 
 const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
 const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
