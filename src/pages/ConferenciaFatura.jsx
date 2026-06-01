@@ -232,9 +232,6 @@ export default function ConferenciaFatura() {
           {/* Header de colunas (sticky) */}
           {temDados && (
             <div style={{ ...tableWrap, marginTop: 14, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
-              <div style={tableHeader}>
-                <div style={chartTitle}>Lançamentos do período</div>
-              </div>
               <table style={{ ...tbl, tableLayout: 'fixed' }}>
                 {colgroup}
                 <thead>
