@@ -53,6 +53,7 @@ export default function Conciliacao() {
   const [filtroBusca, setFiltroBusca] = useState('')
   const [filtroValorMin, setFiltroValorMin] = useState('')
   const [filtroValorMax, setFiltroValorMax] = useState('')
+  const [mesVisivel, setMesVisivel] = useState(null)
 
   // Expand inline (qual linha está aberta)
   const [expandido, setExpandido] = useState(null) // id do extrato
@@ -77,6 +78,19 @@ export default function Conciliacao() {
   }, [user, contaId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // IntersectionObserver detecta qual grupo de mês está visível no topo
+  useEffect(() => {
+    const headers = document.querySelectorAll('[data-mes-header]')
+    if (!headers.length) return undefined
+    const obs = new IntersectionObserver(entries => {
+      const visiveis = entries.filter(e => e.isIntersecting)
+        .map(e => e.target.getAttribute('data-mes-header'))
+      if (visiveis.length) setMesVisivel(visiveis[0])
+    }, { threshold: 0, rootMargin: '0px 0px -85% 0px' })
+    headers.forEach(h => obs.observe(h))
+    return () => obs.disconnect()
+  })
 
   const conta = useMemo(() => contas.find(c => c.id === contaId), [contas, contaId])
 
@@ -328,6 +342,14 @@ export default function Conciliacao() {
         </div>
       </div>
 
+      {/* Indicador fixo do mês visível */}
+      {mesVisivel && (
+        <div style={mesChip}>
+          <span style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Visualizando:</span>
+          <span style={{ fontSize: 13, color: 'var(--navy)', fontWeight: 700, marginLeft: 8 }}>{mesLabel(mesVisivel)}</span>
+        </div>
+      )}
+
       {/* Filtros */}
       <div style={filtrosBar}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -365,9 +387,9 @@ export default function Conciliacao() {
         <div style={tabela}>
           {gruposMes.map(grupo => (
             <div key={grupo.ym}>
-              <div style={headerMes}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{mesLabel(grupo.ym)}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>{grupo.items.length} transações</span>
+              <div style={headerMes} data-mes-header={grupo.ym}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: '#fff', textTransform: 'uppercase', letterSpacing: 1.5 }}>{mesLabel(grupo.ym)}</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{grupo.items.length} transações</span>
               </div>
               {grupo.items.map(ext => (
                 <LinhaExtrato
@@ -490,6 +512,7 @@ const saldosBox = { display: 'flex', gap: 24, alignItems: 'center' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 200 }
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 
+const mesChip = { display: 'inline-flex', alignItems: 'center', padding: '8px 14px', background: 'var(--white)', borderRadius: 999, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 10, position: 'sticky', top: 0, zIndex: 20, width: 'fit-content' }
 const filtrosBar = { display: 'flex', flexDirection: 'column', gap: 8, padding: 14, background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 12 }
 const chipBase = { border: 'none', padding: '5px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
 const chipActive = { ...chipBase, background: 'var(--navy)', color: '#fff' }
@@ -497,7 +520,7 @@ const chipInactive = { ...chipBase, background: 'var(--cream)', color: 'var(--te
 const inputFiltro = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
 const tabela = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
-const headerMes = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'var(--cream)', borderBottom: '2px solid var(--cream-dark)', position: 'sticky', top: 0, zIndex: 10, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }
+const headerMes = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: 'var(--navy)', color: '#fff', borderTop: '2px solid var(--gold)' }
 const linha = { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderBottom: '1px solid var(--cream-dark)', transition: 'background .15s' }
 const expand = { padding: '14px 16px 16px 96px', background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)' }
 
