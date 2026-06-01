@@ -27,9 +27,19 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
   const [cartaoId, setCartaoId] = useState('')
   const [loading, setLoading] = useState(true)
   const [processando, setProcessando] = useState(false)
+  const [debitos, setDebitos] = useState([])
+  const [extratoId, setExtratoId] = useState(extratoInicial?.id || '')
+  const [marcados, setMarcados] = useState(new Set())
+  const [showEncargo, setShowEncargo] = useState(false)
+  const [encargoDesc, setEncargoDesc] = useState('')
+  const [encargoCat, setEncargoCat] = useState('Encargos cartão')
 
-  // Default mês/ano = mês do débito bancário
+  // Extrato selecionado (vem do dropdown). Depende de debitos+extratoId+inicial.
+  const extrato = useMemo(() => debitos.find(d => d.id === extratoId) || extratoInicial, [debitos, extratoId, extratoInicial])
+  const valorDebito = Math.abs(Number(extrato?.data?.valor || 0))
   const dataExtrato = extrato?.data?.data || new Date().toISOString().slice(0, 10)
+
+  // Default mês/ano = mês do débito bancário (depende do extrato selecionado)
   const [year, month] = useMemo(() => {
     const [y, m] = dataExtrato.split('-')
     return [parseInt(y, 10), parseInt(m, 10) - 1]
@@ -37,15 +47,6 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
 
   const [ano, setAno] = useState(year)
   const [mes, setMes] = useState(month)
-  const [marcados, setMarcados] = useState(new Set())
-  const [showEncargo, setShowEncargo] = useState(false)
-  const [encargoDesc, setEncargoDesc] = useState('')
-  const [encargoCat, setEncargoCat] = useState('Encargos cartão')
-  const [debitos, setDebitos] = useState([])
-  const [extratoId, setExtratoId] = useState(extratoInicial?.id || '')
-
-  const extrato = useMemo(() => debitos.find(d => d.id === extratoId) || extratoInicial, [debitos, extratoId, extratoInicial])
-  const valorDebito = Math.abs(Number(extrato?.data?.valor || 0))
 
   const carregar = useCallback(() => {
     if (!user) return
