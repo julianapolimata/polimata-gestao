@@ -136,73 +136,111 @@ export default function Pagar() {
     recarregar()
   }
 
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: 90 }} />
+      <col />
+      <col />
+      <col style={{ width: 120 }} />
+      <col style={{ width: 140 }} />
+      <col />
+      <col style={{ width: 110 }} />
+      <col style={{ width: 70 }} />
+    </colgroup>
+  )
+  const temDados = !loading && filtrados.length > 0
+
   return (
-    <AppLayout title="Contas a Pagar">
-      {/* Topo: chips + botão novo */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[
-            { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
-            { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
-            { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
-            { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
-          { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
-          { key: '__doc_dispensado__', label: '✓ Doc dispensado', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
-          ].map(opt => {
-            const active = filtroStatus === opt.key
-            return (
-              <button
-                key={opt.key || 'all'}
-                onClick={() => setFiltroStatus(opt.key)}
-                style={{
-                  padding: '7px 14px', borderRadius: 999,
-                  fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                  cursor: 'pointer', transition: 'all .15s',
-                  border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
-                  background: active ? opt.bg : 'var(--white)',
-                  color: active ? opt.color : 'var(--text-mid)',
-                  textTransform: 'uppercase',
-                }}
-              >{opt.label}</button>
-            )
-          })}
-        </div>
-        <button onClick={abrirNovo} style={btnNovo}>
-          <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Nova conta
-        </button>
-      </div>
+    <AppLayout
+      title="Contas a Pagar"
+      stickyTop={(
+        <>
+          {/* Topo: chips + botão novo */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {[
+                { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
+                { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
+                { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
+                { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+                { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
+                { key: '__doc_dispensado__', label: '✓ Doc dispensado', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
+              ].map(opt => {
+                const active = filtroStatus === opt.key
+                return (
+                  <button
+                    key={opt.key || 'all'}
+                    onClick={() => setFiltroStatus(opt.key)}
+                    style={{
+                      padding: '7px 14px', borderRadius: 999,
+                      fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                      cursor: 'pointer', transition: 'all .15s',
+                      border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
+                      background: active ? opt.bg : 'var(--white)',
+                      color: active ? opt.color : 'var(--text-mid)',
+                      textTransform: 'uppercase',
+                    }}
+                  >{opt.label}</button>
+                )
+              })}
+            </div>
+            <button onClick={abrirNovo} style={btnNovo}>
+              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Nova conta
+            </button>
+          </div>
 
-      {/* Barra de busca + resumo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-            style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <input
-            value={busca} onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar por fornecedor, descrição, código..."
-            style={searchInput}
+          {/* Barra de busca + resumo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                value={busca} onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar por fornecedor, descrição, código..."
+                style={searchInput}
+              />
+            </div>
+            <div style={resumo}>
+              <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'lançamento' : 'lançamentos'}</span>
+              <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
+              <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
+            </div>
+          </div>
+
+          {/* Filtros avançados */}
+          <FiltrosAvancados
+            tipo="pay"
+            filtros={filtrosAvancados}
+            setFiltros={setFiltrosAvancados}
+            expanded={filtrosExpanded}
+            setExpanded={setFiltrosExpanded}
           />
-        </div>
-        <div style={resumo}>
-          <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'lançamento' : 'lançamentos'}</span>
-          <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
-          <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
-        </div>
-      </div>
 
-      {/* Filtros avançados */}
-      <FiltrosAvancados
-        tipo="pay"
-        filtros={filtrosAvancados}
-        setFiltros={setFiltrosAvancados}
-        expanded={filtrosExpanded}
-        setExpanded={setFiltrosExpanded}
-      />
-
-      {/* Tabela */}
-      <div style={tableWrap}>
+          {temDados && (
+            <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
+              <table style={{ ...tbl, tableLayout: 'fixed' }}>
+                {colgroup}
+                <thead>
+                  <tr>
+                    <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
+                    <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
+                    <th style={th}>Descrição</th>
+                    <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right">Valor</Th>
+                    <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir}>Datas</Th>
+                    <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
+                    <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir}>Status</Th>
+                    <th style={{ ...th, textAlign: 'center' }}></th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    >
+      <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : filtrados.length === 0 ? (
@@ -210,19 +248,8 @@ export default function Pagar() {
             {rows.length === 0 ? 'Nenhuma conta a pagar cadastrada. Clique em "Nova conta" pra começar.' : 'Nenhum resultado para os filtros.'}
           </div>
         ) : (
-          <table style={tbl}>
-            <thead>
-              <tr>
-                <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir} width={90}>Cód.</Th>
-                <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
-                <th style={th}>Descrição</th>
-                <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right" width={120}>Valor</Th>
-                <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir} width={140}>Datas</Th>
-                <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
-                <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir} width={110}>Status</Th>
-                <th style={{ ...th, width: 70, textAlign: 'center' }}></th>
-              </tr>
-            </thead>
+          <table style={{ ...tbl, tableLayout: 'fixed' }}>
+            {colgroup}
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
@@ -290,7 +317,7 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
   return (
     <th
       onClick={onClick}
-      style={{ ...th, cursor: 'pointer', userSelect: 'none', textAlign: align, width, color: active ? 'var(--gold)' : 'var(--text-mid)' }}
+      style={{ ...th, cursor: 'pointer', userSelect: 'none', textAlign: align, width, color: active ? 'var(--gold-light)' : '#fff' }}
     >
       {children}
       <span style={{ fontSize: 9, marginLeft: 4, opacity: active ? 1 : 0.4 }}>{active && dir === 'asc' ? '▲' : '▼'}</span>
