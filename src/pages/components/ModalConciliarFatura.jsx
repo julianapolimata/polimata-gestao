@@ -20,7 +20,7 @@ function fmtDataBR(s) {
   return `${d}/${m}/${y}`
 }
 
-export default function ModalConciliarFatura({ open, onClose, extrato, onConciliado }) {
+export default function ModalConciliarFatura({ open, onClose, extrato: extratoInicial, onConciliado }) {
   const { user } = useAuth()
   const [cartoes, setCartoes] = useState([])
   const [payable, setPayable] = useState([])
@@ -41,7 +41,10 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
   const [showEncargo, setShowEncargo] = useState(false)
   const [encargoDesc, setEncargoDesc] = useState('')
   const [encargoCat, setEncargoCat] = useState('Encargos cartão')
+  const [debitos, setDebitos] = useState([])
+  const [extratoId, setExtratoId] = useState(extratoInicial?.id || '')
 
+  const extrato = useMemo(() => debitos.find(d => d.id === extratoId) || extratoInicial, [debitos, extratoId, extratoInicial])
   const valorDebito = Math.abs(Number(extrato?.data?.valor || 0))
 
   const carregar = useCallback(() => {
@@ -50,11 +53,15 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
     Promise.all([
       supabase.from('cartoes').select('*').order('updated_at', { ascending: false }),
       supabase.from('payable').select('*'),
-    ]).then(([rC, rP]) => {
+      supabase.from('transacoes_extrato').select('*').eq('status', 'pendente').order('data->>data', { ascending: false }),
+    ]).then(([rC, rP, rE]) => {
       const ativos = (rC.data || []).filter(c => c.data?.ativo !== false)
       setCartoes(ativos)
       setPayable((rP.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id })))
+      const debs = (rE.data || []).filter(e => e.data?.tipo === 'saida')
+      setDebitos(debs)
       if (ativos.length > 0 && !cartaoId) setCartaoId(ativos[0].id)
+      if (!extratoId && debs.length > 0) setExtratoId(extratoInicial?.id || debs[0].id)
       setLoading(false)
     })
   }, [user, cartaoId])
@@ -181,9 +188,25 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
           <h2 style={titulo}>Conciliar com fatura do cartão</h2>
           <button onClick={onClose} style={btnClose}>×</button>
         </div>
-        <div style={contexto}>
-          <div><strong>Débito no banco:</strong> {fmtDataBR(dataExtrato)} · {fmtMoney(valorDebito)}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 4 }}>{extrato?.data?.descricao || '—'}</div>
+        <div style={explicacao}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--navy)', marginBottom: 6 }}>📌 O que você vai fazer aqui:</div>
+          <div style={{ fontSize: 12, color: 'var(--text-mid)', lineHeight: 1.5 }}>
+            Você está dizendo ao sistema que <strong>1 débito que saiu da sua conta bancária</strong> é o pagamento de <strong>N compras do cartão</strong> que estão em Contas a Pagar.<br/>
+            O sistema vai marcar essas compras como <strong>Pago</strong> com a data do débito.
+          </div>
+        </div>
+
+        <div style={blocoSelect}>
+          <Field label="Débito no banco que você quer conciliar">
+            <select value={extratoId} onChange={e => setExtratoId(e.target.value)} style={select}>
+              {debitos.length === 0 && <option value="">— Nenhum débito pendente —</option>}
+              {debitos.map(d => (
+                <option key={d.id} value={d.id}>
+                  {fmtDataBR(d.data?.data)} · {fmtMoney(Math.abs(Number(d.data?.valor || 0)))} · {(d.data?.descricao || '').slice(0, 60)}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
 
         {loading ? (
@@ -256,11 +279,11 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
             {/* Resumo */}
             <div style={resumo}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Marcados ({marcados.size})</span>
+                <span>Marcados ({marcados.size}) — somam</span>
                 <span style={{ fontWeight: 700 }}>{fmtMoney(somaMarcados)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span>Débito banco</span>
+                <span>Débito no banco</span>
                 <span style={{ fontWeight: 700 }}>{fmtMoney(valorDebito)}</span>
               </div>
               <hr style={{ border: 'none', borderTop: '1px solid var(--cream-dark)', margin: '6px 0' }} />
@@ -268,6 +291,11 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
                 <span>Diferença</span>
                 <span>{fmtMoney(diferenca)} {podeConciliar && '✓'}</span>
               </div>
+              {!podeConciliar && Math.abs(diferenca) > valorDebito * 0.3 && valorDebito > 0 && (
+                <div style={{ marginTop: 8, padding: 8, background: 'rgba(231,76,60,0.10)', borderRadius: 4, fontSize: 11, color: 'var(--red)', lineHeight: 1.4 }}>
+                  ⚠ <strong>Diferença grande.</strong> Verifica se: (1) você selecionou o débito certo do banco; (2) o mês de vencimento da fatura corresponde ao débito; (3) tem compras faltando ou desmarcadas que não deveriam estar.
+                </div>
+              )}
             </div>
 
             {/* Lançar encargo */}
@@ -309,12 +337,13 @@ function Field({ label, children }) {
   )
 }
 
+const explicacao = { padding: '12px 14px', background: 'rgba(204,145,94,0.08)', border: '1px dashed var(--gold)', borderRadius: 8, marginBottom: 14 }
+const blocoSelect = { marginBottom: 14 }
 const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,32,62,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }
 const modal = { background: 'var(--white)', borderRadius: 12, padding: 24, width: '100%', maxWidth: 800, maxHeight: '90vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)', fontFamily: 'var(--body)' }
 const header = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--cream-dark)' }
 const titulo = { margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--navy)' }
 const btnClose = { background: 'none', border: 'none', fontSize: 28, color: 'var(--text-mid)', cursor: 'pointer', padding: 0, lineHeight: 1 }
-const contexto = { padding: '10px 14px', background: 'var(--cream)', borderRadius: 8, fontSize: 12, marginBottom: 14 }
 const selRow = { display: 'flex', gap: 12, marginBottom: 8 }
 const select = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const periodoInfo = { fontSize: 11, color: 'var(--text-mid)', fontStyle: 'italic', marginBottom: 14 }
