@@ -64,17 +64,21 @@ export default function ModalConciliarFatura({ open, onClose, extrato, onConcili
   const cartao = useMemo(() => cartoes.find(c => c.id === cartaoId), [cartoes, cartaoId])
   const periodo = useMemo(() => cartao ? periodoFatura(cartao, ano, mes) : null, [cartao, ano, mes])
 
+  // Filtro: parcelas que VENCEM no mês selecionado
+  const venceMesIni = useMemo(() => `${ano}-${String(mes + 1).padStart(2, '0')}-01`, [ano, mes])
+  const venceMesFim = useMemo(() => {
+    const ultimoDia = new Date(ano, mes + 1, 0).getDate()
+    return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+  }, [ano, mes])
+
   const lancamentos = useMemo(() => {
-    if (!cartao || !periodo) return []
+    if (!cartao) return []
     return payable
       .filter(p => p.cartao_id === cartaoId)
-      .filter(p => {
-        const dataCompra = p.data_competencia || p.due
-        return dataCompra && dataCompra >= periodo.ini && dataCompra <= periodo.fim
-      })
+      .filter(p => p.due && p.due >= venceMesIni && p.due <= venceMesFim)
       .filter(p => p.status !== 'Pago')
       .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
-  }, [payable, cartao, periodo, cartaoId])
+  }, [payable, cartao, cartaoId, venceMesIni, venceMesFim])
 
   // Inicializa marcados quando lançamentos chegam
   useEffect(() => {

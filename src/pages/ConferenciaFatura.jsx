@@ -122,17 +122,20 @@ export default function ConferenciaFatura() {
 
   const periodo = useMemo(() => cartao ? periodoFatura(cartao, ano, mes) : null, [cartao, ano, mes])
 
+  // Filtro: parcelas que VENCEM no mês selecionado (parcela = mês fatura)
+  const venceMesIni = useMemo(() => `${ano}-${String(mes + 1).padStart(2, '0')}-01`, [ano, mes])
+  const venceMesFim = useMemo(() => {
+    const ultimoDia = new Date(ano, mes + 1, 0).getDate()
+    return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
+  }, [ano, mes])
+
   const lancamentos = useMemo(() => {
     if (!cartao || !periodo) return []
     return payable
       .filter(p => p.cartao_id === cartaoId)
-      .filter(p => {
-        // Filtra por data da compra (data_competencia). Fallback: due.
-        const dataCompra = p.data_competencia || p.due
-        return dataCompra && dataCompra >= periodo.ini && dataCompra <= periodo.fim
-      })
+      .filter(p => p.due && p.due >= venceMesIni && p.due <= venceMesFim)
       .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
-  }, [payable, cartao, periodo, cartaoId])
+  }, [payable, cartao, periodo, cartaoId, venceMesIni, venceMesFim])
 
   const totalSistema = useMemo(
     () => lancamentos.reduce((s, x) => s + Number(x.value || 0), 0),
