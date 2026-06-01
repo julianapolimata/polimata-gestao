@@ -49,18 +49,28 @@ export default function Conciliacao() {
   const [expandido, setExpandido] = useState(null)
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
 
+  // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
+  useEffect(() => {
+    if (!user) return
+    supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false })
+      .then(({ data }) => {
+        const ativos = (data || []).filter(c => c.data?.ativo !== false)
+        setContas(ativos)
+        if (ativos.length > 0 && !contaId) setContaId(ativos[0].id)
+      })
+  }, [user, contaId])
+
   const carregar = useCallback(() => {
     if (!user) return
+    if (!contaId) { setLoading(false); return }
     setLoading(true)
+    // Filtra transacoes_extrato POR CONTA no servidor (não traz de outras contas)
+    // receivable/payable: só não-finalizados ou conciliados (pra sugestões + manter linkados)
     Promise.all([
-      supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false }),
-      supabase.from('transacoes_extrato').select('*').order('data->>data', { ascending: false }),
-      supabase.from('receivable').select('*'),
-      supabase.from('payable').select('*'),
-    ]).then(([rC, rE, rR, rP]) => {
-      const ativos = (rC.data || []).filter(c => c.data?.ativo !== false)
-      setContas(ativos)
-      if (ativos.length > 0 && !contaId) setContaId(ativos[0].id)
+      supabase.from('transacoes_extrato').select('*').eq('conta_id', contaId).order('data->>data', { ascending: false }),
+      supabase.from('receivable').select('*').or('data->>status.neq.Recebido,conciliado_em.not.is.null'),
+      supabase.from('payable').select('*').or('data->>status.neq.Pago,conciliado_em.not.is.null'),
+    ]).then(([rE, rR, rP]) => {
       setExtratos(rE.data || [])
       setReceivable((rR.data || []).map(flatten))
       setPayable((rP.data || []).map(flatten))
@@ -387,10 +397,12 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
   const status = extrato.status
 
   const candidatos = tipo === 'entrada' ? receivable : payable
-  const sugestoes = useMemo(
-    () => status === 'pendente' ? sugerirMatches(extrato.data || {}, candidatos.filter(c => c.status !== (tipo === 'entrada' ? 'Recebido' : 'Pago') || extrato.lancamento_id === c.id)) : [],
-    [extrato, candidatos, tipo, status],
-  )
+  // Sugestões: compute apenas quando linha expandida (evita N×M trabalho)
+  const sugestoes = useMemo(() => {
+    if (!expandido || status !== 'pendente') return []
+    return sugerirMatches(extrato.data || {}, candidatos.filter(c => c.status !== (tipo === 'entrada' ? 'Recebido' : 'Pago') || extrato.lancamento_id === c.id))
+  }, [expandido, extrato, candidatos, tipo, status])
+  // temSugestao usado pro badge — sem expandir, fica false (não tem como saber barato)
   const temSugestao = sugestoes.length > 0
   const corValor = tipo === 'entrada' ? 'var(--green)' : 'var(--red)'
 
