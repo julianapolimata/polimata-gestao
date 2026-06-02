@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 
 const STORAGE_KEY = 'polimata_v2_sidebar_collapsed'
@@ -67,14 +67,32 @@ const Section = ({ children, collapsed }) => {
 
 const ico = (children) => <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>{children}</svg>
 
+const SCROLL_KEY = 'polimata_v2_sidebar_scroll'
+
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false }
   })
+  const scrollRef = useRef(null)
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0') } catch { /* noop */ }
   }, [collapsed])
+
+  // Preserva scrollTop da sidebar entre navegações (cada page remonta Sidebar)
+  useEffect(() => {
+    if (!scrollRef.current) return
+    try {
+      const saved = sessionStorage.getItem(SCROLL_KEY)
+      if (saved) scrollRef.current.scrollTop = parseInt(saved, 10) || 0
+    } catch { /* noop */ }
+    const el = scrollRef.current
+    function onScroll() {
+      try { sessionStorage.setItem(SCROLL_KEY, String(el.scrollTop)) } catch { /* noop */ }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   const width = collapsed ? 56 : 240
 
@@ -111,7 +129,7 @@ export default function Sidebar() {
       >{collapsed ? '›' : '‹'}</button>
 
       {/* Navegação */}
-      <div className="scroll-sidebar" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
+      <div ref={scrollRef} className="scroll-sidebar" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
         <Section collapsed={collapsed}>Visão Geral</Section>
         <NavItem to="/dashboard" collapsed={collapsed} label="Painel Financeiro" icon={ico(<><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></>)} />
 
