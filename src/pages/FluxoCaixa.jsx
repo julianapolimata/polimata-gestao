@@ -137,8 +137,8 @@ export default function FluxoCaixa() {
             tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmtMoney(c.raw)}` } },
           },
           scales: {
-            x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#44515e' } },
-            y: { grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#44515e', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)) } },
+            x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
+            y: { grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)) } },
           },
         },
       })
@@ -270,12 +270,12 @@ export default function FluxoCaixa() {
             },
           },
           scales: {
-            x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#44515e' } },
+            x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
             y: {
               min: minVal - padding, max: maxVal + padding,
               grid: { color: 'rgba(0,32,62,0.05)' },
               ticks: {
-                font: { family: 'Montserrat', size: 10 }, color: '#44515e',
+                font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a',
                 callback: v => {
                   const abs = Math.abs(v)
                   const fmtted = abs >= 1000 ? (abs / 1000).toFixed(0) + 'k' : abs.toFixed(0)
