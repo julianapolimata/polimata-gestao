@@ -28,5 +28,20 @@ export default [
       'react-hooks/rules-of-hooks': 'error',
     },
   },
-  { ignores: ['public/v2/', 'node_modules/', '*.config.js', 'api/**'] },
+  {
+    // Endpoints serverless (Node). Antes NÃO passavam por lint — justo os que
+    // tocam SERVICE_ROLE_KEY, ANTHROPIC_API_KEY e CRON_SECRET.
+    files: ['api/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node, fetch: 'readonly' },
+    },
+    plugins: { 'unused-imports': unusedImportsPlugin },
+    rules: {
+      'no-undef': 'error',
+      'unused-imports/no-unused-imports': 'error',
+    },
+  },
+  { ignores: ['public/v2/', 'node_modules/', '*.config.js'] },
 ]

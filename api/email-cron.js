@@ -26,8 +26,17 @@ function getSupabase() {
 
 export default async function handler(req, res) {
   try {
-    // CORS pra permitir chamada do frontend (mesma origem por padrão na Vercel)
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // CORS: só a origem própria do app. O cron do GitHub Actions é
+    // server-to-server (sem header Origin), então não depende disto.
+    const origin = req.headers.origin || '';
+    const allowedOrigins = new Set([
+      'https://gestao.polimatagrc.com.br',
+      'https://polimata-gestao.vercel.app',
+    ]);
+    if (allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.status(204).end();
@@ -83,7 +92,7 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   } catch (e) {
     console.error('Erro no email-cron:', e);
-    return res.status(500).json({ error: e.message, stack: e.stack?.split('\n').slice(0, 5).join(' | ') });
+    return res.status(500).json({ error: 'Erro interno no processamento' });
   }
 }
 

@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(({ data }) => {
       setUser(data?.session?.user || null)
       setLoading(false)
-    })
+    }).catch(() => setLoading(false)) // sem isto, uma falha travava o app em "Carregando…"
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null)
     })
