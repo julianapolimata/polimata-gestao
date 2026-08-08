@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import ModalPessoa from './components/ModalPessoa'
 import { showToast } from '../components/Toast'
 
@@ -17,6 +18,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
@@ -28,10 +30,12 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
       .from('pessoas')
       .select('*')
       .order('updated_at', { ascending: false })
-      .then(({ data }) => {
-        setRows((data || []).filter(p => (p.data?.tipo || '') === tipo))
+      .then(({ data, error }) => {
+        if (error) { setErro(error); setRows([]) }
+        else { setErro(null); setRows((data || []).filter(p => (p.data?.tipo || '') === tipo)) }
         setLoading(false)
       })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user, tipo])
 
   useEffect(() => { recarregar() }, [recarregar])
@@ -124,6 +128,8 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
       <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
+        ) : erro ? (
+          <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length === 0 ? `Nenhum ${tipo.toLowerCase()} cadastrado. Clique em "Novo" pra começar.` : 'Nenhum resultado para a busca.'}
