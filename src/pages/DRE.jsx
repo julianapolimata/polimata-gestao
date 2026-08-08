@@ -23,7 +23,7 @@ const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'O
 // Estrutura do DRE — cada bloco com label, sinal (positivo/negativo) e
 // classificações que somam. Linhas-subtotal usam type=subtotal.
 const DRE_BLOCOS = [
-  { id: 'rec-bruta', label: 'Receita Bruta de Serviços', kind: 'positivo', classifs: ['Receita Bruta', 'Outras Receitas', 'Despesas de Viagens'], tipoFin: 'Entrada' },
+  { id: 'rec-bruta', label: 'Receita Bruta de Serviços', kind: 'positivo', classifs: ['Receita Bruta', 'Outras Receitas'], tipoFin: 'Entrada' },
   { id: 'deducoes', label: '(−) Impostos sobre Vendas', kind: 'negativo', classifs: ['Impostos sobre Vendas'], tipoFin: 'Saída' },
   { id: 'rec-liquida', label: '= Receita Líquida', kind: 'subtotal', formula: 'rec-bruta - deducoes' },
   { id: 'csp', label: '(−) Custo dos Serviços Prestados', kind: 'negativo', classifs: ['CSP'], tipoFin: 'Saída' },

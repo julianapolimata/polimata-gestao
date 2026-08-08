@@ -9,7 +9,7 @@ export async function fetchPlanoContas() {
   if (_carregando) return _carregando
   _carregando = supabase
     .from('plano_contas')
-    .select('tipo,categoria,subcategoria,na_dre,ordem')
+    .select('tipo,categoria,subcategoria,classificacao,na_dre,ordem')
     .order('ordem')
     .then(({ data }) => {
       _cache = data || []
