@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import ModalLancamento from './components/ModalLancamento'
 import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
@@ -29,6 +30,7 @@ export default function Pagar() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
@@ -48,10 +50,12 @@ export default function Pagar() {
       .from('payable')
       .select('*')
       .order('updated_at', { ascending: false })
-      .then(({ data }) => {
-        setRows(data || [])
+      .then(({ data, error }) => {
+        if (error) { setErro(error); setRows([]) }
+        else { setErro(null); setRows(data || []) }
         setLoading(false)
       })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user])
 
   useEffect(() => { recarregar() }, [recarregar])
@@ -271,6 +275,8 @@ export default function Pagar() {
       <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
+        ) : erro ? (
+          <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length === 0 ? 'Nenhuma conta a pagar cadastrada. Clique em "Nova conta" pra começar.' : 'Nenhum resultado para os filtros.'}

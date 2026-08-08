@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
 
 const TIPO_LABEL = {
@@ -28,6 +29,7 @@ export default function Importacoes() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
   const [filtroTipo, setFiltroTipo] = useState('')
   const [busca, setBusca] = useState('')
   const [expandido, setExpandido] = useState(null)
@@ -37,7 +39,12 @@ export default function Importacoes() {
     if (!user) return
     setLoading(true)
     supabase.from('importacoes').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => { setRows(data || []); setLoading(false) })
+      .then(({ data, error }) => {
+        if (error) { setErro(error); setRows([]) }
+        else { setErro(null); setRows(data || []) }
+        setLoading(false)
+      })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user])
 
   useEffect(() => { recarregar() }, [recarregar])
@@ -164,6 +171,8 @@ export default function Importacoes() {
       <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
+        ) : erro ? (
+          <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length === 0 ? 'Nenhum arquivo importado ainda. Vá em Conciliação, Conferência de Fatura ou Empréstimos pra importar.' : 'Nenhum resultado.'}

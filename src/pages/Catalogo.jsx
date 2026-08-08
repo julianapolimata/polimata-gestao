@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import ModalContrato from './components/ModalContrato'
 import ModalProjeto from './components/ModalProjeto'
 import { showToast } from '../components/Toast'
@@ -20,6 +21,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
   const [dataDe, setDataDe] = useState('')
   const [dataAte, setDataAte] = useState('')
@@ -36,10 +38,12 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
       .from(tabela)
       .select('*')
       .order('updated_at', { ascending: false })
-      .then(({ data }) => {
-        setRows(data || [])
+      .then(({ data, error }) => {
+        if (error) { setErro(error); setRows([]) }
+        else { setErro(null); setRows(data || []) }
         setLoading(false)
       })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user, tabela])
 
   useEffect(() => { recarregar() }, [recarregar])
@@ -159,6 +163,8 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
       <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
+        ) : erro ? (
+          <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length === 0 ? `Nenhum ${novoLabel} cadastrado. Clique em "Novo ${novoLabel}" pra começar.` : 'Nenhum resultado para a busca.'}

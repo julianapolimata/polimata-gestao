@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
 import ModalConciliarFatura from './components/ModalConciliarFatura'
 import { fmtMoney, flatten } from '../lib/finance'
@@ -48,16 +49,20 @@ export default function Conciliacao() {
 
   const [expandido, setExpandido] = useState(null)
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
+  const [erro, setErro] = useState(null)
 
   // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
   useEffect(() => {
     if (!user) return
     supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { setErro(error); return }
+        setErro(null)
         const ativos = (data || []).filter(c => c.data?.ativo !== false)
         setContas(ativos)
         if (ativos.length > 0 && !contaId) setContaId(ativos[0].id)
       })
+      .catch((e) => setErro(e))
   }, [user, contaId])
 
   const carregar = useCallback(() => {
@@ -71,11 +76,15 @@ export default function Conciliacao() {
       supabase.from('receivable').select('*').or('data->>status.neq.Recebido,conciliado_em.not.is.null'),
       supabase.from('payable').select('*').or('data->>status.neq.Pago,conciliado_em.not.is.null'),
     ]).then(([rE, rR, rP]) => {
+      const err = rE.error || rR.error || rP.error
+      if (err) { setErro(err); setLoading(false); return }
+      setErro(null)
       setExtratos(rE.data || [])
       setReceivable((rR.data || []).map(flatten))
       setPayable((rP.data || []).map(flatten))
       setLoading(false)
     })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user, contaId])
 
   useEffect(() => { carregar() }, [carregar])
@@ -277,6 +286,7 @@ export default function Conciliacao() {
   }
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
+  if (erro) return <AppLayout title="Conciliação"><EstadoErro onRetry={carregar} /></AppLayout>
   if (contas.length === 0) return (
     <AppLayout title="Conciliação">
       <div style={emptyState}>

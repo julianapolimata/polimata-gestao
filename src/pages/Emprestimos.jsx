@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
+import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
@@ -22,6 +23,7 @@ export default function Emprestimos() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
@@ -30,10 +32,12 @@ export default function Emprestimos() {
     if (!user) return
     setLoading(true)
     supabase.from('emprestimos_financiamentos').select('*').order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setRows((data || []).map(flatten))
+      .then(({ data, error }) => {
+        if (error) { setErro(error); setRows([]) }
+        else { setErro(null); setRows((data || []).map(flatten)) }
         setLoading(false)
       })
+      .catch((e) => { setErro(e); setLoading(false) })
   }, [user])
 
   useEffect(() => { recarregar() }, [recarregar])
@@ -129,6 +133,8 @@ export default function Emprestimos() {
       <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
+        ) : erro ? (
+          <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length === 0 ? 'Nenhum empréstimo ou financiamento cadastrado. Clique em "+ Novo" pra começar.' : 'Nenhum resultado.'}
