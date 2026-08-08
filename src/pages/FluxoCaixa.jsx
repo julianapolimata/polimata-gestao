@@ -71,14 +71,17 @@ export default function FluxoCaixa() {
     const entriesByMonth = new Array(12).fill(0)
     const saidasByMonth = new Array(12).fill(0)
     receivable.forEach(r => {
-      // Regime caixa: usa data_pagamento (quando o dinheiro entrou de fato).
-      // Fallback pro vencimento se ainda não pago, e pra created como último recurso.
+      // Regime caixa REALIZADO: só entra o que foi de fato recebido, na
+      // data_pagamento. Sem o filtro de status, uma conta pendente vencida
+      // aparecia como caixa que entrou — contradizendo o Dashboard.
+      if (r.status !== 'Recebido') return
       const d = r.data?.data_pagamento || r.due || r.created
       if (!d || !d.startsWith(ano)) return
       const m = parseInt(d.substring(5, 7), 10) - 1
       if (m >= 0 && m < 12) entriesByMonth[m] += r.value
     })
     payable.forEach(r => {
+      if (r.status !== 'Pago') return
       const d = r.data?.data_pagamento || r.due || r.created
       if (!d || !d.startsWith(ano)) return
       const m = parseInt(d.substring(5, 7), 10) - 1
