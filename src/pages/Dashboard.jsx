@@ -5,7 +5,7 @@ import AppLayout from '../components/AppLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
-  fmtMoney, flatten, isOverdue, getDocStatus, inMonth, monthLabels,
+  fmtMoney, flatten, isOverdue, getDocStatus, inMonth, monthLabels, today,
 } from '../lib/finance'
 
 // =====================================================================
@@ -109,7 +109,7 @@ export default function Dashboard() {
     function projetar(dias) {
       const limite = new Date(hoje); limite.setDate(limite.getDate() + dias)
       const limISO = limite.toISOString().slice(0, 10)
-      const hojeISO = hoje.toISOString().slice(0, 10)
+      const hojeISO = today()
       const aReceber = receivable
         .filter(r => r.status !== 'Recebido' && r.due && r.due >= hojeISO && r.due <= limISO)
         .reduce((a, r) => a + r.value, 0)
@@ -153,7 +153,7 @@ export default function Dashboard() {
 
   // ── KPI 4: Próximas a Pagar (top 5) ─────────────────────────────────
   const proximasPagar = useMemo(() => {
-    const hojeISO = new Date().toISOString().slice(0, 10)
+    const hojeISO = today()
     return payable
       .filter(r => r.status !== 'Pago' && r.due && r.due >= hojeISO)
       .sort((a, b) => a.due.localeCompare(b.due))

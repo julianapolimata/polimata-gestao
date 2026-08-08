@@ -43,7 +43,10 @@ export function venceParcela(dataCompraISO, cartao, k) {
   const offsetPrimeiraParcela = compra.getDate() > diaFech ? 1 : 0
   const m = compra.getMonth() + offsetPrimeiraParcela + (k - 1)
   const y = compra.getFullYear()
-  const data = new Date(y, m, diaVenc)
+  // Clampa o dia ao último dia do mês-alvo (ex.: vencimento 31 em mês de 30
+  // dias não deve transbordar pro mês seguinte).
+  const ultimoDia = new Date(y, m + 1, 0).getDate()
+  const data = new Date(y, m, Math.min(diaVenc, ultimoDia))
   return data.toISOString().slice(0, 10)
 }
 

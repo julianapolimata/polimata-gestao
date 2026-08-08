@@ -17,12 +17,14 @@ const MS_DIA = 86400000
 export function sugerirMatches(extrato, candidatos) {
   if (!extrato || !candidatos?.length) return []
   const valor = Number(extrato.valor)
+  if (Number.isNaN(valor)) return []
   const dataExt = new Date(extrato.data + 'T12:00:00')
   const cnpjExtrato = extrato.cnpj
   const resultados = []
   for (const c of candidatos) {
     // Match obrigatório: valor exato (tolerância 0.01 pra arredondamento)
-    if (Math.abs(Number(c.value) - valor) > 0.01) continue
+    const cVal = Number(c.value)
+    if (Number.isNaN(cVal) || Math.abs(cVal - valor) > 0.01) continue
     // Data de referência: prefer data_pagamento (se já liquidado), fallback due, fallback created
     const refData = c.data?.data_pagamento || c.due || c.created
     if (!refData) continue

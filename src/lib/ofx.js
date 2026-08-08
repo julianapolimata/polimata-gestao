@@ -22,9 +22,10 @@ export function parseOFX(texto) {
     const memo = pick(txt, 'MEMO')             // descrição
     const name = pick(txt, 'NAME')             // descrição alternativa
     const checkNum = pick(txt, 'CHECKNUM')
-    if (!amount || !dtPosted) continue
-    const valor = Math.abs(Number(amount))
-    const tipo = Number(amount) >= 0 ? 'entrada' : 'saida'
+    const amtNum = parseAmount(amount)
+    if (!dtPosted || Number.isNaN(amtNum)) continue
+    const valor = Math.abs(amtNum)
+    const tipo = amtNum >= 0 ? 'entrada' : 'saida'
     const dataISO = normalizarData(dtPosted)
     // NAME tem nome do favorecido + CNPJ (mais útil); MEMO é genérico tipo "PIX EMITIDO".
     // Concatena se ambos existem e diferem.
@@ -56,6 +57,16 @@ function pick(txt, tag) {
   const re = new RegExp(`<${tag}>([^<\\n]*)`, 'i')
   const m = txt.match(re)
   return m ? m[1].trim() : ''
+}
+
+// Converte o TRNAMT do OFX em número. A spec manda ponto decimal, mas alguns
+// bancos exportam vírgula (e ponto de milhar) — normaliza os dois casos.
+// Antes, "123,45" virava NaN e "casava" com qualquer lançamento na conciliação.
+function parseAmount(s) {
+  if (s == null) return NaN
+  let t = String(s).trim()
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.')
+  return Number(t)
 }
 
 function normalizarData(s) {

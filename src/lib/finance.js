@@ -13,7 +13,7 @@ export function fmtMoney(value, moeda = 'BRL') {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
-  return `${sym}${m === 'BRL' ? '' : ' '}${v}`.replace('R$ ', 'R$ ')
+  return `${sym}${m === 'BRL' ? '' : ' '}${v}`
 }
 
 /** YYYY-MM-DD → DD/MM/YYYY. Retorna '—' se vazio. */
@@ -23,9 +23,13 @@ export function fmtDate(d) {
   return `${day}/${m}/${y}`
 }
 
-/** Data de hoje em formato YYYY-MM-DD (timezone local). */
+/** Data de hoje em formato YYYY-MM-DD (timezone local do navegador). */
 export function today() {
-  return new Date().toISOString().split('T')[0]
+  const d = new Date()
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
 }
 
 /** True se a data de vencimento já passou (considerando 23:59:59 do dia). */
