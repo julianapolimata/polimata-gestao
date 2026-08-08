@@ -248,47 +248,36 @@ Importante:
         parcelas, // congela snapshot da tabela
       }
 
-      let emprestimoId
       if (isEdit) {
         const { error } = await supabase.from('emprestimos_financiamentos').update({
           data: dataPayload, anexo_path: anexoPath,
         }).eq('id', registro.id)
         if (error) throw error
-        emprestimoId = registro.id
       } else {
-        const { data: inserted, error } = await supabase.from('emprestimos_financiamentos').insert({
-          user_id: user.id, data: dataPayload, anexo_path: anexoPath,
-        }).select('id').single()
+        const parcelasData = parcelas.map(p => ({
+          supplier: credor || nome,
+          desc: `${nome} — parcela ${p.numero}/${parcelas.length}`,
+          value: Number(p.valor) || 0,
+          due: p.vencimento,
+          data_competencia: p.vencimento,
+          status: p.pago ? 'Pago' : 'Pendente',
+          data_pagamento: p.pago ? p.vencimento : null,
+          cat: 'Empréstimos e Financiamentos',
+          subcat: nome,
+          forma_pagamento: 'Débito Automático',
+          amortizacao: Number(p.amortizacao) || 0,
+          juros: Number(p.juros) || 0,
+          parcela_atual: Number(p.numero) || 0,
+          parcela_total: Number(parcelasTotal) || 0,
+          criado_via_emprestimo: true,
+          created: new Date().toISOString().slice(0, 10),
+        }))
+        // Empréstimo + parcelas numa transação atômica no banco (RPC criar_emprestimo).
+        // Se qualquer parcela falhar, o empréstimo também não é criado (tudo-ou-nada).
+        const { error } = await supabase.rpc('criar_emprestimo', {
+          p_emp: dataPayload, p_anexo_path: anexoPath, p_parcelas: parcelasData,
+        })
         if (error) throw error
-        emprestimoId = inserted.id
-
-        // Cria N parcelas em payable
-        if (parcelas.length > 0) {
-          const payloadParcelas = parcelas.map(p => ({
-            user_id: user.id,
-            emprestimo_id: emprestimoId,
-            data: {
-              supplier: credor || nome,
-              desc: `${nome} — parcela ${p.numero}/${parcelas.length}`,
-              value: Number(p.valor) || 0,
-              due: p.vencimento,
-              data_competencia: p.vencimento,
-              status: p.pago ? 'Pago' : 'Pendente',
-              data_pagamento: p.pago ? p.vencimento : null,
-              cat: 'Empréstimos e Financiamentos',
-              subcat: nome,
-              forma_pagamento: 'Débito Automático',
-              amortizacao: Number(p.amortizacao) || 0,
-              juros: Number(p.juros) || 0,
-              parcela_atual: Number(p.numero) || 0,
-              parcela_total: Number(parcelasTotal) || 0,
-              criado_via_emprestimo: true,
-              created: new Date().toISOString().slice(0, 10),
-            },
-          }))
-          const { error: errPay } = await supabase.from('payable').insert(payloadParcelas)
-          if (errPay) console.error('Erro ao criar parcelas:', errPay)
-        }
       }
       showToast(isEdit ? 'Atualizado.' : `Criado + ${parcelas.length} parcelas em Contas a Pagar.`, 'success')
       onSaved?.()

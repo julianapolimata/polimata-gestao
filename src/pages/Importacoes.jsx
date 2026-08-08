@@ -98,17 +98,11 @@ export default function Importacoes() {
     if (imp.status === 'revertida') { showToast('Já revertida.', 'info'); return }
     if (!confirm(`Reverter "${imp.arquivo_nome}"? Vai DELETAR os ${imp.qtd_registros} lançamentos vinculados. Esta ação não pode ser desfeita.`)) return
     try {
-      // Deleta lançamentos vinculados (por tabela tipo)
-      if (imp.tipo === 'ofx_extrato') {
-        await supabase.from('transacoes_extrato').delete().eq('importacao_id', imp.id)
-      } else if (imp.tipo === 'ofx_fatura_cartao') {
-        await supabase.from('payable').delete().eq('importacao_id', imp.id)
-      } else if (imp.tipo === 'email_nfse' || imp.tipo === 'upload_manual_nf') {
-        await supabase.from('receivable').delete().eq('importacao_id', imp.id)
-        await supabase.from('payable').delete().eq('importacao_id', imp.id)
-      }
-      // Marca import como revertida
-      await supabase.from('importacoes').update({ status: 'revertida', revertida_em: new Date().toISOString() }).eq('id', imp.id)
+      // Reversão atômica no banco: apaga os lançamentos vinculados nas 3 tabelas
+      // e marca a importação como revertida numa única transação (RPC). Antes,
+      // uma falha no meio deixava a contabilidade pela metade marcada como revertida.
+      const { error } = await supabase.rpc('reverter_importacao', { p_imp_id: imp.id })
+      if (error) throw error
       showToast(`${imp.qtd_registros} lançamentos removidos. Import marcado como revertido.`, 'info')
       setExpandido(null)
       setDetalhe(d => { const c = { ...d }; delete c[imp.id]; return c })

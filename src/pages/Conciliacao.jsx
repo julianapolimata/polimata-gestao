@@ -217,14 +217,14 @@ export default function Conciliacao() {
   // ── Ações ────────────────────────────────────────────────────────────
   async function vincular(extrato, lancamento) {
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
-    const agora = new Date().toISOString()
+    const statusNovo = tipoTabela === 'receivable' ? 'Recebido' : 'Pago'
+    const merged = { ...(lancamento.data || {}), status: statusNovo, data_pagamento: lancamento.data?.data_pagamento || extrato.data?.data }
     try {
-      await supabase.from('transacoes_extrato').update({
-        status: 'conciliado', lancamento_tipo: tipoTabela, lancamento_id: lancamento.id,
-      }).eq('id', extrato.id)
-      const statusNovo = tipoTabela === 'receivable' ? 'Recebido' : 'Pago'
-      const merged = { ...(lancamento.data || {}), status: statusNovo, data_pagamento: lancamento.data?.data_pagamento || extrato.data?.data }
-      await supabase.from(tipoTabela).update({ data: merged, conciliado_em: agora, extrato_id: extrato.id }).eq('id', lancamento.id)
+      // Atualiza o extrato e o lançamento numa transação atômica (RPC).
+      const { error } = await supabase.rpc('conciliar_vincular', {
+        p_extrato_id: extrato.id, p_target: tipoTabela, p_lanc_id: lancamento.id, p_merged: merged,
+      })
+      if (error) throw error
       showToast('Conciliado.', 'success')
       setExpandido(null); carregar()
     } catch (e) { showToast('Erro: ' + e.message, 'error') }
@@ -243,15 +243,15 @@ export default function Conciliacao() {
       cat: '', subcat: '', doc_status: 'pendente', sem_documento: true,
       created: dataExt, criado_via_conciliacao: true,
     }
-    const { data: inserted, error } = await supabase.from(tipoTabela).insert({
-      user_id: user.id, data: novoLanc, conciliado_em: new Date().toISOString(), extrato_id: extrato.id,
-    }).select('id').single()
-    if (error) { showToast('Erro: ' + error.message, 'error'); return }
-    await supabase.from('transacoes_extrato').update({
-      status: 'conciliado', lancamento_tipo: tipoTabela, lancamento_id: inserted.id,
-    }).eq('id', extrato.id)
-    showToast('Lançamento criado e conciliado.', 'success')
-    setExpandido(null); carregar()
+    try {
+      // Cria o lançamento e marca o extrato conciliado numa transação atômica (RPC).
+      const { error } = await supabase.rpc('conciliar_criar_lancamento', {
+        p_extrato_id: extrato.id, p_target: tipoTabela, p_lanc: novoLanc,
+      })
+      if (error) throw error
+      showToast('Lançamento criado e conciliado.', 'success')
+      setExpandido(null); carregar()
+    } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
   async function marcarTransferencia(extrato) {

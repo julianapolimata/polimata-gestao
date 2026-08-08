@@ -39,6 +39,15 @@ export async function proximoCodigoPayable() {
   return `2${String(next).padStart(5, '0')}`
 }
 
+// Gera N códigos sequenciais de Payable a partir de uma única leitura.
+// Usado quando várias parcelas são inseridas de uma vez (bloco atômico),
+// evitando N leituras que retornariam o mesmo código.
+export async function proximosCodigosPayable(n) {
+  const { data } = await supabase.from('payable').select('codigo').not('codigo', 'is', null)
+  const base = seqMax(data, /^2(\d{5})$/)
+  return Array.from({ length: n }, (_, i) => `2${String(base + 1 + i).padStart(5, '0')}`)
+}
+
 export async function proximoCodigoPessoa(tipoPessoa) {
   const pref = PREFIX_PESSOA[tipoPessoa]
   if (!pref) return ''
