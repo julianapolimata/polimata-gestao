@@ -90,10 +90,12 @@ export default function ConferenciaFatura() {
       // Upload arquivo + registrar import
       const path = `${user.id}/importacoes/ofx_fatura_cartao/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
       let arquivoPath = null
+      let uploadFalhou = false
       try {
         const { error: upErr } = await supabase.storage.from('anexos-fiscais').upload(path, file)
         if (!upErr) arquivoPath = path
-      } catch (er) { console.warn('upload OFX fatura falhou:', er.message) }
+        else uploadFalhou = true
+      } catch (er) { console.warn('upload OFX fatura falhou:', er.message); uploadFalhou = true }
       const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
         user_id: user.id,
         tipo: 'ofx_fatura_cartao',
@@ -102,8 +104,9 @@ export default function ConferenciaFatura() {
         qtd_registros: debitos.length,
         metadata: { cartao_id: cartaoId, mes, ano, periodo_ini: periodo.ini, periodo_fim: periodo.fim, vencimento: periodo.vencimento },
       }).select('id').single()
-      if (errImp) console.warn('insert importacao falhou:', errImp.message)
-      const importacaoId = imp?.id || null
+      // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos.
+      if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)
+      const importacaoId = imp.id
       // Cria N lançamentos em payable (fit_id dentro do JSONB data)
       const payload = debitos.map(t => ({
         user_id: user.id,
@@ -131,10 +134,15 @@ export default function ConferenciaFatura() {
         codigo: `2${String(baseNum + i).padStart(5, '0')}`,
       }))
       const { error } = await supabase.from('payable').insert(payloadComCodigo)
-      if (error) throw error
+      if (error) {
+        // Compensa: remove o cabeçalho recém-criado pra não deixar import vazio.
+        await supabase.from('importacoes').delete().eq('id', importacaoId)
+        throw error
+      }
       let msg = `${debitos.length} compras importadas da fatura.`
       if (creditosOFX.length > 0) msg += ` ${creditosOFX.length} crédito(s) (estorno/pagamento) ignorado(s).`
       showToast(msg, 'success')
+      if (uploadFalhou) showToast('Compras importadas, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
       carregar()
     } catch (err) {
       console.error(err)

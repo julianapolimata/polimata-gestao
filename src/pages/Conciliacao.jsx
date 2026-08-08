@@ -181,10 +181,12 @@ export default function Conciliacao() {
       // 1) Upload arquivo + registrar import
       const path = `${user.id}/importacoes/ofx_extrato/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
       let arquivoPath = null
+      let uploadFalhou = false
       try {
         const { error: upErr } = await supabase.storage.from('anexos-fiscais').upload(path, file)
         if (!upErr) arquivoPath = path
-      } catch (e) { console.warn('upload arquivo OFX falhou:', e.message) }
+        else uploadFalhou = true
+      } catch (e) { console.warn('upload arquivo OFX falhou:', e.message); uploadFalhou = true }
       const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
         user_id: user.id,
         tipo: 'ofx_extrato',
@@ -193,15 +195,22 @@ export default function Conciliacao() {
         qtd_registros: novos.length,
         metadata: { conta_id: contaId, saldo_final: saldoFinal },
       }).select('id').single()
-      if (errImp) console.warn('insert importacao falhou:', errImp.message)
+      // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos
+      // (importacao_id nulo) e impossíveis de reverter pela tela de Importações.
+      if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)
       // 2) Inserir transações com importacao_id
       const payload = novos.map(t => ({
         user_id: user.id, conta_id: contaId, status: 'pendente', fit_id: t.fit_id,
-        importacao_id: imp?.id || null, data: t,
+        importacao_id: imp.id, data: t,
       }))
       const { error } = await supabase.from('transacoes_extrato').insert(payload)
-      if (error) throw error
+      if (error) {
+        // Compensa: remove o cabeçalho recém-criado pra não deixar import vazio.
+        await supabase.from('importacoes').delete().eq('id', imp.id)
+        throw error
+      }
       showToast(`${novos.length} transações importadas.`, 'success')
+      if (uploadFalhou) showToast('Lançamentos importados, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
       if (saldoFinal != null) setSaldoBanco(saldoFinal)
       setPeriodoInicializado(false) // re-aplica range com o que foi importado
       carregar()
