@@ -157,18 +157,12 @@ export default function ImportarNFs() {
         numero_nf: d.numero,
         created: new Date().toISOString().slice(0, 10),
       }
-      const { data: insLanc, error: errLanc } = await supabase.from(target).insert({
-        user_id: user.id, codigo, data: novoLanc,
-      }).select('id').single()
-      if (errLanc) throw errLanc
-
-      // 3. Marca pending como aprovado
-      await supabase.from('nf_pending').update({
-        status: 'aprovado',
-        approved_at: new Date().toISOString(),
-        lancamento_tipo: target,
-        lancamento_id: insLanc.id,
-      }).eq('id', pending.id)
+      // 3. Cria o lançamento e baixa a pendência numa transação atômica (RPC).
+      // Antes, se a baixa falhasse, a NF podia ser aprovada de novo → duplicata.
+      const { error: errAprovar } = await supabase.rpc('aprovar_nf', {
+        p_pending_id: pending.id, p_target: target, p_codigo: codigo, p_lanc: novoLanc,
+      })
+      if (errAprovar) throw errAprovar
 
       showToast(`${codigo} aprovado e lançado.`, 'success')
       carregar()

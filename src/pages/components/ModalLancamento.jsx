@@ -3,7 +3,7 @@ import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { proximoCodigoReceivable, proximoCodigoPayable } from '../../lib/codigos'
+import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable } from '../../lib/codigos'
 import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '../../lib/anexos'
 import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/parcelas'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
@@ -231,28 +231,21 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
             cartao: cartaoSelecionado,
           })
           const created = new Date().toISOString().slice(0, 10)
-          // 1ª inserção: PARENT (parcela 1) — gera id pra encadear
-          const parent = parcelas[0]
-          const codigoP = await proximoCodigoPayable()
-          const { data: parentRow, error: errParent } = await supabase.from('payable').insert({
-            user_id: user.id, codigo: codigoP, cartao_id: cartaoId,
-            data: { ...parent, created },
-          }).select('id').single()
-          if (errParent) throw errParent
-          // demais parcelas: parent_id = parentRow.id, código sequencial
-          const filhos = []
-          for (let i = 1; i < parcelas.length; i++) {
-            const cod = await proximoCodigoPayable()
-            filhos.push({
-              user_id: user.id, codigo: cod, cartao_id: cartaoId, parent_id: parentRow.id,
-              data: { ...parcelas[i], created },
-            })
-          }
-          if (filhos.length) {
-            const { error: errFilhos } = await supabase.from('payable').insert(filhos)
-            if (errFilhos) throw errFilhos
-          }
-          showToast(`${numParcelas} parcelas criadas (${codigoP} + ${filhos.length} filhas).`, 'success')
+          // Gera todos os códigos de uma vez e insere pai + filhas numa ÚNICA
+          // operação — o Postgres garante tudo-ou-nada num insert em lote, então
+          // não há mais risco de parcela-pai órfã se as filhas falharem.
+          const codigos = await proximosCodigosPayable(parcelas.length)
+          const parentId = crypto.randomUUID()
+          const linhas = parcelas.map((p, i) => ({
+            ...(i === 0 ? { id: parentId } : { parent_id: parentId }),
+            user_id: user.id,
+            codigo: codigos[i],
+            cartao_id: cartaoId,
+            data: { ...p, created },
+          }))
+          const { error: errParcelas } = await supabase.from('payable').insert(linhas)
+          if (errParcelas) throw errParcelas
+          showToast(`${numParcelas} parcelas criadas (${codigos[0]} + ${parcelas.length - 1} filhas).`, 'success')
           onSaved?.()
           onClose()
           return
