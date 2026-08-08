@@ -74,13 +74,27 @@ export default function Dashboard() {
   const icc = useMemo(() => {
     const hoje = new Date()
     const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate())
-    const despUltimos3 = payable.filter(r => {
+    const pagosRecentes = payable.filter(r => {
       if (r.status !== 'Pago') return false
       const ref = r.data?.data_pagamento || r.due || r.created || hoje.toISOString().split('T')[0]
       const d = new Date(ref + 'T12:00:00')
       return d >= tresMesesAtras
-    }).reduce((a, r) => a + r.value, 0)
-    const fixaMensal = despUltimos3 / 3
+    })
+    const despUltimos3 = pagosRecentes.reduce((a, r) => a + r.value, 0)
+    // Divide pelo nº real de meses cobertos (1 a 3), não fixo em 3: empresa
+    // nova com 1 mês de operação teria o burn subestimado em 3× e o semáforo
+    // mostraria verde perigosamente.
+    let mesesCobertos = 3
+    const refsPagos = pagosRecentes
+      .map(r => r.data?.data_pagamento || r.due || r.created)
+      .filter(Boolean)
+      .sort()
+    if (refsPagos.length) {
+      const primeira = new Date(refsPagos[0] + 'T12:00:00')
+      mesesCobertos = (hoje.getFullYear() - primeira.getFullYear()) * 12 + (hoje.getMonth() - primeira.getMonth()) + 1
+      mesesCobertos = Math.min(3, Math.max(1, mesesCobertos))
+    }
+    const fixaMensal = despUltimos3 / mesesCobertos
     if (caixaAtual < 0) return { texto: 'Negativo', cor: 'var(--red)', sub: `caixa em déficit · ${fmtMoney(caixaAtual)}` }
     if (fixaMensal <= 0) return { texto: '—', cor: 'var(--text-mid)', sub: 'sem despesas pagas pra calcular' }
     const meses = caixaAtual / fixaMensal
