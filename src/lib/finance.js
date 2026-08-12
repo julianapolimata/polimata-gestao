@@ -208,9 +208,13 @@ export function classificarFluxo(reg, plano) {
 
   if (!cat || !plano) return 'operacional'
 
-  // Procura no plano de contas: precisa do par (tipo, categoria) pra resolver classificacao
+  // Procura no plano de contas. Prefere o par (tipo, categoria, subcategoria) —
+  // ex.: separar amortização (financiamento) de juros (operacional) num
+  // empréstimo — e cai pro par (tipo, categoria) se não houver subcategoria.
   const tipoFin = guessTipoFinanc(reg)
-  const linha = plano.find(p => p.tipo === tipoFin && p.categoria === cat)
+  const linha =
+    (subcat && plano.find(p => p.tipo === tipoFin && p.categoria === cat && (p.subcategoria || '').toLowerCase() === subcat))
+    || plano.find(p => p.tipo === tipoFin && p.categoria === cat)
   if (!linha) return 'operacional'
 
   if (CLASSIF_INVESTIMENTO.has(linha.classificacao)) return 'investimento'
