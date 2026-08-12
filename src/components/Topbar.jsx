@@ -24,7 +24,7 @@ export default function Topbar({ title }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-mid)', fontFamily: 'var(--body)' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--gold)' }} />
           <span>{user?.email || '—'}</span>
         </div>
         <button onClick={handleLogout} style={btnOutline} title="Sair">

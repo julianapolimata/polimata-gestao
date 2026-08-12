@@ -215,7 +215,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
                 <input
                   type="checkbox" checked={!!et.concluida}
                   onChange={e => updateEtapa(idx, { concluida: e.target.checked })}
-                  style={{ width: 16, height: 16, accentColor: 'var(--green)' }}
+                  style={{ width: 16, height: 16, accentColor: 'var(--gold)' }}
                   title="Marcar como concluída"
                 />
                 <input

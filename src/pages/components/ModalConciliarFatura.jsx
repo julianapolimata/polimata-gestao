@@ -357,5 +357,5 @@ const encargoBox = { padding: 12, background: 'rgba(204,145,94,0.08)', border: '
 const acoes = { display: 'flex', justifyContent: 'flex-end', gap: 8 }
 const btnPrimary = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const btnSecondary = { padding: '10px 18px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--cream-dark)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--body)' }
-const btnOk = { padding: '8px 14px', background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
+const btnOk = { padding: '8px 14px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
 const emptyState = { padding: '40px 24px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 13, background: 'var(--cream)', borderRadius: 8 }
