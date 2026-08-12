@@ -24,6 +24,7 @@ import ImportarNFs from './pages/ImportarNFs'
 import SimplesNacional from './pages/SimplesNacional'
 import NfseConfig from './pages/NfseConfig'
 import Recorrencias from './pages/Recorrencias'
+import Relatorios from './pages/Relatorios'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -64,7 +65,7 @@ export default function App() {
           <Route path="/emprestimos" element={<ProtectedRoute><Emprestimos /></ProtectedRoute>} />
           <Route path="/importacoes" element={<ProtectedRoute><Importacoes /></ProtectedRoute>} />
           <Route path="/conferencia-fatura" element={<ProtectedRoute><ConferenciaFatura /></ProtectedRoute>} />
-          <Route path="/relatorios" element={<ProtectedRoute><EmConstrucaoModulo titulo="Exportar Relatório" descricao="Exportação de relatórios financeiros consolidados." /></ProtectedRoute>} />
+          <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </ErrorBoundary>
