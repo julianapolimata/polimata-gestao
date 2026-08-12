@@ -54,6 +54,12 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
   const [observacoes, setObservacoes] = useState('')
   const [anexoFile, setAnexoFile] = useState(null)
 
+  // Entrada (captação) — o dinheiro que cai na conta ao contratar.
+  const [registrarEntrada, setRegistrarEntrada] = useState(true)
+  const [valorLiberado, setValorLiberado] = useState('')
+  const [dataLiberacao, setDataLiberacao] = useState('')
+  const [contaCreditoId, setContaCreditoId] = useState('')
+
   // Tabela de parcelas — array de { numero, vencimento, valor, amortizacao, juros, pago }
   const [parcelas, setParcelas] = useState([])
 
@@ -79,6 +85,7 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
       setStatus(d.status || 'ativa')
       setObservacoes(d.observacoes || '')
       setParcelas(d.parcelas || [])
+      setRegistrarEntrada(false); setValorLiberado(''); setDataLiberacao(''); setContaCreditoId('')
     } else {
       setNome(''); setTipo('emprestimo'); setCredor(''); setNumeroContrato('')
       setModalidade(''); setValorOriginal(''); setSaldoAtual('')
@@ -86,6 +93,7 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
       setDataVencimentoFinal(''); setTaxaJurosMensal(''); setIndicadorCalculo('price')
       setContaDebitoTipo(''); setContaDebitoId(''); setStatus('ativa')
       setObservacoes(''); setAnexoFile(null); setParcelas([])
+      setRegistrarEntrada(true); setValorLiberado(''); setDataLiberacao(''); setContaCreditoId('')
     }
     Promise.all([
       supabase.from('contas_bancarias').select('*'),
@@ -254,32 +262,58 @@ Importante:
         }).eq('id', registro.id)
         if (error) throw error
       } else {
-        const parcelasData = parcelas.map(p => ({
-          supplier: credor || nome,
-          desc: `${nome} — parcela ${p.numero}/${parcelas.length}`,
-          value: Number(p.valor) || 0,
-          due: p.vencimento,
-          data_competencia: p.vencimento,
-          status: p.pago ? 'Pago' : 'Pendente',
-          data_pagamento: p.pago ? p.vencimento : null,
+        const hoje = new Date().toISOString().slice(0, 10)
+        // Entrada (captação): o dinheiro que caiu na conta — recebido, financiamento (fora do DRE).
+        const entradaData = registrarEntrada ? {
+          client: credor || nome,
+          desc: `Captação — ${nome || 'empréstimo'}`,
+          value: Number(valorLiberado || valorOriginal) || 0,
+          due: dataLiberacao || dataInicio || hoje,
+          data_competencia: dataLiberacao || dataInicio || hoje,
+          data_pagamento: dataLiberacao || dataInicio || hoje,
+          status: 'Recebido',
           cat: 'Empréstimos e Financiamentos',
-          subcat: nome,
-          forma_pagamento: 'Débito Automático',
-          amortizacao: Number(p.amortizacao) || 0,
-          juros: Number(p.juros) || 0,
-          parcela_atual: Number(p.numero) || 0,
-          parcela_total: Number(parcelasTotal) || 0,
+          subcat: 'Captação de empréstimo (entrada)',
+          conta_id: contaCreditoId || null,
           criado_via_emprestimo: true,
-          created: new Date().toISOString().slice(0, 10),
-        }))
-        // Empréstimo + parcelas numa transação atômica no banco (RPC criar_emprestimo).
-        // Se qualquer parcela falhar, o empréstimo também não é criado (tudo-ou-nada).
+          created: hoje,
+        } : null
+
+        // Cada parcela vira 2 lançamentos: amortização (principal, fora do DRE) e
+        // juros (despesa financeira, no DRE). Sem split disponível → uma linha só,
+        // tratada como amortização (não infla o DRE com juros fictícios).
+        const parcelasData = []
+        for (const p of parcelas) {
+          const amort = Number(p.amortizacao) || 0
+          const jur = Number(p.juros) || 0
+          const base = {
+            supplier: credor || nome,
+            due: p.vencimento,
+            data_competencia: p.vencimento,
+            status: p.pago ? 'Pago' : 'Pendente',
+            data_pagamento: p.pago ? p.vencimento : null,
+            cat: 'Empréstimos e Financiamentos',
+            forma_pagamento: 'Débito Automático',
+            parcela_atual: Number(p.numero) || 0,
+            parcela_total: Number(parcelasTotal) || 0,
+            criado_via_emprestimo: true,
+            created: hoje,
+          }
+          if (amort > 0 || jur > 0) {
+            if (amort > 0) parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal} (amortização)`, value: amort, subcat: 'Amortização do principal (saída)' })
+            if (jur > 0) parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal} (juros)`, value: jur, subcat: 'Juros de empréstimos' })
+          } else {
+            parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal}`, value: Number(p.valor) || 0, subcat: 'Amortização do principal (saída)' })
+          }
+        }
+
+        // Empréstimo + entrada + parcelas numa transação atômica (RPC).
         const { error } = await supabase.rpc('criar_emprestimo', {
-          p_emp: dataPayload, p_anexo_path: anexoPath, p_parcelas: parcelasData,
+          p_emp: dataPayload, p_anexo_path: anexoPath, p_parcelas: parcelasData, p_entrada: entradaData,
         })
         if (error) throw error
       }
-      showToast(isEdit ? 'Atualizado.' : `Criado + ${parcelas.length} parcelas em Contas a Pagar.`, 'success')
+      showToast(isEdit ? 'Atualizado.' : 'Empréstimo criado — entrada no caixa + parcelas (amortização/juros) geradas.', 'success')
       onSaved?.()
       onClose()
     } catch (e) {
@@ -388,6 +422,37 @@ Importante:
           </Field>
         </div>
 
+        {/* Entrada (captação) — só no cadastro novo */}
+        {!isEdit && (
+          <div style={entradaBox}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: 'var(--navy)', marginBottom: registrarEntrada ? 12 : 0 }}>
+              <input type="checkbox" checked={registrarEntrada} onChange={e => setRegistrarEntrada(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
+              Registrar a entrada do dinheiro no caixa (captação)
+            </label>
+            {registrarEntrada && (
+              <>
+                <div style={grid}>
+                  <Field label="Valor liberado (R$)">
+                    <input type="number" step="0.01" value={valorLiberado} onChange={e => setValorLiberado(e.target.value)} placeholder={valorOriginal ? String(valorOriginal) : 'igual ao valor original'} style={input} />
+                  </Field>
+                  <Field label="Data de liberação">
+                    <input type="date" value={dataLiberacao} onChange={e => setDataLiberacao(e.target.value)} style={input} />
+                  </Field>
+                  <Field label="Conta que recebeu">
+                    <select value={contaCreditoId} onChange={e => setContaCreditoId(e.target.value)} style={input}>
+                      <option value="">— opcional —</option>
+                      {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
+                  Entra como <strong>recebido</strong> (financiamento): aparece no caixa, mas <strong>não</strong> no DRE — não é receita, é dívida.
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <Field label="Observações">
           <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} rows={2} style={{ ...input, resize: 'vertical' }} />
         </Field>
@@ -435,7 +500,7 @@ Importante:
               </table>
             </div>
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-mid)' }}>
-              {isEdit ? 'Tabela snapshot da dívida. Editar aqui NÃO altera os payable já criados.' : 'Ao salvar, será criado 1 lançamento em Contas a Pagar pra cada parcela.'}
+              {isEdit ? 'Tabela snapshot da dívida. Editar aqui NÃO altera os payable já criados.' : 'Ao salvar: a entrada vira um recebido, e cada parcela vira 2 lançamentos (amortização + juros) em Contas a Pagar.'}
             </div>
           </div>
         )}
@@ -467,6 +532,7 @@ const header = { display: 'flex', justifyContent: 'space-between', alignItems: '
 const titulo = { margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--navy)' }
 const btnClose = { background: 'none', border: 'none', fontSize: 28, color: 'var(--text-mid)', cursor: 'pointer', padding: 0, lineHeight: 1 }
 const uploadBox = { padding: 14, background: 'rgba(204,145,94,0.08)', border: '1px dashed var(--gold)', borderRadius: 8, marginBottom: 16, textAlign: 'center' }
+const entradaBox = { padding: 14, background: 'var(--cream)', border: '1px solid var(--cream-dark)', borderLeft: '3px solid var(--gold)', borderRadius: 8, marginBottom: 12 }
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }
 const input = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
