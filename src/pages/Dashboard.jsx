@@ -134,6 +134,7 @@ export default function Dashboard() {
     }
     function fatNo(periodo) {
       return receivable.filter(r => {
+        if (r.status === 'Provisão') return false // provisão não é faturamento até a NF ser emitida
         const ref = r.data?.data_competencia || r.due
         return ref && ref >= periodo.ini && ref <= periodo.fim
       }).reduce((a, r) => a + r.value, 0)
