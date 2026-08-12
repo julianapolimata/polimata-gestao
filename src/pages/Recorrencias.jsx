@@ -7,6 +7,7 @@ import { showToast } from '../components/Toast'
 import ModalRecorrencia from './components/ModalRecorrencia'
 import { fmtMoney, fmtDate } from '../lib/finance'
 import { FREQUENCIAS, proximaOcorrencia, valorMensalEquivalente } from '../lib/recorrencias'
+import { gerarProvisoesDoMes } from '../lib/gerarRecorrencias'
 
 // =====================================================================
 // RECORRÊNCIAS — mestre por série (não gera 12 linhas). Aqui é o cadastro
@@ -23,6 +24,7 @@ export default function Recorrencias() {
   const [erro, setErro] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
+  const [gerando, setGerando] = useState(false)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -48,6 +50,21 @@ export default function Recorrencias() {
     }
     return { receita, despesa, saldo: receita - despesa }
   }, [rows])
+
+  async function gerar() {
+    if (!user) return
+    setGerando(true)
+    try {
+      const { criadas } = await gerarProvisoesDoMes(user.id)
+      if (criadas > 0) showToast(`${criadas} provisão(ões) do mês criada(s) — veja em Contas a Receber/Pagar.`, 'success')
+      else showToast('Nenhuma provisão nova — as deste mês já estão criadas.', 'info')
+      carregar()
+    } catch (e) {
+      showToast('Erro ao gerar provisões: ' + (e?.message || e), 'error')
+    } finally {
+      setGerando(false)
+    }
+  }
 
   function nova() { setEdicao(null); setModalOpen(true) }
   function editar(r) { setEdicao(r); setModalOpen(true) }
@@ -77,7 +94,14 @@ export default function Recorrencias() {
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy)' }}>Recorrências cadastradas</div>
             <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }}>Cada uma projeta as próximas ocorrências no Fluxo — sem gerar 12 linhas soltas.</div>
           </div>
-          <button type="button" onClick={nova} style={btnNovo}>+ Nova recorrência</button>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+            {rows.length > 0 && (
+              <button type="button" onClick={gerar} disabled={gerando} style={btnGhost} title="Cria os lançamentos de Provisão deste mês a partir das recorrências ativas">
+                {gerando ? 'Gerando…' : 'Gerar provisões do mês'}
+              </button>
+            )}
+            <button type="button" onClick={nova} style={btnNovo}>+ Nova recorrência</button>
+          </div>
         </div>
 
         {rows.length === 0 ? (
@@ -158,6 +182,7 @@ const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
 const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', borderBottom: '1px solid var(--cream-dark)', verticalAlign: 'middle' }
 const btnNovo = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', textTransform: 'uppercase', flexShrink: 0 }
+const btnGhost = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, letterSpacing: 0.5, cursor: 'pointer', flexShrink: 0 }
 const btnMini = { padding: '6px 12px', borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
 const badgeAtivo = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(204,145,94,0.14)', color: 'var(--gold-dark)', padding: '3px 9px', borderRadius: 999 }
 const badgeInativo = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', background: 'rgba(0,0,0,0.05)', color: 'var(--text-mid)', padding: '3px 9px', borderRadius: 999 }

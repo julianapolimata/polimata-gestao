@@ -100,6 +100,8 @@ export default function DRE() {
       return reg.data?.data_competencia || reg.due || reg.created || null
     }
     function processa(reg, tipoFin) {
+      // Provisão é previsão, não fato — não entra no DRE até ser realizada (NF emitida).
+      if (reg.data?.status === 'Provisão') return
       const ref = dataCompetenciaDe(reg)
       if (!ref || !ref.startsWith(ano)) return
       const m = parseInt(ref.substring(5, 7), 10) - 1

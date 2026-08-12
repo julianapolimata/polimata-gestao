@@ -22,6 +22,7 @@ function fmtData(s) {
 function statusCfg(status) {
   const s = (status || '').toLowerCase()
   if (s === 'pago') return { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
+  if (s === 'provisão' || s === 'provisao') return { label: 'Provisão', bg: 'rgba(29,59,92,0.10)', color: 'var(--navy-light)' }
   if (s === 'atrasado') return { label: 'Atrasado', bg: 'rgba(231,76,60,0.10)', color: 'var(--red)' }
   return { label: 'Pendente', bg: 'rgba(230,126,34,0.10)', color: 'var(--orange)' }
 }
@@ -176,6 +177,7 @@ export default function Pagar() {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {[
                 { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
+                { key: 'Provisão', label: 'Provisão', color: 'var(--navy-light)', bg: 'rgba(29,59,92,0.10)' },
                 { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
                 { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
                 { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
