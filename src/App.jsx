@@ -23,6 +23,7 @@ import Conciliacao from './pages/Conciliacao'
 import ImportarNFs from './pages/ImportarNFs'
 import SimplesNacional from './pages/SimplesNacional'
 import NfseConfig from './pages/NfseConfig'
+import Recorrencias from './pages/Recorrencias'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -57,7 +58,7 @@ export default function App() {
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
           <Route path="/simples-nacional" element={<ProtectedRoute><SimplesNacional /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><ImportarNFs /></ProtectedRoute>} />
-          <Route path="/recorrencias" element={<ProtectedRoute><EmConstrucaoModulo titulo="Recorrências" descricao="Lançamentos mestre com projeção automática mensal." /></ProtectedRoute>} />
+          <Route path="/recorrencias" element={<ProtectedRoute><Recorrencias /></ProtectedRoute>} />
           <Route path="/cartoes" element={<ProtectedRoute><Cartoes /></ProtectedRoute>} />
           <Route path="/contas-bancarias" element={<ProtectedRoute><ContasBancarias /></ProtectedRoute>} />
           <Route path="/emprestimos" element={<ProtectedRoute><Emprestimos /></ProtectedRoute>} />
