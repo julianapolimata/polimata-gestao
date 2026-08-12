@@ -125,7 +125,7 @@ export default function ModalCartao({ open, onClose, registro, onSaved }) {
 
       <div style={{ marginTop: 12 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600 }}>
-          <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--green)' }} />
+          <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
           Cartão ativo
         </label>
       </div>
