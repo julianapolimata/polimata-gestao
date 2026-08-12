@@ -89,6 +89,21 @@ export default function DRE() {
     return m
   }, [plano])
 
+  // Mapa mais específico: classificação por (tipo|categoria|subcategoria). Usado
+  // quando a subcategoria muda a classificação dentro da mesma categoria — ex.:
+  // numa parcela de empréstimo, "Juros" vai pra Despesas Financeiras (entra no
+  // DRE) e "Amortização do principal" fica fora. Sem isto, o DRE só olhava a
+  // categoria e não conseguia separar os dois.
+  const catSubToClass = useMemo(() => {
+    const m = new Map()
+    for (const p of plano) {
+      if (p.categoria && p.subcategoria && p.classificacao) {
+        m.set(`${p.tipo}|${p.categoria}|${p.subcategoria}`, p.classificacao)
+      }
+    }
+    return m
+  }, [plano])
+
   // ── Agrupa lançamentos: { [classif]: { total, byMes[12], byCat: { [cat]: { total, byMes[12] } } } } ──
   const grupos = useMemo(() => {
     const out = {} // classif → bucket
@@ -108,7 +123,9 @@ export default function DRE() {
       if (m < 0 || m > 11) return
       const cat = reg.data?.cat
       if (!cat) return
-      const classif = catToClass.get(`${tipoFin}|${cat}`)
+      const sub = reg.data?.subcat
+      // Prefere a classificação por subcategoria; cai pra categoria se não houver.
+      const classif = (sub && catSubToClass.get(`${tipoFin}|${cat}|${sub}`)) || catToClass.get(`${tipoFin}|${cat}`)
       if (!classif) return
       const val = Number(reg.value || 0)
       const b = bucket(classif)
@@ -121,7 +138,7 @@ export default function DRE() {
     receivable.forEach(r => processa(r, 'Entrada'))
     payable.forEach(r => processa(r, 'Saída'))
     return out
-  }, [receivable, payable, catToClass, ano])
+  }, [receivable, payable, catToClass, catSubToClass, ano])
 
   // ── Calcula linhas do DRE ────────────────────────────────────────────
   const linhas = useMemo(() => {
