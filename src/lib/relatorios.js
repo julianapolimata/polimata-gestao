@@ -4,6 +4,7 @@
 // SOB DEMANDA (import dinâmico) — só baixam quando a usuária exporta.
 // =============================================================================
 import { fmtMoney, fmtDate, flatten } from './finance'
+import { computeDRE, computeFluxoAnual } from './dre'
 
 const BRAND = {
   navy: '#00203E',
@@ -35,11 +36,57 @@ function noPeriodo(dateStr, de, ate) {
   return (!de || dateStr >= de) && (!ate || dateStr <= ate)
 }
 
-export function construirRelatorio(tipo, { receivable = [], payable = [], de, ate }) {
-  if (tipo === 'receber') return relLancamentos('Contas a Receber', receivable.map(flatten), 'client', de, ate)
-  if (tipo === 'pagar') return relLancamentos('Contas a Pagar', payable.map(flatten), 'supplier', de, ate)
-  if (tipo === 'movimento') return relMovimento(receivable.map(flatten), payable.map(flatten), de, ate)
+const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+function fmtCel(v) {
+  return v ? Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+}
+
+export function construirRelatorio(tipo, { receivable = [], payable = [], plano = [], recurringMasters = [], de, ate, ano }) {
+  const rec = receivable.map(flatten)
+  const pay = payable.map(flatten)
+  if (tipo === 'receber') return relLancamentos('Contas a Receber', rec, 'client', de, ate)
+  if (tipo === 'pagar') return relLancamentos('Contas a Pagar', pay, 'supplier', de, ate)
+  if (tipo === 'movimento') return relMovimento(rec, pay, de, ate)
+  if (tipo === 'dre_realizado') return relDRE(computeDRE({ receivable: rec, payable: pay, plano, ano }), ano, false)
+  if (tipo === 'dre_projetado') return relDRE(computeDRE({ receivable: rec, payable: pay, plano, ano, incluirProvisao: true, recurringMasters, incluirProjecao: true }), ano, true)
+  if (tipo === 'fluxo') return relFluxo(computeFluxoAnual({ receivable: rec, payable: pay, recurringMasters, ano }), ano)
   return { titulo: 'Relatório', colunas: [], linhas: [], totais: {} }
+}
+
+function colunasMensais(labelPrimeira) {
+  return [
+    { header: labelPrimeira, align: 'left', largura: 170 },
+    ...MESES_CURTO.map(m => ({ header: m, align: 'right', largura: 44 })),
+    { header: 'Total', align: 'right', largura: 62 },
+  ]
+}
+
+function relDRE(linhas, ano, projetado) {
+  return {
+    titulo: `DRE Gerencial — ${projetado ? 'Projetado' : 'Realizado'}`,
+    ano,
+    nota: projetado ? 'Valores em R$. Inclui provisões e projeção de recorrências.' : 'Valores em R$. Somente realizado (regime de competência).',
+    colunas: colunasMensais('Linha'),
+    linhas: linhas.map(l => [l.label, ...l.byMes.map(fmtCel), fmtCel(l.total)]),
+    totais: null,
+  }
+}
+
+function relFluxo(fx, ano) {
+  const soma = arr => arr.reduce((s, v) => s + v, 0)
+  return {
+    titulo: 'Fluxo de Caixa',
+    ano,
+    nota: 'Valores em R$. Meses passados = realizado; futuros = projeção (vencimentos + recorrências).',
+    colunas: colunasMensais('Fluxo'),
+    linhas: [
+      ['Entradas', ...fx.entradas.map(fmtCel), fmtCel(soma(fx.entradas))],
+      ['Saídas', ...fx.saidas.map(fmtCel), fmtCel(soma(fx.saidas))],
+      ['Saldo do mês', ...fx.saldo.map(fmtCel), fmtCel(soma(fx.saldo))],
+      ['Saldo acumulado', ...fx.acumulado.map(fmtCel), fmtCel(fx.acumulado[11])],
+    ],
+    totais: null,
+  }
 }
 
 function relLancamentos(titulo, rows, parteKey, de, ate) {
@@ -117,7 +164,7 @@ function hojeExtenso() {
 
 function nomeArquivo(rel, de, ate, ext) {
   const slug = rel.titulo.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-')
-  const per = (de || 'inicio') + '_' + (ate || 'fim')
+  const per = rel.ano ? String(rel.ano) : `${de || 'inicio'}_${ate || 'fim'}`
   return `polimata_${slug}_${per}.${ext}`
 }
 
@@ -150,8 +197,18 @@ export async function exportarPDF(rel, { de, ate } = {}) {
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor('#E0D9CC')
-  doc.text(`Período: ${periodoLabel(de, ate)}`, W - 40, 44, { align: 'right' })
+  doc.text(rel.ano ? `Ano ${rel.ano}` : `Período: ${periodoLabel(de, ate)}`, W - 40, 44, { align: 'right' })
   doc.text(`Emitido em ${hojeExtenso()}`, W - 40, 56, { align: 'right' })
+
+  let tableStart = 84
+  if (rel.nota) {
+    doc.setFont('helvetica', 'italic')
+    doc.setFontSize(7.5)
+    doc.setTextColor(BRAND.textMid)
+    doc.text(rel.nota, 40, 82)
+    doc.setFont('helvetica', 'normal')
+    tableStart = 94
+  }
 
   const foot = rel.totais ? [(() => {
     const row = new Array(rel.colunas.length).fill('')
@@ -161,7 +218,7 @@ export async function exportarPDF(rel, { de, ate } = {}) {
   })()] : undefined
 
   autoTable(doc, {
-    startY: 84,
+    startY: tableStart,
     head: [rel.colunas.map(c => c.header)],
     body: rel.linhas.length ? rel.linhas : [['—', ...rel.colunas.slice(1).map(() => '')]],
     foot,
@@ -203,7 +260,7 @@ export async function exportarExcel(rel, { de, ate } = {}) {
 
   ws.mergeCells(2, 1, 2, nCols)
   const sub = ws.getCell(2, 1)
-  sub.value = `Período: ${periodoLabel(de, ate)}  ·  Emitido em ${hojeExtenso()}  ·  CNPJ ${EMPRESA.cnpj}`
+  sub.value = `${rel.ano ? 'Ano ' + rel.ano : 'Período: ' + periodoLabel(de, ate)}  ·  Emitido em ${hojeExtenso()}  ·  CNPJ ${EMPRESA.cnpj}${rel.nota ? '  ·  ' + rel.nota : ''}`
   sub.font = { size: 9, color: { argb: 'FF5A6A7A' } }
 
   // Cabeçalho (navy)
