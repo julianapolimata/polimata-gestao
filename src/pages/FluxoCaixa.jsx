@@ -4,6 +4,7 @@ import AppLayout from '../components/AppLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fmtMoney, flatten, calcularProjecaoFutura } from '../lib/finance'
+import { projetarRecorrencias } from '../lib/recorrencias'
 import FluxoMatricial from './components/FluxoMatricial'
 
 // =====================================================================
@@ -21,6 +22,7 @@ export default function FluxoCaixa() {
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])
   const [contracts, setContracts] = useState([])
+  const [recurringMasters, setRecurringMasters] = useState([])
   const [loading, setLoading] = useState(true)
   const [modo, setModo] = useState('projetado_6')
   const [tipoChart, setTipoChart] = useState('waterfall')
@@ -37,11 +39,13 @@ export default function FluxoCaixa() {
       supabase.from('receivable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('contracts').select('id,codigo,data,created_at,updated_at'),
-    ]).then(([rRec, rPay, rCon]) => {
+      supabase.from('recurring_masters').select('*'),
+    ]).then(([rRec, rPay, rCon, rRm]) => {
       if (cancelled) return
       setReceivable((rRec.data || []).map(flatten))
       setPayable((rPay.data || []).map(flatten))
       setContracts((rCon.data || []).map(flatten))
+      setRecurringMasters(rRm.data || [])
       setLoading(false)
     })
     return () => { cancelled = true }
@@ -88,13 +92,25 @@ export default function FluxoCaixa() {
       if (m >= 0 && m < 12) saidasByMonth[m] += r.value
     })
     const curMonth = String(new Date().getFullYear()) === ano ? new Date().getMonth() : 11
+    // Projeção = base (lançamentos futuros + contratos) + recorrências futuras.
+    // As recorrências projetam a partir do PRÓXIMO mês, então não colidem com as
+    // provisões já materializadas do mês corrente (que ficam no lado realizado).
+    function projComRec(nMeses) {
+      const p = calcularProjecaoFutura(nMeses, { receivable, payable, contracts })
+      const rec = projetarRecorrencias(recurringMasters, nMeses)
+      return {
+        labels: p.labels,
+        entradas: p.entradas.map((v, i) => v + rec.entradas[i]),
+        saidas: p.saidas.map((v, i) => v + rec.saidas[i]),
+      }
+    }
     let labels, dataIn, dataOut
     if (modo === 'realizado') {
       labels = MES_CURTO.slice(0, curMonth + 1)
       dataIn = entriesByMonth.slice(0, curMonth + 1)
       dataOut = saidasByMonth.slice(0, curMonth + 1)
     } else if (modo === 'ambos') {
-      const proj = calcularProjecaoFutura(6, { receivable, payable, contracts })
+      const proj = projComRec(6)
       labels = [
         ...MES_CURTO.slice(0, curMonth + 1).map(m => `${m}/${ano.slice(2)} ✓`),
         ...proj.labels.map(l => `${l} →`),
@@ -103,14 +119,14 @@ export default function FluxoCaixa() {
       dataOut = [...saidasByMonth.slice(0, curMonth + 1), ...proj.saidas]
     } else {
       const n = { projetado_3: 3, projetado_6: 6, projetado_12: 12 }[modo] || 6
-      const proj = calcularProjecaoFutura(n, { receivable, payable, contracts })
+      const proj = projComRec(n)
       labels = proj.labels
       dataIn = proj.entradas
       dataOut = proj.saidas
     }
     const dataSaldo = dataIn.map((e, i) => e - dataOut[i])
     return { labels, dataIn, dataOut, dataSaldo }
-  }, [receivable, payable, contracts, ano, modo])
+  }, [receivable, payable, contracts, recurringMasters, ano, modo])
 
   // ── Chart.js render ──────────────────────────────────────────────────
   useEffect(() => {
