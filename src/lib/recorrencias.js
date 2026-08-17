@@ -70,3 +70,30 @@ export function valorMensalEquivalente(mestre) {
   if (d.ativo === false) return 0
   return (Number(d.valor) || 0) / mesesDe(d.frequencia)
 }
+
+/**
+ * Projeta as ocorrências dos mestres nos próximos `numMeses`, a partir do
+ * PRÓXIMO mês (alinhado com calcularProjecaoFutura). Retorna {entradas, saidas}
+ * por mês. Não materializa nada — é previsão pura pro Fluxo de Caixa.
+ */
+export function projetarRecorrencias(masters, numMeses) {
+  const entradas = new Array(numMeses).fill(0)
+  const saidas = new Array(numMeses).fill(0)
+  const hoje = new Date()
+  for (const mestre of (masters || [])) {
+    const d = dadosDe(mestre)
+    if (d.ativo === false) continue
+    const valor = Number(d.valor) || 0
+    if (!valor) continue
+    const isReceita = d.tipo !== 'despesa'
+    for (let i = 0; i < numMeses; i++) {
+      const alvo = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+      const y = alvo.getFullYear()
+      const mo = String(alvo.getMonth() + 1).padStart(2, '0')
+      const ultimo = new Date(y, alvo.getMonth() + 1, 0).getDate()
+      const n = ocorrenciasEntre(mestre, `${y}-${mo}-01`, `${y}-${mo}-${String(ultimo).padStart(2, '0')}`).length
+      if (n) { if (isReceita) entradas[i] += n * valor; else saidas[i] += n * valor }
+    }
+  }
+  return { entradas, saidas }
+}
