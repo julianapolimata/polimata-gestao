@@ -8,6 +8,8 @@ import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
 import { getDocStatus } from '../lib/finance'
+import { proximoCodigoReceivable } from '../lib/codigos'
+import { promoverProvisao } from '../lib/gerarRecorrencias'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -138,11 +140,21 @@ export default function Receber() {
       return
     }
     const merged = { ...(row.data || {}), status: 'Recebido', data_pagamento: dataPag }
-    const tabela = 'receivable'
-    const { error } = await supabase.from(tabela).update({ data: merged }).eq('id', row.id)
+    const updates = { data: merged }
+    if (!row.codigo) updates.codigo = await proximoCodigoReceivable() // provisão realizada direto ganha código
+    const { error } = await supabase.from('receivable').update(updates).eq('id', row.id)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast(`Marcado como recebido.`, 'success')
     recarregar()
+  }
+
+  async function confirmarProvisao(row, e) {
+    e?.stopPropagation()
+    try {
+      const codigo = await promoverProvisao(row, 'receivable')
+      showToast(`Provisão confirmada (${codigo}) — agora é Pendente.`, 'success')
+      recarregar()
+    } catch (err) { showToast('Erro: ' + (err?.message || err), 'error') }
   }
 
   async function excluir(row, e) {
@@ -317,6 +329,14 @@ export default function Receber() {
                       }}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
+                      {d.status === 'Provisão' && (
+                        <button
+                          onClick={e => confirmarProvisao(item, e)}
+                          title="Confirmar provisão (vira Pendente — ex: NF emitida)"
+                          style={{ ...btnExcluir, color: 'var(--gold)', fontSize: 15, fontWeight: 700 }}
+                          aria-label="Confirmar provisão"
+                        >⬆</button>
+                      )}
                       <button
                         onClick={e => marcarLiquidado(item, e)}
                         title="Marcar como recebido"

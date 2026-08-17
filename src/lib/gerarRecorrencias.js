@@ -10,6 +10,7 @@
 import { supabase } from './supabase'
 import { ocorrenciasEntre } from './recorrencias'
 import { today } from './finance'
+import { proximoCodigoReceivable, proximoCodigoPayable } from './codigos'
 
 export async function gerarProvisoesDoMes(userId) {
   if (!userId) return { criadas: 0 }
@@ -78,4 +79,16 @@ export async function gerarProvisoesDoMes(userId) {
     criadas += novosPay.length
   }
   return { criadas }
+}
+
+// Promove uma provisão a lançamento real (Pendente): atribui código sequencial
+// e muda o status. Use quando o fato acontece (NF emitida / conta confirmada).
+export async function promoverProvisao(row, tabela) {
+  const codigo = tabela === 'receivable'
+    ? await proximoCodigoReceivable()
+    : await proximoCodigoPayable()
+  const merged = { ...(row.data || {}), status: 'Pendente' }
+  const { error } = await supabase.from(tabela).update({ codigo, data: merged }).eq('id', row.id)
+  if (error) throw error
+  return codigo
 }
