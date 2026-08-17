@@ -8,6 +8,8 @@ import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
 import { getDocStatus } from '../lib/finance'
+import { proximoCodigoPayable } from '../lib/codigos'
+import { promoverProvisao } from '../lib/gerarRecorrencias'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -136,11 +138,21 @@ export default function Pagar() {
       return
     }
     const merged = { ...(row.data || {}), status: 'Pago', data_pagamento: dataPag }
-    const tabela = 'payable'
-    const { error } = await supabase.from(tabela).update({ data: merged }).eq('id', row.id)
+    const updates = { data: merged }
+    if (!row.codigo) updates.codigo = await proximoCodigoPayable() // provisão realizada direto ganha código
+    const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast(`Marcado como pago.`, 'success')
     recarregar()
+  }
+
+  async function confirmarProvisao(row, e) {
+    e?.stopPropagation()
+    try {
+      const codigo = await promoverProvisao(row, 'payable')
+      showToast(`Provisão confirmada (${codigo}) — agora é Pendente.`, 'success')
+      recarregar()
+    } catch (err) { showToast('Erro: ' + (err?.message || err), 'error') }
   }
 
   async function excluir(row, e) {
@@ -315,6 +327,14 @@ export default function Pagar() {
                       }}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
+                      {d.status === 'Provisão' && (
+                        <button
+                          onClick={e => confirmarProvisao(item, e)}
+                          title="Confirmar provisão (vira Pendente — ex: conta recebida)"
+                          style={{ ...btnExcluir, color: 'var(--gold)', fontSize: 15, fontWeight: 700 }}
+                          aria-label="Confirmar provisão"
+                        >⬆</button>
+                      )}
                       <button
                         onClick={e => marcarLiquidado(item, e)}
                         title="Marcar como pago"
