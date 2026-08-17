@@ -7,6 +7,8 @@ import { supabase } from '../lib/supabase'
 import {
   fmtMoney, flatten, isOverdue, getDocStatus, inMonth, monthLabels, today,
 } from '../lib/finance'
+import { fetchPlanoContas } from '../lib/planoContas'
+import { calcMRR, calcDespesaRecorrente, calcInadimplencia, calcMargem, calcLiquidez, calcConcentracao } from '../lib/indicadores'
 
 // =====================================================================
 // PAINEL FINANCEIRO — 4 KPIs enxutos decididos na auditoria 26/abr/2026:
@@ -26,6 +28,10 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])
+  const [recurringMasters, setRecurringMasters] = useState([])
+  const [plano, setPlano] = useState([])
+  const [painelCfg, setPainelCfg] = useState(null)
+  const [metaMeses, setMetaMeses] = useState(6)
   const [loading, setLoading] = useState(true)
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
@@ -39,10 +45,18 @@ export default function Dashboard() {
     Promise.all([
       supabase.from('receivable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path'),
-    ]).then(([rRec, rPay]) => {
+      supabase.from('recurring_masters').select('*'),
+      supabase.from('painel_config').select('*').limit(1),
+      fetchPlanoContas(),
+    ]).then(([rRec, rPay, rRm, rCfg, planoData]) => {
       if (cancelled) return
       setReceivable((rRec.data || []).map(flatten))
       setPayable((rPay.data || []).map(flatten))
+      setRecurringMasters(rRm.data || [])
+      const cfg = rCfg.data?.[0] || null
+      setPainelCfg(cfg)
+      if (cfg?.data?.meta_icc_meses != null) setMetaMeses(Number(cfg.data.meta_icc_meses))
+      setPlano(planoData || [])
       setLoading(false)
     })
     return () => { cancelled = true }
@@ -152,6 +166,59 @@ export default function Dashboard() {
     return { valAtual, valPassado, variacao, ultimos6, labelMesAtual: atual.label }
   }, [receivable])
 
+  // ── Indicadores de mercado ───────────────────────────────────────────
+  const anoAtual = String(new Date().getFullYear())
+
+  // Burn mensal (mesma regra do ICC): gasto pago médio dos últimos meses.
+  const burnMensal = useMemo(() => {
+    const hoje = new Date()
+    const tresMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - 3, hoje.getDate())
+    const pagos = payable.filter(r => {
+      if (r.status !== 'Pago') return false
+      const ref = r.data?.data_pagamento || r.due || r.created || today()
+      return new Date(ref + 'T12:00:00') >= tresMesesAtras
+    })
+    const total = pagos.reduce((a, r) => a + r.value, 0)
+    let meses = 3
+    const refs = pagos.map(r => r.data?.data_pagamento || r.due || r.created).filter(Boolean).sort()
+    if (refs.length) {
+      const primeira = new Date(refs[0] + 'T12:00:00')
+      meses = Math.min(3, Math.max(1, (hoje.getFullYear() - primeira.getFullYear()) * 12 + (hoje.getMonth() - primeira.getMonth()) + 1))
+    }
+    return total / meses
+  }, [payable])
+
+  const resumoCaixa = useMemo(() => {
+    const aReceber = receivable.filter(r => r.status !== 'Recebido' && r.status !== 'Provisão').reduce((a, r) => a + r.value, 0)
+    const aPagar = payable.filter(r => r.status !== 'Pago' && r.status !== 'Provisão').reduce((a, r) => a + r.value, 0)
+    return { aReceber, aPagar, resultado: caixaAtual + aReceber - aPagar }
+  }, [receivable, payable, caixaAtual])
+
+  const metaICC = useMemo(() => {
+    const alvo = (Number(metaMeses) || 0) * burnMensal
+    return { alvo, gap: alvo - caixaAtual, mesesAtuais: burnMensal > 0 ? caixaAtual / burnMensal : null }
+  }, [metaMeses, burnMensal, caixaAtual])
+
+  const mrr = useMemo(() => calcMRR(recurringMasters), [recurringMasters])
+  const despRec = useMemo(() => calcDespesaRecorrente(recurringMasters), [recurringMasters])
+  const inadimplencia = useMemo(() => calcInadimplencia(receivable), [receivable])
+  const margem = useMemo(() => calcMargem(receivable, payable, plano, anoAtual), [receivable, payable, plano, anoAtual])
+  const liquidez = useMemo(() => calcLiquidez(receivable, payable, 30), [receivable, payable])
+  const concentracao = useMemo(() => calcConcentracao(receivable), [receivable])
+
+  async function salvarMeta(nova) {
+    const val = Math.max(0, Number(nova) || 0)
+    setMetaMeses(val)
+    if (!user) return
+    const data = { ...(painelCfg?.data || {}), meta_icc_meses: val }
+    if (painelCfg?.id) {
+      await supabase.from('painel_config').update({ data }).eq('id', painelCfg.id)
+    } else {
+      const { data: ins } = await supabase.from('painel_config').insert({ user_id: user.id, data }).select('*').single()
+      if (ins) setPainelCfg(ins)
+    }
+  }
+
   // ── KPI 4: Próximas a Pagar (top 5) ─────────────────────────────────
   const proximasPagar = useMemo(() => {
     const hojeISO = today()
@@ -257,6 +324,38 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+
+      {/* Resumo de caixa — linguagem natural */}
+      <div style={narrativaCard}>
+        <div style={narrativaLabel}>Sua situação de caixa</div>
+        <div style={{ fontSize: 16, lineHeight: 1.65, color: '#fff' }}>
+          Você tem <strong>{fmtMoney(caixaAtual)}</strong> em caixa,{' '}
+          <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aReceber)}</strong> a receber e{' '}
+          <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aPagar)}</strong> a pagar.{' '}
+          {resumoCaixa.resultado >= 0
+            ? <>Sobram <strong style={{ color: '#7fe0a8' }}>{fmtMoney(resumoCaixa.resultado)}</strong> para aplicar. 💰</>
+            : <>Faltam <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(resumoCaixa.resultado))}</strong> para não ficar no negativo. ⚠️</>}
+        </div>
+      </div>
+
+      {/* Indicadores de mercado */}
+      <div style={indGrid}>
+        <IndCard label="MRR · Receita recorrente/mês" valor={fmtMoney(mrr)} sub={despRec > 0 ? `− ${fmtMoney(despRec)} de despesa recorrente` : 'mensalidades ativas'} />
+        <IndCard label="Inadimplência (a receber vencido)" valor={fmtMoney(inadimplencia.vencido)} sub={`${(inadimplencia.pct * 100).toFixed(0)}% do que está em aberto`} alerta={inadimplencia.vencido > 0} />
+        <IndCard label={`Margem líquida · ${anoAtual}`} valor={margem.pct == null ? '—' : `${(margem.pct * 100).toFixed(1)}%`} sub={margem.pct == null ? 'sem receita ainda' : `${fmtMoney(margem.liquido)} de lucro`} />
+        <IndCard label="Liquidez 30 dias" valor={liquidez.indice == null ? '—' : `${liquidez.indice.toFixed(2)}×`} sub={`${fmtMoney(liquidez.aReceber)} ÷ ${fmtMoney(liquidez.aPagar)}`} />
+        <IndCard label="Maior cliente (concentração)" valor={concentracao.pct > 0 ? `${(concentracao.pct * 100).toFixed(0)}%` : '—'} sub={concentracao.maiorNome !== '—' ? concentracao.maiorNome : `${concentracao.nClientes} cliente(s)`} alerta={concentracao.pct > 0.5} />
+        <div style={indCard}>
+          <div style={indLabel}>Meta de caixa (ICC)</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px' }}>
+            <input type="number" min="0" value={metaMeses} onChange={e => salvarMeta(e.target.value)} style={metaInput} aria-label="Meta de meses de caixa" />
+            <span style={{ fontSize: 13, color: 'var(--text-mid)' }}>meses de caixa</span>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: metaICC.gap > 0 ? 'var(--gold-dark)' : 'var(--green)' }}>
+            {metaICC.gap > 0 ? `Faltam ${fmtMoney(metaICC.gap)} para a meta` : `Meta atingida! ${fmtMoney(-metaICC.gap)} acima`}
+          </div>
+        </div>
+      </div>
 
       {/* 4 KPIs enxutos */}
       <div style={kpiGrid}>
@@ -399,6 +498,24 @@ function Badge({ bg, color, children }) {
 }
 
 // ─── styles ──────────────────────────────────────────────────────────────────
+function IndCard({ label, valor, sub, alerta }) {
+  return (
+    <div style={{ ...indCard, ...(alerta ? { borderTop: '3px solid var(--red)' } : {}) }}>
+      <div style={indLabel}>{label}</div>
+      <div style={indValor}>{valor}</div>
+      {sub && <div style={indSub}>{sub}</div>}
+    </div>
+  )
+}
+
+const narrativaCard = { background: 'linear-gradient(135deg, #00203E 0%, #1D3B5C 100%)', borderRadius: 14, padding: '22px 26px', marginBottom: 18, boxShadow: 'var(--shadow)' }
+const narrativaLabel = { fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--gold-light)', marginBottom: 10 }
+const indGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }
+const indCard = { background: 'var(--white)', borderRadius: 12, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+const indLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6 }
+const indValor = { fontSize: 22, fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--body)' }
+const indSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 3 }
+const metaInput = { width: 56, padding: '5px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 15, fontWeight: 700, color: 'var(--navy)', textAlign: 'center' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const kpiGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }
 const kpiCard = { background: 'var(--white)', borderRadius: 12, padding: 20, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', display: 'flex', flexDirection: 'column' }
