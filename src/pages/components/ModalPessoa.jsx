@@ -68,6 +68,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   const [contatoEmail, setContatoEmail] = useState('')
   const [contatoTel, setContatoTel] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
+  const [retemIss, setRetemIss] = useState(false) // cliente retém ISS na fonte quando você emite NF
 
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [lookupMsg, setLookupMsg] = useState(null)
@@ -108,6 +109,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setContatoEmail(d.contato_email || '')
       setContatoTel(d.contato_telefone || '')
       setLogoUrl(d.logo_url || '')
+      setRetemIss(d.retem_iss === true)
     } else {
       setPessoaTipo(tipo || 'Fornecedor'); setStatusV('Ativo'); setPjpf('PJ')
       setDoc(''); setNome(''); setFantasia(''); setSegmento(''); setPorte(''); setSituacao('')
@@ -115,7 +117,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setLogradouro(''); setBairro(''); setCidade(''); setUf(''); setCep('')
       setBanco(''); setAgencia(''); setConta(''); setNotes('')
       setEtapaFunil('Sondagem'); setOrigem('')
-      setContatoNome(''); setContatoCargo(''); setContatoEmail(''); setContatoTel(''); setLogoUrl('')
+      setContatoNome(''); setContatoCargo(''); setContatoEmail(''); setContatoTel(''); setLogoUrl(''); setRetemIss(false)
     }
   }, [open, isEdit, registro, tipo])
 
@@ -195,6 +197,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         data.contato_telefone = contatoTel.trim()
         data.contato_email = contatoEmail.trim()
         data.logo_url = logoUrl.trim()
+        data.retem_iss = retemIss
       }
 
       const docLimpo = data.doc.replace(/\D/g, '')
@@ -325,6 +328,10 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
               </select>
             </Field>
           </Row>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600, marginTop: 10 }}>
+            <input type="checkbox" checked={retemIss} onChange={e => setRetemIss(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
+            Este cliente retém ISS na fonte (ao emitir NF pra ele, já vem marcado)
+          </label>
         </div>
       )}
 
