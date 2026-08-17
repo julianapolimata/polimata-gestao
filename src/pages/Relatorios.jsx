@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
+import { fetchPlanoContas } from '../lib/planoContas'
 import { construirRelatorio, exportarPDF, exportarExcel } from '../lib/relatorios'
 
 // =====================================================================
@@ -17,7 +18,11 @@ const TIPOS = [
   { v: 'receber', l: 'Contas a Receber' },
   { v: 'pagar', l: 'Contas a Pagar' },
   { v: 'movimento', l: 'Movimento Consolidado' },
+  { v: 'dre_realizado', l: 'DRE Gerencial (Realizado)' },
+  { v: 'dre_projetado', l: 'DRE Gerencial (Projetado)' },
+  { v: 'fluxo', l: 'Fluxo de Caixa (anual)' },
 ]
+const TIPOS_ANUAIS = ['dre_realizado', 'dre_projetado', 'fluxo']
 
 function primeiroDiaMes() {
   const d = new Date()
@@ -38,6 +43,9 @@ export default function Relatorios() {
   const [tipo, setTipo] = useState('receber')
   const [de, setDe] = useState(primeiroDiaMes())
   const [ate, setAte] = useState(ultimoDiaMes())
+  const [ano, setAno] = useState(String(new Date().getFullYear()))
+  const [plano, setPlano] = useState([])
+  const [recurringMasters, setRecurringMasters] = useState([])
   const [exportando, setExportando] = useState(null)
 
   const carregar = useCallback(() => {
@@ -46,20 +54,25 @@ export default function Relatorios() {
     Promise.all([
       supabase.from('receivable').select('*'),
       supabase.from('payable').select('*'),
-    ]).then(([rR, rP]) => {
+      supabase.from('recurring_masters').select('*'),
+      fetchPlanoContas(),
+    ]).then(([rR, rP, rM, planoData]) => {
       if (rR.error || rP.error) { setErro(rR.error || rP.error); setLoading(false); return }
       setErro(null)
       setReceivable(rR.data || [])
       setPayable(rP.data || [])
+      setRecurringMasters(rM.data || [])
+      setPlano(planoData || [])
       setLoading(false)
     }).catch(e => { setErro(e); setLoading(false) })
   }, [user])
 
   useEffect(() => { carregar() }, [carregar])
 
+  const isAnual = TIPOS_ANUAIS.includes(tipo)
   const rel = useMemo(
-    () => construirRelatorio(tipo, { receivable, payable, de: de || null, ate: ate || null }),
-    [tipo, receivable, payable, de, ate],
+    () => construirRelatorio(tipo, { receivable, payable, plano, recurringMasters, de: de || null, ate: ate || null, ano }),
+    [tipo, receivable, payable, plano, recurringMasters, de, ate, ano],
   )
 
   async function baixar(formato) {
@@ -80,6 +93,8 @@ export default function Relatorios() {
   if (erro) return <AppLayout title="Relatórios"><EstadoErro onRetry={carregar} /></AppLayout>
 
   const preview = rel.linhas.slice(0, 12)
+  const anoAtual = new Date().getFullYear()
+  const anosOpcoes = [anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2].map(String)
 
   return (
     <AppLayout title="Relatórios">
@@ -92,14 +107,25 @@ export default function Relatorios() {
               {TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
             </select>
           </div>
-          <div>
-            <label style={labelStyle}>De (vencimento)</label>
-            <input type="date" value={de} onChange={e => setDe(e.target.value)} style={input} />
-          </div>
-          <div>
-            <label style={labelStyle}>Até</label>
-            <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={input} />
-          </div>
+          {isAnual ? (
+            <div>
+              <label style={labelStyle}>Ano</label>
+              <select value={ano} onChange={e => setAno(e.target.value)} style={input}>
+                {anosOpcoes.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label style={labelStyle}>De (vencimento)</label>
+                <input type="date" value={de} onChange={e => setDe(e.target.value)} style={input} />
+              </div>
+              <div>
+                <label style={labelStyle}>Até</label>
+                <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={input} />
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginLeft: 'auto' }}>
             <button type="button" onClick={() => baixar('pdf')} disabled={!!exportando} style={btnPdf}>
               {exportando === 'pdf' ? 'Gerando…' : '⬇ PDF'}
@@ -115,7 +141,7 @@ export default function Relatorios() {
       <div style={tableCard}>
         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--cream-dark)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy)' }}>{rel.titulo}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>{rel.linhas.length} lançamento(s) no período · <strong style={{ color: 'var(--navy)' }}>{rel.totais ? fmtMoney(rel.totais.valor) : ''}</strong></div>
+          <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>{isAnual ? (rel.nota || `Ano ${ano}`) : <>{rel.linhas.length} lançamento(s) no período · <strong style={{ color: 'var(--navy)' }}>{rel.totais ? fmtMoney(rel.totais.valor) : ''}</strong></>}</div>
         </div>
 
         {rel.linhas.length === 0 ? (
