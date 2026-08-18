@@ -32,6 +32,8 @@ export default function ImportarNFs() {
   const [confirmando, setConfirmando] = useState(null) // id do que está sendo processado
   const [rodandoCron, setRodandoCron] = useState(false)
   const [ultimoResultado, setUltimoResultado] = useState(null)
+  const [rodandoBackfill, setRodandoBackfill] = useState(false)
+  const [backfillMsg, setBackfillMsg] = useState(null)
 
   async function rodarCron() {
     setRodandoCron(true)
@@ -62,6 +64,39 @@ export default function ImportarNFs() {
       showToast('Falha: ' + e.message, 'error')
     } finally {
       setRodandoCron(false)
+    }
+  }
+
+  // Backfill one-time: relê anexos dos lançamentos antigos sem data de emissão
+  // e preenche a competência. Roda em lotes até zerar.
+  async function rodarBackfill() {
+    if (!confirm('Reler os anexos das notas antigas que estão sem data de emissão e preencher a competência automaticamente? Pode levar até ~1 minuto.')) return
+    setRodandoBackfill(true)
+    setBackfillMsg('Lendo os anexos…')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
+      let totalOk = 0, totalSemData = 0, restantes = 0
+      for (let i = 0; i < 12; i++) {
+        const r = await fetch('/api/backfill-competencia', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) { showToast('Erro no backfill: ' + (j?.error || `HTTP ${r.status}`), 'error'); break }
+        totalOk += j?.resumo?.ok || 0
+        totalSemData += (j?.resumo?.sem_data || 0) + (j?.resumo?.sem_anexo || 0)
+        restantes = j?.restantes ?? 0
+        setBackfillMsg(`${totalOk} recuperada(s)…${restantes > 0 ? ` (${restantes} restantes)` : ''}`)
+        if (restantes <= 0) break
+      }
+      setBackfillMsg(`Concluído: ${totalOk} competência(s) recuperada(s)${totalSemData ? ` · ${totalSemData} sem data legível no documento` : ''}.`)
+      showToast(`Backfill: ${totalOk} recuperada(s).`, 'success')
+      carregar()
+    } catch (e) {
+      showToast('Falha no backfill: ' + e.message, 'error')
+    } finally {
+      setRodandoBackfill(false)
     }
   }
 
@@ -210,13 +245,23 @@ export default function ImportarNFs() {
             Cron processa emails em <strong>financeiro@polimatagrc.com.br</strong> automaticamente.
             Use o botão se quiser forçar verificação imediata.
           </div>
-          <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
-            {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={rodarBackfill} disabled={rodandoBackfill} title="Relê os anexos das notas antigas que estão sem data de emissão e preenche a competência" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--gold-dark)', background: rodandoBackfill ? 'var(--cream)' : '#fff', color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoBackfill ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
+              {rodandoBackfill ? '⏳ Lendo…' : '📅 Recuperar competências'}
+            </button>
+            <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
+              {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
+            </button>
+          </div>
         </div>
         {ultimoResultado && (
           <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: ultimoResultado.ok ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.08)', borderLeft: `3px solid ${ultimoResultado.ok ? 'var(--green)' : 'var(--red)'}`, color: ultimoResultado.ok ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
             {ultimoResultado.ok ? '✓' : '⚠'} {ultimoResultado.msg}
+          </div>
+        )}
+        {backfillMsg && (
+          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: 'rgba(204,145,94,0.10)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontWeight: 600 }}>
+            📅 {backfillMsg}
           </div>
         )}
         {pendentes.length === 0 ? (
