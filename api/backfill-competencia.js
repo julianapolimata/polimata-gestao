@@ -55,8 +55,9 @@ async function fetchAnthropic(body) {
 async function extrairEmissao(base64, mimeType) {
   const isPdf = String(mimeType || '').includes('pdf');
   const body = {
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-5',
     max_tokens: 300,
+    thinking: { type: 'disabled' },
     messages: [{
       role: 'user',
       content: [
