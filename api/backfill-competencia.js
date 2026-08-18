@@ -51,21 +51,33 @@ async function fetchAnthropic(body) {
   return null;
 }
 
+const INSTRUCAO = 'Extraia SOMENTE a data de emissão deste documento fiscal brasileiro. Procure por "Data de emissão", "Emissão", "Competência", "Data de competência", "Issue date". Responda APENAS com JSON, sem markdown: {"data_emissao": "YYYY-MM-DD"} — ou {"data_emissao": null} se realmente não houver.';
+
+// NFS-e/NF-e em XML: a data está no texto puro. Regex direto (sem IA).
+function emissaoDoXml(xml) {
+  if (!xml) return null;
+  const m = xml.match(/<[\w:]*(?:DataEmissao|DataEmissaoRps|DataCompetencia|Competencia|dhEmi|dEmi|dCompet)[^>]*>\s*(\d{4}-\d{2}-\d{2})/i);
+  return m ? m[1] : null;
+}
+
 // Lê o documento e devolve só a data de emissão (YYYY-MM-DD) ou null.
-async function extrairEmissao(base64, mimeType) {
-  const isPdf = String(mimeType || '').includes('pdf');
-  const body = {
-    model: 'claude-sonnet-5',
-    max_tokens: 300,
-    thinking: { type: 'disabled' },
-    messages: [{
-      role: 'user',
-      content: [
-        { type: isPdf ? 'document' : 'image', source: { type: 'base64', media_type: mimeType || 'application/pdf', data: base64 } },
-        { type: 'text', text: 'Leia este documento fiscal brasileiro (NF-e, NFS-e, DAS, boleto, fatura) e extraia SOMENTE a data de emissão. Procure por "Data de emissão", "Emissão", "Competência", "Data de competência", "Issue date". Responda APENAS com JSON, sem markdown: {"data_emissao": "YYYY-MM-DD"} — ou {"data_emissao": null} se realmente não houver.' }
-      ]
-    }]
-  };
+async function extrairEmissao(anexo) {
+  // XML: tenta regex primeiro (rápido, sem custo); senão manda o texto pra IA.
+  if (anexo.isXml && anexo.text) {
+    const direto = emissaoDoXml(anexo.text);
+    if (direto) return direto;
+  }
+  let content;
+  if (anexo.isXml && anexo.text) {
+    content = [{ type: 'text', text: `${INSTRUCAO}\n\nXML do documento:\n${anexo.text.slice(0, 20000)}` }];
+  } else {
+    const isPdf = String(anexo.mime || '').includes('pdf');
+    content = [
+      { type: isPdf ? 'document' : 'image', source: { type: 'base64', media_type: anexo.mime || 'application/pdf', data: anexo.base64 } },
+      { type: 'text', text: INSTRUCAO }
+    ];
+  }
+  const body = { model: 'claude-sonnet-5', max_tokens: 300, thinking: { type: 'disabled' }, messages: [{ role: 'user', content }] };
   const res = await fetchAnthropic(body);
   if (!res || !res.ok) return null;
   const data = await res.json();
@@ -79,16 +91,24 @@ async function extrairEmissao(base64, mimeType) {
   }
 }
 
-// Recupera o base64 do anexo: inline (data.anexo) ou do Storage (data.anexo_path).
-async function getBase64(row) {
-  if (row.data?.anexo) return { base64: row.data.anexo, mime: row.data.anexoTipo || 'application/pdf' };
-  if (row.data?.anexo_path) {
+// Recupera o anexo: inline (data.anexo) ou do Storage (data.anexo_path).
+// Para XML, também decodifica o texto pra ler a data direto.
+async function getAnexo(row) {
+  const mime = row.data?.anexoTipo || 'application/pdf';
+  let base64 = null;
+  if (row.data?.anexo) {
+    base64 = row.data.anexo;
+  } else if (row.data?.anexo_path) {
     const { data, error } = await getSupabase().storage.from(BUCKET).download(row.data.anexo_path);
     if (error || !data) return null;
-    const buf = Buffer.from(await data.arrayBuffer());
-    return { base64: buf.toString('base64'), mime: row.data.anexoTipo || 'application/pdf' };
+    base64 = Buffer.from(await data.arrayBuffer()).toString('base64');
+  } else {
+    return null;
   }
-  return null;
+  const isXml = /xml/i.test(mime) || String(row.data?.anexoNome || '').toLowerCase().endsWith('.xml');
+  let text = null;
+  if (isXml) { try { text = Buffer.from(base64, 'base64').toString('utf8'); } catch { text = null; } }
+  return { base64, mime, isXml, text };
 }
 
 const precisaBackfill = d =>
@@ -144,13 +164,13 @@ export default async function handler(req, res) {
         if (orcamento <= 0) break;
         orcamento--;
         try {
-          const anexo = await getBase64(row);
+          const anexo = await getAnexo(row);
           if (!anexo) {
             resumo.sem_anexo++;
             if (!dry) await sb.from(tabela).update({ data: { ...row.data, data_competencia_backfill: 'tentado' } }).eq('id', row.id).eq('user_id', uid);
             continue;
           }
-          const emissao = await extrairEmissao(anexo.base64, anexo.mime);
+          const emissao = await extrairEmissao(anexo);
           if (!emissao) {
             resumo.sem_data++;
             if (!dry) await sb.from(tabela).update({ data: { ...row.data, data_competencia_backfill: 'tentado' } }).eq('id', row.id).eq('user_id', uid);
