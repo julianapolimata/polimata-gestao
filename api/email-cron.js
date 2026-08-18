@@ -485,6 +485,8 @@ async function createLancamento(parsed, att, base64) {
       anexoNome: att.filename,
       anexoTipo: att.mimeType,
       sem_documento: false,
+      // competência (data de emissão) vem da NF anexada — salvo se já foi preenchida à mão
+      data_competencia: matchSemDoc.data.data_competencia || (parsed.data_emissao || '').slice(0, 10) || null,
       notes: (matchSemDoc.data.notes || '') + ` · Doc anexado em ${today} via email automático`
     };
     const { error: updErr } = await getSupabase()
