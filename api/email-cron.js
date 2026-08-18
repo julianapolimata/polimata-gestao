@@ -322,14 +322,21 @@ async function fetchAnthropicWithRetry(url, options, maxAttempts = 4) {
 }
 
 async function parseDocumentWithAI(base64, mimeType) {
+  const isXml = /xml/i.test(mimeType || '');
   const isPdf = mimeType === 'application/pdf';
+  // NFS-e/NF-e chegam em XML — mandar como TEXTO (não como imagem, que a IA não lê).
+  let docBlock;
+  if (isXml) {
+    let xml = '';
+    try { xml = Buffer.from(base64, 'base64').toString('utf8').slice(0, 30000); } catch { xml = ''; }
+    docBlock = { type: 'text', text: `Documento fiscal em XML (conteúdo abaixo):\n\n${xml}` };
+  } else {
+    docBlock = { type: isPdf ? 'document' : 'image', source: { type: 'base64', media_type: mimeType, data: base64 } };
+  }
   const messages = [{
     role: 'user',
     content: [
-      {
-        type: isPdf ? 'document' : 'image',
-        source: { type: 'base64', media_type: mimeType, data: base64 }
-      },
+      docBlock,
       {
         type: 'text',
         text: `Você é um leitor especialista em documentos fiscais e financeiros brasileiros. Identifique se este documento é NF-e, NFS-e, DAS, DARF, GPS, GNRE, Boleto ou Fatura.
