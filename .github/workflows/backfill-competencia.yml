@@ -1,0 +1,36 @@
+name: Backfill Competência (one-time) — Polímata Gestão
+
+# Rodada MANUAL única: relê os anexos dos lançamentos importados sem data de
+# emissão e preenche data_competencia via IA. Aciona em Actions → Run workflow.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Rodar backfill em lotes até zerar
+        run: |
+          for i in $(seq 1 10); do
+            response=$(curl -sS -X POST "https://polimata-gestao.vercel.app/api/backfill-competencia" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -H "Content-Type: application/json" \
+              -w "\n---HTTP_CODE---\n%{http_code}" \
+              --max-time 120)
+            status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
+            body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
+            echo "== Lote $i == Status: $status"
+            echo "$body"
+            if [ "$status" -ge 400 ] || [ -z "$status" ]; then
+              echo "::error::Backfill falhou com HTTP $status"
+              exit 1
+            fi
+            restantes=$(echo "$body" | grep -o '"restantes":[0-9]*' | head -1 | grep -o '[0-9]*')
+            if [ "$restantes" = "0" ]; then
+              echo "Backfill concluído — 0 restantes."
+              break
+            fi
+            sleep 3
+          done
