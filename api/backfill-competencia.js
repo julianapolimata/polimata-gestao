@@ -95,10 +95,34 @@ const precisaBackfill = d =>
 
 export default async function handler(req, res) {
   try {
+    // CORS: só a origem própria do app (chamado do botão no front).
+    const origin = req.headers.origin || '';
+    const allowedOrigins = new Set([
+      'https://gestao.polimatagrc.com.br',
+      'https://polimata-gestao.vercel.app',
+    ]);
+    if (allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+
+    // Auth: aceita CRON_SECRET (server-to-server) ou JWT do usuário Polímata.
     const auth = req.headers.authorization || '';
     const cronSecret = process.env.CRON_SECRET;
-    if (!cronSecret) return res.status(500).json({ error: 'CRON_SECRET ausente no servidor' });
-    if (auth !== `Bearer ${cronSecret}`) return res.status(401).json({ error: 'Unauthorized' });
+    if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = auth.slice(7);
+    if (!(cronSecret && token === cronSecret)) {
+      try {
+        const { data: { user }, error } = await getSupabase().auth.getUser(token);
+        if (error || !user) return res.status(401).json({ error: 'Unauthorized' });
+        if (user.id !== process.env.POLIMATA_USER_ID) return res.status(403).json({ error: 'Forbidden' });
+      } catch {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
 
     const uid = process.env.POLIMATA_USER_ID;
     if (!uid) return res.status(500).json({ error: 'POLIMATA_USER_ID ausente' });
