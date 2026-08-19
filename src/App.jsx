@@ -25,6 +25,7 @@ import SimplesNacional from './pages/SimplesNacional'
 import NfseConfig from './pages/NfseConfig'
 import Recorrencias from './pages/Recorrencias'
 import Relatorios from './pages/Relatorios'
+import FechamentoMensal from './pages/FechamentoMensal'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
           <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />
           <Route path="/dre" element={<ProtectedRoute><DRE /></ProtectedRoute>} />
+          <Route path="/fechamento-mensal" element={<ProtectedRoute><FechamentoMensal /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
           <Route path="/nfse-config" element={<ProtectedRoute><NfseConfig /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
