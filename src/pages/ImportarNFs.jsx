@@ -54,9 +54,18 @@ export default function ImportarNFs() {
         showToast('Erro: ' + msg, 'error')
         return
       }
-      setUltimoResultado({ ok: true, msg: j?.message || JSON.stringify(j).slice(0, 200), data: j })
-      const novas = j?.processed || j?.nfsCriadas || 0
-      showToast(novas > 0 ? `${novas} novas NFs na fila` : 'Cron rodou — nada novo no email', 'success')
+      const found = j?.found ?? 0
+      const novas = j?.processed ?? j?.nfsCriadas ?? 0
+      const errs = j?.errors ?? 0
+      let msg
+      if (found === 0) {
+        msg = 'Nenhuma nota nova no e-mail — está tudo em dia.'
+      } else {
+        msg = `Verifiquei o e-mail: ${found} documento(s) encontrado(s), ${novas} nova(s) na fila.`
+        if (errs > 0) msg += ` ${errs} com erro — veja no Histórico.`
+      }
+      setUltimoResultado({ ok: errs === 0, msg, data: j })
+      showToast(novas > 0 ? `${novas} nova(s) NF(s) na fila` : 'Robô rodou — nada novo no e-mail', errs > 0 ? 'warning' : 'success')
       carregar()
     } catch (e) {
       console.error(e)
