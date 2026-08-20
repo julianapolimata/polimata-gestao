@@ -432,10 +432,13 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
 
   return (
     <>
-      <div onClick={onToggle} style={{ ...rowGrid, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, borderBottom: '1px solid var(--cream-dark)' }}>
+      <div onClick={onToggle} style={{ ...rowGrid, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, borderBottom: '1px solid var(--cream-dark)', borderLeft: extrato.data?.revisar ? '3px solid var(--gold-dark)' : '3px solid transparent' }}>
         <div style={cell}>{fmtDataBR(data)}</div>
         <div style={{ ...cell, minWidth: 0 }}>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{desc}</div>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+            {extrato.data?.revisar && <span title={extrato.data?.revisar_motivo || 'Conferir'} style={{ display: 'inline-block', marginRight: 6, background: 'rgba(204,145,94,0.18)', color: 'var(--gold-dark)', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, verticalAlign: 'middle' }}>⚠️ REVISAR</span>}
+            {desc}
+          </div>
           {cnpj && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {cnpj}</div>}
         </div>
         <div style={{ ...cell, textAlign: 'right', fontWeight: 700, color: corValor, fontSize: 13 }}>
@@ -448,6 +451,11 @@ function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVin
       </div>
       {expandido && (
         <div style={{ background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)', padding: '14px 18px' }}>
+          {extrato.data?.revisar && (
+            <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontSize: 12, fontWeight: 600 }}>
+              ⚠️ A revisar: {extrato.data?.revisar_motivo}
+            </div>
+          )}
           <div>
             {status === 'pendente' ? (
               <>
