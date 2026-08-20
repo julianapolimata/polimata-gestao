@@ -206,6 +206,16 @@ export default function Dashboard() {
   const liquidez = useMemo(() => calcLiquidez(receivable, payable, 30), [receivable, payable])
   const concentracao = useMemo(() => calcConcentracao(receivable), [receivable])
 
+  // ── Cockpit de decisão (cards do Início) ─────────────────────────────
+  const despesaMes = useMemo(() => {
+    const hoje = new Date()
+    return payable
+      .filter(r => r.status !== 'Pago' && r.status !== 'Provisão' && inMonth(r.due, hoje.getFullYear(), hoje.getMonth()))
+      .reduce((a, r) => a + r.value, 0)
+  }, [payable])
+  const custoVariavel = Math.max(0, burnMensal - despRec)
+  const necessidadeReceita = Math.max(0, despesaMes - faturamento.valAtual)
+
   async function salvarMeta(nova) {
     const val = Math.max(0, Number(nova) || 0)
     setMetaMeses(val)
@@ -310,13 +320,13 @@ export default function Dashboard() {
   }, [faturamento])
 
   if (loading) return (
-    <AppLayout title="Painel Financeiro">
+    <AppLayout title="Início">
       <div style={emptyState}>Carregando…</div>
     </AppLayout>
   )
 
   return (
-    <AppLayout title="Painel Financeiro">
+    <AppLayout title="Início">
       {alerts.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           {alerts.map((a, i) => (
@@ -338,23 +348,31 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Indicadores de mercado */}
+      {/* Cockpit de decisão — o que você olha primeiro, todo dia */}
       <div style={indGrid}>
-        <IndCard label="MRR · Receita recorrente/mês" valor={fmtMoney(mrr)} sub={despRec > 0 ? `− ${fmtMoney(despRec)} de despesa recorrente` : 'mensalidades ativas'} />
-        <IndCard label="Inadimplência (a receber vencido)" valor={fmtMoney(inadimplencia.vencido)} sub={`${(inadimplencia.pct * 100).toFixed(0)}% do que está em aberto`} alerta={inadimplencia.vencido > 0} />
-        <IndCard label={`Margem líquida · ${anoAtual}`} valor={margem.pct == null ? '—' : `${(margem.pct * 100).toFixed(1)}%`} sub={margem.pct == null ? 'sem receita ainda' : `${fmtMoney(margem.liquido)} de lucro`} />
-        <IndCard label="Liquidez 30 dias" valor={liquidez.indice == null ? '—' : `${liquidez.indice.toFixed(2)}×`} sub={`${fmtMoney(liquidez.aReceber)} ÷ ${fmtMoney(liquidez.aPagar)}`} />
-        <IndCard label="Maior cliente (concentração)" valor={concentracao.pct > 0 ? `${(concentracao.pct * 100).toFixed(0)}%` : '—'} sub={concentracao.maiorNome !== '—' ? concentracao.maiorNome : `${concentracao.nClientes} cliente(s)`} alerta={concentracao.pct > 0.5} />
-        <div style={indCard}>
-          <div style={indLabel}>Meta de caixa (ICC)</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 6px' }}>
-            <input type="number" min="0" value={metaMeses} onChange={e => salvarMeta(e.target.value)} style={metaInput} aria-label="Meta de meses de caixa" />
-            <span style={{ fontSize: 13, color: 'var(--text-mid)' }}>meses de caixa</span>
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: metaICC.gap > 0 ? 'var(--gold-dark)' : 'var(--green)' }}>
-            {metaICC.gap > 0 ? `Faltam ${fmtMoney(metaICC.gap)} para a meta` : `Meta atingida! ${fmtMoney(-metaICC.gap)} acima`}
-          </div>
+        <IndCard label="Saldo na conta" valor={fmtMoney(caixaAtual)} sub="disponível hoje" />
+        <IndCard label="Projeção de despesa (mês)" valor={fmtMoney(despesaMes)} sub="a pagar este mês" />
+
+        <div style={{ ...indCard, ...(necessidadeReceita > 0 ? { borderTop: '3px solid var(--gold-dark)' } : {}) }}>
+          <div style={indLabel}>Necessidade de receita</div>
+          <div style={{ ...indValor, color: necessidadeReceita > 0 ? 'var(--gold-dark)' : 'var(--green)' }}>{fmtMoney(necessidadeReceita)}</div>
+          <div style={indSub}>{necessidadeReceita > 0 ? 'falta faturar pra cobrir o mês' : 'mês coberto ✓'}</div>
+          {despesaMes > 0 && <div style={barBox}><i style={{ ...barFill, width: `${Math.min(100, (faturamento.valAtual / despesaMes) * 100)}%` }} /></div>}
         </div>
+
+        <div style={indCard}>
+          <div style={indLabel}>ICC · meses de caixa</div>
+          <div style={indValor}>{metaICC.mesesAtuais != null ? metaICC.mesesAtuais.toFixed(1) : '—'}<span style={{ fontSize: 13, color: 'var(--text-mid)', fontWeight: 600 }}> de {metaMeses}</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 5px' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>meta:</span>
+            <input type="number" min="0" value={metaMeses} onChange={e => salvarMeta(e.target.value)} style={metaInput} aria-label="Meta de meses de caixa" />
+            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>meses</span>
+          </div>
+          <div style={{ ...indSub, color: metaICC.gap > 0 ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 700 }}>{metaICC.gap > 0 ? `faltam ${fmtMoney(metaICC.gap)} pra meta` : 'meta atingida! ✓'}</div>
+        </div>
+
+        <IndCard label="Custo fixo / mês" valor={fmtMoney(despRec)} sub="recorrentes · assinaturas, salários…" />
+        <IndCard label="Custo variável / mês" valor={fmtMoney(custoVariavel)} sub="média — oscila com o movimento" />
       </div>
 
       {/* 4 KPIs enxutos */}
@@ -417,6 +435,16 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Mais indicadores — análise */}
+      <div style={maisLabel}>Mais indicadores</div>
+      <div style={indGrid}>
+        <IndCard label="MRR · Receita recorrente/mês" valor={fmtMoney(mrr)} sub={despRec > 0 ? `− ${fmtMoney(despRec)} de despesa recorrente` : 'mensalidades ativas'} />
+        <IndCard label="Inadimplência (a receber vencido)" valor={fmtMoney(inadimplencia.vencido)} sub={`${(inadimplencia.pct * 100).toFixed(0)}% do que está em aberto`} alerta={inadimplencia.vencido > 0} />
+        <IndCard label={`Margem líquida · ${anoAtual}`} valor={margem.pct == null ? '—' : `${(margem.pct * 100).toFixed(1)}%`} sub={margem.pct == null ? 'sem receita ainda' : `${fmtMoney(margem.liquido)} de lucro`} />
+        <IndCard label="Liquidez 30 dias" valor={liquidez.indice == null ? '—' : `${liquidez.indice.toFixed(2)}×`} sub={`${fmtMoney(liquidez.aReceber)} ÷ ${fmtMoney(liquidez.aPagar)}`} />
+        <IndCard label="Maior cliente (concentração)" valor={concentracao.pct > 0 ? `${(concentracao.pct * 100).toFixed(0)}%` : '—'} sub={concentracao.maiorNome !== '—' ? concentracao.maiorNome : `${concentracao.nClientes} cliente(s)`} alerta={concentracao.pct > 0.5} />
       </div>
 
       {/* Gráfico Evolução */}
@@ -516,6 +544,9 @@ const indLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform
 const indValor = { fontSize: 22, fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--body)' }
 const indSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 3 }
 const metaInput = { width: 56, padding: '5px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 15, fontWeight: 700, color: 'var(--navy)', textAlign: 'center' }
+const barBox = { height: 6, borderRadius: 999, background: 'var(--cream)', marginTop: 9, overflow: 'hidden' }
+const barFill = { display: 'block', height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, var(--gold), var(--gold-dark))' }
+const maisLabel = { fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '4px 2px 10px' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const kpiGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }
 const kpiCard = { background: 'var(--white)', borderRadius: 12, padding: 20, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', display: 'flex', flexDirection: 'column' }
