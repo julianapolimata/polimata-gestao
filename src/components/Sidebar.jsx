@@ -138,6 +138,7 @@ export default function Sidebar() {
         <NavItem to="/receber" collapsed={collapsed} label="Contas a Receber" icon={ico(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>)} />
         <NavItem to="/pagar" collapsed={collapsed} label="Contas a Pagar" icon={ico(<><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>)} />
         <NavItem to="/conciliacao" collapsed={collapsed} label="Conciliação" icon={ico(<><circle cx="12" cy="12" r="9"/><polyline points="9 12 11 14 15 10"/></>)} />
+        <NavItem to="/conferencia-fatura" collapsed={collapsed} label="Fatura de Cartão" icon={ico(<><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><circle cx="7" cy="14" r="1"/></>)} />
         <NavItem to="/recorrencias" collapsed={collapsed} label="Recorrências" icon={ico(<><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></>)} />
 
         <Section collapsed={collapsed}>Análise &amp; Decisão</Section>
@@ -170,7 +171,6 @@ export default function Sidebar() {
             <NavItem to="/contas-bancarias" collapsed={collapsed} label="Contas Bancárias" icon={ico(<><path d="M3 21h18"/><polyline points="5 21 5 10 12 4 19 10 19 21"/></>)} />
             <NavItem to="/cartoes" collapsed={collapsed} label="Cartões" icon={ico(<><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>)} />
             <NavItem to="/emprestimos" collapsed={collapsed} label="Empréstimos" icon={ico(<><path d="M12 2v6"/><path d="M9 19l3 3 3-3"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></>)} />
-            <NavItem to="/conferencia-fatura" collapsed={collapsed} label="Conferência de Fatura" icon={ico(<><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><circle cx="7" cy="14" r="1"/></>)} />
             <NavItem to="/importacoes" collapsed={collapsed} label="Importações" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
             <NavItem to="/nfse-config" collapsed={collapsed} label="Configurar NFS-e" icon={ico(<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>)} />
           </>
