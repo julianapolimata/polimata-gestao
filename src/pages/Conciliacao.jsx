@@ -47,7 +47,7 @@ export default function Conciliacao() {
 
 
 
-  const [expandido, setExpandido] = useState(null)
+  const [selecionado, setSelecionado] = useState(null) // id da linha do extrato selecionada (vista 2 colunas)
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
   const [erro, setErro] = useState(null)
 
@@ -235,7 +235,7 @@ export default function Conciliacao() {
       })
       if (error) throw error
       showToast('Conciliado.', 'success')
-      setExpandido(null); carregar()
+      setSelecionado(null); carregar()
     } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
@@ -259,7 +259,7 @@ export default function Conciliacao() {
       })
       if (error) throw error
       showToast('Lançamento criado e conciliado.', 'success')
-      setExpandido(null); carregar()
+      setSelecionado(null); carregar()
     } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
@@ -270,29 +270,45 @@ export default function Conciliacao() {
       data: { ...(extrato.data || {}), motivo: 'transferencia_propria' },
     }).eq('id', extrato.id)
     showToast('Marcado como transferência interna.', 'info')
-    setExpandido(null); carregar()
+    setSelecionado(null); carregar()
   }
 
   async function ignorar(extrato) {
     if (!confirm('Ignorar essa transação?')) return
     await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
-    showToast('Ignorada.', 'info'); setExpandido(null); carregar()
+    showToast('Ignorada.', 'info'); setSelecionado(null); carregar()
   }
   async function restaurar(extrato) {
     await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
-    showToast('Voltou pra pendentes.', 'info'); setExpandido(null); carregar()
+    showToast('Voltou pra pendentes.', 'info'); setSelecionado(null); carregar()
   }
   async function desconciliar(extrato) {
     if (!confirm('Desconciliar? Lançamento vinculado volta pra pendente.')) return
     const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
     await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
     if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
-    showToast('Desconciliado.', 'info'); setExpandido(null); carregar()
+    showToast('Desconciliado.', 'info'); setSelecionado(null); carregar()
   }
 
   function limparPeriodo() {
     setDataDe(''); setDataAte('')
   }
+
+  // Vista 2 colunas: linha selecionada + notas em aberto rankeadas pra ela
+  const selecionadoExt = useMemo(
+    () => extratosFiltrados.find(e => e.id === selecionado) || null,
+    [extratosFiltrados, selecionado]
+  )
+  const lancsRank = useMemo(() => {
+    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], resto: [] }
+    const tipo = selecionadoExt.data?.tipo
+    const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
+    const pool = (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== final && c.status !== 'Provisão')
+    const sug = sugerirMatches(selecionadoExt.data || {}, pool)
+    const sugIds = new Set(sug.map(s => s.lancamento.id))
+    const resto = pool.filter(l => !sugIds.has(l.id)).sort((a, b) => (b.due || '').localeCompare(a.due || ''))
+    return { sugeridos: sug, resto }
+  }, [selecionadoExt, receivable, payable])
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
   if (erro) return <AppLayout title="Conciliação"><EstadoErro onRetry={carregar} /></AppLayout>
@@ -357,16 +373,6 @@ export default function Conciliacao() {
             <input type="number" value={filtroValorMax} onChange={e => setFiltroValorMax(e.target.value)} placeholder="R$ máx" style={{ ...inputFiltro, width: 80 }} />
           </div>
 
-          {/* Header de colunas */}
-          {extratosFiltrados.length > 0 && (
-            <div style={headerNatural}>
-              <div style={{ padding: '12px 14px' }}>DATA</div>
-              <div style={{ padding: '12px 14px' }}>DESCRIÇÃO</div>
-              <div style={{ padding: '12px 14px', textAlign: 'right' }}>VALOR</div>
-              <div style={{ padding: '12px 14px', textAlign: 'center' }}>STATUS</div>
-              <div style={{ padding: '12px 14px' }}></div>
-            </div>
-          )}
         </>
       )}
     >
@@ -377,24 +383,72 @@ export default function Conciliacao() {
             : 'Nenhuma transação com os filtros aplicados.'}
         </div>
       ) : (
-        <div style={tableWrap}>
-          {extratosFiltrados.map(ext => (
-            <LinhaExtrato
-              key={ext.id}
-              extrato={ext}
-              receivable={receivable}
-              payable={payable}
-              expandido={expandido === ext.id}
-              onToggle={() => setExpandido(expandido === ext.id ? null : ext.id)}
-              onVincular={lanc => vincular(ext, lanc)}
-              onCriar={() => criarLancamento(ext)}
-              onTransferencia={() => marcarTransferencia(ext)}
-              onIgnorar={() => ignorar(ext)}
-              onRestaurar={() => restaurar(ext)}
-              onDesconciliar={() => desconciliar(ext)}
-              onFaturaCartao={() => setModalFaturaExtrato(ext)}
-            />
-          ))}
+        <div style={dualGrid}>
+          {/* ESQUERDA — extrato do banco */}
+          <div style={painel}>
+            <div style={painelHead}>Extrato do banco <span style={painelCount}>{extratosFiltrados.length}</span></div>
+            <div style={painelBody}>
+              {extratosFiltrados.map(ext => {
+                const sel = selecionado === ext.id
+                const t = ext.data?.tipo
+                return (
+                  <div key={ext.id} onClick={() => setSelecionado(sel ? null : ext.id)} style={{ ...extRow, ...(sel ? extRowSel : {}), opacity: ext.status === 'ignorado' ? 0.5 : 1 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ext.data?.revisar && <span title={ext.data?.revisar_motivo} style={{ marginRight: 5 }}>⚠️</span>}
+                        {ext.data?.descricao || '(sem descrição)'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
+                        {fmtDataBR(ext.data?.data)}
+                        {ext.status === 'conciliado' && ' · ✓ conciliado'}
+                        {ext.status === 'ignorado' && ' · ignorado'}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: t === 'entrada' ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap' }}>
+                      {t === 'entrada' ? '+' : '−'} {fmtMoney(Number(ext.data?.valor || 0))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* DIREITA — notas a conciliar com a linha selecionada */}
+          <div style={painel}>
+            <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.resto.length}</span>}</div>
+            <div style={painelBody}>
+              {!selecionadoExt ? (
+                <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda pra ver as notas que combinam — e ligar uma na outra.</div>
+              ) : selecionadoExt.status !== 'pendente' ? (
+                <div style={dicaVazia}>
+                  Essa linha já está <strong>{selecionadoExt.status}</strong>.{' '}
+                  <button onClick={() => selecionadoExt.status === 'conciliado' ? desconciliar(selecionadoExt) : restaurar(selecionadoExt)} style={btnLink}>
+                    {selecionadoExt.status === 'conciliado' ? '↶ Desconciliar' : '↻ Restaurar'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={acoesBar}>
+                    <button onClick={() => criarLancamento(selecionadoExt)} style={btnAcao}>+ Criar lançamento</button>
+                    {selecionadoExt.data?.tipo === 'saida' && <button onClick={() => setModalFaturaExtrato(selecionadoExt)} style={btnAcao}>🪪 Fatura de cartão</button>}
+                    <button onClick={() => marcarTransferencia(selecionadoExt)} style={btnAcao}>↔ Transferência</button>
+                    <button onClick={() => ignorar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
+                  </div>
+                  {lancsRank.sugeridos.length > 0 && <div style={grupoLabel}>💡 Provavelmente é esta</div>}
+                  {lancsRank.sugeridos.map((s, i) => (
+                    <LancCard key={s.lancamento.id + '_' + i} lanc={s.lancamento} motivo={s.motivo} destaque onVincular={() => vincular(selecionadoExt, s.lancamento)} />
+                  ))}
+                  {lancsRank.resto.length > 0 && <div style={grupoLabel}>Outras notas em aberto</div>}
+                  {lancsRank.resto.map(l => (
+                    <LancCard key={l.id} lanc={l} onVincular={() => vincular(selecionadoExt, l)} />
+                  ))}
+                  {lancsRank.sugeridos.length + lancsRank.resto.length === 0 && (
+                    <div style={dicaVazia}>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
       <ModalConciliarFatura
@@ -407,96 +461,19 @@ export default function Conciliacao() {
   )
 }
 
-function LinhaExtrato({ extrato, receivable, payable, expandido, onToggle, onVincular, onCriar, onTransferencia, onIgnorar, onRestaurar, onDesconciliar, onFaturaCartao }) {
-  const tipo = extrato.data?.tipo
-  const valor = Number(extrato.data?.valor || 0)
-  const desc = extrato.data?.descricao || '(sem descrição)'
-  const data = extrato.data?.data
-  const cnpj = extrato.data?.cnpj
-  const status = extrato.status
-
-  const candidatos = tipo === 'entrada' ? receivable : payable
-  // Sugestões: compute apenas quando linha expandida (evita N×M trabalho)
-  const sugestoes = useMemo(() => {
-    if (!expandido || status !== 'pendente') return []
-    return sugerirMatches(extrato.data || {}, candidatos.filter(c => c.status !== (tipo === 'entrada' ? 'Recebido' : 'Pago') || extrato.lancamento_id === c.id))
-  }, [expandido, extrato, candidatos, tipo, status])
-  // temSugestao usado pro badge — sem expandir, fica false (não tem como saber barato)
-  const temSugestao = sugestoes.length > 0
-  const corValor = tipo === 'entrada' ? 'var(--green)' : 'var(--red)'
-
-  let badge
-  if (status === 'pendente') badge = { txt: temSugestao ? '💡 Sugestão' : '⏳ Pendente', bg: temSugestao ? 'rgba(204,145,94,0.15)' : 'rgba(230,126,34,0.12)', cor: temSugestao ? 'var(--gold-dark)' : 'var(--orange)' }
-  else if (status === 'conciliado') badge = { txt: '✓ Conciliado', bg: 'rgba(39,174,96,0.10)', cor: 'var(--green)' }
-  else badge = { txt: '⨯ Ignorado', bg: 'rgba(0,0,0,0.05)', cor: 'var(--text-mid)' }
-
+function LancCard({ lanc, motivo, destaque, onVincular }) {
+  const nome = lanc.data?.client || lanc.data?.supplier || lanc.desc || lanc.data?.desc || lanc.codigo || '(sem nome)'
   return (
-    <>
-      <div onClick={onToggle} style={{ ...rowGrid, cursor: 'pointer', background: expandido ? 'var(--cream)' : 'var(--white)', opacity: status === 'ignorado' ? 0.6 : 1, borderBottom: '1px solid var(--cream-dark)', borderLeft: extrato.data?.revisar ? '3px solid var(--gold-dark)' : '3px solid transparent' }}>
-        <div style={cell}>{fmtDataBR(data)}</div>
-        <div style={{ ...cell, minWidth: 0 }}>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
-            {extrato.data?.revisar && <span title={extrato.data?.revisar_motivo || 'Conferir'} style={{ display: 'inline-block', marginRight: 6, background: 'rgba(204,145,94,0.18)', color: 'var(--gold-dark)', padding: '1px 6px', borderRadius: 999, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, verticalAlign: 'middle' }}>⚠️ REVISAR</span>}
-            {desc}
-          </div>
-          {cnpj && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>CNPJ {cnpj}</div>}
+    <div style={{ ...lancCard, ...(destaque ? lancCardDestaque : {}) }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</div>
+        <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
+          {lanc.codigo} · {fmtMoney(lanc.value)} · vence {lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}
+          {motivo ? ` · ${motivo}` : ''}
         </div>
-        <div style={{ ...cell, textAlign: 'right', fontWeight: 700, color: corValor, fontSize: 13 }}>
-          {tipo === 'entrada' ? '+' : '−'} {fmtMoney(valor)}
-        </div>
-        <div style={{ ...cell, textAlign: 'center' }}>
-          <span style={{ background: badge.bg, color: badge.cor, padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>{badge.txt}</span>
-        </div>
-        <div style={{ ...cell, textAlign: 'center', color: 'var(--text-mid)' }}>{expandido ? '▾' : '▸'}</div>
       </div>
-      {expandido && (
-        <div style={{ background: 'var(--cream)', borderBottom: '1px solid var(--cream-dark)', padding: '14px 18px' }}>
-          {extrato.data?.revisar && (
-            <div style={{ marginBottom: 12, padding: 10, borderRadius: 6, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontSize: 12, fontWeight: 600 }}>
-              ⚠️ A revisar: {extrato.data?.revisar_motivo}
-            </div>
-          )}
-          <div>
-            {status === 'pendente' ? (
-              <>
-                {temSugestao && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mid)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Sugestões automáticas</div>
-                    {sugestoes.slice(0, 3).map((s, i) => (
-                      <div key={i} style={sugestaoRow}>
-                        <div style={{ flex: 1, fontSize: 12 }}>
-                          <strong>{s.lancamento.codigo}</strong> — <span style={{ color: 'var(--text-mid)' }}>{s.lancamento.desc || s.lancamento.client || s.lancamento.supplier}</span>
-                          <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>{s.motivo}</div>
-                        </div>
-                        <button onClick={() => onVincular(s.lancamento)} style={btnOk}>✓ Vincular</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {!temSugestao && <em style={{ fontSize: 11, color: 'var(--text-mid)', marginRight: 8, alignSelf: 'center' }}>Nenhuma sugestão automática.</em>}
-                  <button onClick={onCriar} style={btnAcao}>+ Criar lançamento</button>
-                  {tipo === 'saida' && (
-                    <button onClick={onFaturaCartao} style={btnAcao}>🪪 Conciliar com fatura de cartão</button>
-                  )}
-                  <button onClick={onTransferencia} style={btnAcao}>↔ Transferência entre contas</button>
-                  <button onClick={onIgnorar} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
-                </div>
-              </>
-            ) : status === 'conciliado' ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>Vinculado a {extrato.lancamento_tipo} {extrato.lancamento_id?.substring(0, 8)}</span>
-                <button onClick={onDesconciliar} style={btnLink}>↶ Desconciliar</button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={onRestaurar} style={btnLink}>↻ Restaurar pra pendentes</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+      <button onClick={onVincular} style={btnOk}>✓ Ligar</button>
+    </div>
   )
 }
 
@@ -524,14 +501,21 @@ const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)'
 const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
-const GRID_COLS = '110px 1fr 150px 150px 40px'
-const rowGrid = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', gap: 0 }
-const headerNatural = { display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center', background: 'var(--navy)', color: '#fff', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)', borderRadius: '10px 10px 0 0', fontFamily: 'var(--body)', boxShadow: 'var(--shadow)' }
-const cell = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)' }
-
-const sugestaoRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--white)', borderRadius: 6, marginBottom: 6 }
 const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
 const btnAcao = { padding: '6px 12px', borderRadius: 4, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--body)' }
 const btnLink = { background: 'none', border: 'none', color: 'var(--gold-dark)', cursor: 'pointer', fontSize: 11, fontWeight: 600, textDecoration: 'underline', fontFamily: 'var(--body)' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13, background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+
+// Vista 2 colunas
+const dualGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, alignItems: 'start' }
+const painel = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }
+const painelHead = { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: 'var(--navy)', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', borderBottom: '2px solid var(--gold)' }
+const painelCount = { marginLeft: 'auto', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 999, fontSize: 11 }
+const painelBody = { padding: 8, maxHeight: '65vh', overflowY: 'auto' }
+const extRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', borderLeft: '3px solid transparent' }
+const extRowSel = { background: 'var(--cream)', borderLeftColor: 'var(--gold)' }
+const dicaVazia = { padding: '30px 18px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 13, lineHeight: 1.6 }
+const acoesBar = { display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 4px 12px', borderBottom: '1px dashed var(--cream-dark)', marginBottom: 10 }
+const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '8px 4px 6px' }
+const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
+const lancCardDestaque = { border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.06)' }
