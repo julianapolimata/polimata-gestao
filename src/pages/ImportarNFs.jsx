@@ -34,6 +34,8 @@ export default function ImportarNFs() {
   const [ultimoResultado, setUltimoResultado] = useState(null)
   const [rodandoBackfill, setRodandoBackfill] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState(null)
+  const [rodandoReproc, setRodandoReproc] = useState(false)
+  const [reprocMsg, setReprocMsg] = useState(null)
 
   async function rodarCron() {
     setRodandoCron(true)
@@ -106,6 +108,38 @@ export default function ImportarNFs() {
       showToast('Falha no backfill: ' + e.message, 'error')
     } finally {
       setRodandoBackfill(false)
+    }
+  }
+
+  // Reprocessa e-mails que o robô marcou como "lido" mas não conseguiu ler
+  // (durante a queda do modelo). Relê cada um pelo ID, com o modelo novo.
+  async function reprocessarFalhas() {
+    if (!confirm('Reprocessar os e-mails que o robô marcou como "lido" mas não conseguiu ler (durante a queda do modelo jun–ago)? Vai reler cada um com o modelo novo e colocar as NFs/guias na fila de aprovação.')) return
+    setRodandoReproc(true)
+    setReprocMsg('Relendo os e-mails que falharam…')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
+      let totalNovas = 0
+      for (let i = 0; i < 15; i++) {
+        const r = await fetch('/api/email-cron?reprocess=1&max=3', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) { showToast('Erro ao reprocessar: ' + (j?.error || `HTTP ${r.status}`), 'error'); break }
+        const found = j?.found ?? 0
+        totalNovas += j?.processed ?? 0
+        setReprocMsg(`${totalNovas} recuperada(s)…${found > 0 ? ` (${found} nesta rodada)` : ''}`)
+        if (found === 0) break
+      }
+      setReprocMsg(`Concluído: ${totalNovas} NF(s)/guia(s) recuperada(s) e colocada(s) na fila.`)
+      showToast(`Reprocessamento: ${totalNovas} recuperada(s).`, 'success')
+      carregar()
+    } catch (e) {
+      showToast('Falha ao reprocessar: ' + e.message, 'error')
+    } finally {
+      setRodandoReproc(false)
     }
   }
 
@@ -258,6 +292,9 @@ export default function ImportarNFs() {
             <button onClick={rodarBackfill} disabled={rodandoBackfill} title="Relê os anexos das notas antigas que estão sem data de emissão e preenche a competência" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--gold-dark)', background: rodandoBackfill ? 'var(--cream)' : '#fff', color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoBackfill ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
               {rodandoBackfill ? '⏳ Lendo…' : '📅 Recuperar competências'}
             </button>
+            <button onClick={reprocessarFalhas} disabled={rodandoReproc} title="Relê os e-mails que o robô não conseguiu ler durante a queda do modelo (jun–ago) e coloca as NFs/guias na fila" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoReproc ? 'var(--cream)' : '#fff', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoReproc ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
+              {rodandoReproc ? '⏳ Relendo…' : '📥 Reprocessar falhas'}
+            </button>
             <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
               {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
             </button>
@@ -271,6 +308,11 @@ export default function ImportarNFs() {
         {backfillMsg && (
           <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: 'rgba(204,145,94,0.10)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontWeight: 600 }}>
             📅 {backfillMsg}
+          </div>
+        )}
+        {reprocMsg && (
+          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: 'rgba(0,32,62,0.05)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)', fontWeight: 600 }}>
+            📥 {reprocMsg}
           </div>
         )}
         {pendentes.length === 0 ? (
