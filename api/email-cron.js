@@ -547,6 +547,33 @@ async function createLancamento(parsed, att, base64) {
     return matchSemDoc.id;
   }
 
+  // ── Dedup contra a FILA de pendentes ──────────────────────────────────
+  // O mesmo e-mail de NFS-e costuma trazer PDF + XML da mesma nota; sem isso,
+  // cada anexo viraria uma pendência. Trava por fornecedor + número + valor
+  // (+ data, quando o número falta). Empata o just-inserted da mesma rodada.
+  const emitCnpj = String(parsed.emitente_cnpj || '').replace(/\D/g, '');
+  const dataEmis = String(parsed.data_emissao || '').slice(0, 10);
+  const { data: pendentes } = await getSupabase()
+    .from('nf_pending')
+    .select('id, data')
+    .eq('user_id', process.env.POLIMATA_USER_ID)
+    .eq('status', 'pendente');
+  const dupPend = (pendentes || []).find(p => {
+    const d = p.data || {};
+    const mesmoValor = Math.abs(Number(d.valor || 0) - val) <= 0.02;
+    if (!mesmoValor) return false;
+    const mesmaParte = String(d.parte || '').toLowerCase().trim() === parte.toLowerCase().trim()
+      || (emitCnpj && String(d.emitente_cnpj || '').replace(/\D/g, '') === emitCnpj);
+    if (!mesmaParte) return false;
+    const mesmoNumero = numeroLower && String(d.numero || '').trim().toLowerCase() === numeroLower;
+    if (numeroLower) return mesmoNumero;                       // tem número → tem que bater
+    return dataEmis && String(d.data_emissao || '').slice(0, 10) === dataEmis; // sem número → mesma data
+  });
+  if (dupPend) {
+    console.log(`[dedup-pending] NF ${numero} (R$ ${val}) já está na fila (id ${dupPend.id}) — pulando anexo ${att.filename}`);
+    return null;
+  }
+
   // v2: em vez de criar lançamento direto, cria entrada em nf_pending pra
   // humano revisar/aprovar. Mantém auto-vinculação a 'sem_documento' acima.
   const pendingId = crypto.randomUUID();
