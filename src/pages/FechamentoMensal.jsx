@@ -66,7 +66,7 @@ export default function FechamentoMensal() {
     setLoading(true)
     // Seleciona só os campos necessários (evita puxar os anexos base64).
     Promise.all([
-      supabase.from('transacoes_extrato').select('id, dt:data->>data, st:data->>status'),
+      supabase.from('transacoes_extrato').select('id, dt:data->>data, st:data->>status, rev:data->>revisar'),
       supabase.from('receivable').select('id, due:data->>due, st:data->>status'),
       supabase.from('payable').select('id, due:data->>due, st:data->>status, cat:data->>cat'),
     ]).then(([e, r, p]) => {
@@ -106,6 +106,8 @@ export default function FechamentoMensal() {
       .map(([k, g]) => ({ ym: k, ...g }))
   }, [extratos, receivable, payable])
 
+  const revisarCount = useMemo(() => (extratos || []).filter(e => e.rev === 'true' || e.rev === true).length, [extratos])
+
   if (loading) return <AppLayout title="Fechamento Mensal"><div style={emptyState}>Carregando…</div></AppLayout>
   if (erro) return <AppLayout title="Fechamento Mensal"><EstadoErro onRetry={carregar} /></AppLayout>
 
@@ -115,6 +117,12 @@ export default function FechamentoMensal() {
         Status de cada mês, <strong>detectado automaticamente</strong> pelos dados — sem precisar marcar nada.
         Bata o olho pra ver o que ainda falta fechar. <span style={{ color: 'var(--gold-dark)' }}>⚠️ = pendente</span> · <span style={{ color: 'var(--green)' }}>✅ = ok</span> · — = sem movimento.
       </div>
+
+      {revisarCount > 0 && (
+        <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontSize: 13, fontWeight: 600 }}>
+          ⚠️ Ação pendente: {revisarCount} linha(s) do extrato marcada(s) para revisar (ex.: possível Pix duplicado). Resolva na tela de <strong>Conciliação</strong> — procure o selo <strong>⚠️ REVISAR</strong>.
+        </div>
+      )}
 
       <div style={tableCard}>
         {linhas.length === 0 ? (
