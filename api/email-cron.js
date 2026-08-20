@@ -87,8 +87,9 @@ export default async function handler(req, res) {
     const url = new URL(req.url, `https://${req.headers.host}`);
     const days = Math.max(1, Math.min(365, parseInt(url.searchParams.get('days') || '30')));
     const maxMsgs = Math.max(1, Math.min(10, parseInt(url.searchParams.get('max') || String(MAX_MESSAGES_PER_RUN))));
+    const reprocess = url.searchParams.get('reprocess') === '1';
 
-    const result = await processEmails({ days, maxMsgs, mode: authedAsUser ? 'manual' : 'cron' });
+    const result = await processEmails({ days, maxMsgs, reprocess, mode: authedAsUser ? 'manual' : 'cron' });
     return res.status(200).json(result);
   } catch (e) {
     console.error('Erro no email-cron:', e);
@@ -103,37 +104,74 @@ async function processEmails(opts) {
   const days = (opts && opts.days) || 30;
   const maxMsgs = (opts && opts.maxMsgs) || MAX_MESSAGES_PER_RUN;
   const mode = (opts && opts.mode) || 'cron';
+  const reprocess = !!(opts && opts.reprocess);
   const startedAt = new Date().toISOString();
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
 
-  const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:${days}d`;
-  const messages = await listMessages(accessToken, query, maxMsgs);
+  // Monta a lista de mensagens a processar.
+  //  - Normal: busca no Gmail (não-lidos, com anexo, janela de N dias).
+  //  - Reprocess: relê e-mails que FALHARAM (pelo gmail_message_id guardado),
+  //    ignorando a label — recupera o que a queda do modelo deixou passar.
+  let messageIds = [];
+  let falhosRows = [];
+  if (reprocess) {
+    const { data: rows } = await getSupabase()
+      .from('emails_processados').select('id, data')
+      .eq('user_id', process.env.POLIMATA_USER_ID);
+    falhosRows = rows || [];
+    const FALHOS = ['sem_lancamento', 'sem_anexo', 'error'];
+    const byMsg = {};
+    for (const r of falhosRows) {
+      const mid = r.data?.gmail_message_id;
+      if (!mid) continue;
+      const s = (byMsg[mid] = byMsg[mid] || { falho: false, reproc: false, ok: false });
+      if (r.data?.reprocessed_at) s.reproc = true;
+      if (r.data?.status === 'ok') s.ok = true;
+      if (FALHOS.includes(r.data?.status)) s.falho = true;
+    }
+    messageIds = Object.entries(byMsg)
+      .filter(([, s]) => s.falho && !s.reproc && !s.ok)
+      .map(([mid]) => mid)
+      .slice(0, maxMsgs);
+  } else {
+    const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:${days}d`;
+    const messages = await listMessages(accessToken, query, maxMsgs);
+    messageIds = messages.map(m => m.id);
+  }
 
   const summary = {
     started_at: startedAt,
-    found: messages.length,
+    reprocess,
+    found: messageIds.length,
     processed: 0,
     skipped: 0,
     errors: 0,
     details: []
   };
 
-  for (const m of messages) {
+  for (const mid of messageIds) {
     try {
-      const result = await processMessage(accessToken, m.id, labelId);
+      const result = await processMessage(accessToken, mid, labelId);
       summary.processed += result.lancamentos;
       if (result.lancamentos === 0) summary.skipped += 1;
-      summary.details.push({ id: m.id, status: 'ok', ...result });
+      summary.details.push({ id: mid, status: 'ok', ...result });
     } catch (e) {
       summary.errors += 1;
-      summary.details.push({ id: m.id, status: 'error', error: e.message });
+      summary.details.push({ id: mid, status: 'error', error: e.message });
       await persistEmailHistory({
-        gmail_message_id: m.id,
+        gmail_message_id: mid,
         status: 'error',
         error_message: e.message,
         processed_at: new Date().toISOString().slice(0, 10)
       });
+    }
+    // No reprocess, marca as linhas antigas desse e-mail pra não repetir na próxima rodada.
+    if (reprocess) {
+      const hoje = new Date().toISOString().slice(0, 10);
+      for (const r of falhosRows.filter(r => r.data?.gmail_message_id === mid && !r.data?.reprocessed_at)) {
+        await getSupabase().from('emails_processados').update({ data: { ...r.data, reprocessed_at: hoje } }).eq('id', r.id);
+      }
     }
   }
 
@@ -228,8 +266,9 @@ async function processMessage(accessToken, messageId, labelId) {
       if (p.parts) walk(p.parts);
       const filename = p.filename || '';
       const mimeType = p.mimeType || '';
+      const ehXml = /xml/i.test(mimeType) || filename.toLowerCase().endsWith('.xml');
       if (p.body?.attachmentId &&
-          (mimeType === 'application/pdf' || mimeType.startsWith('image/'))) {
+          (mimeType === 'application/pdf' || mimeType.startsWith('image/') || ehXml)) {
         attachments.push({ attachmentId: p.body.attachmentId, filename, mimeType });
       }
     }
@@ -238,10 +277,11 @@ async function processMessage(accessToken, messageId, labelId) {
   // Caso especial: payload é o próprio anexo (sem parts)
   if (!attachments.length && msg.payload?.body?.attachmentId) {
     const mt = msg.payload.mimeType || '';
-    if (mt === 'application/pdf' || mt.startsWith('image/')) {
+    const fn = msg.payload.filename || '';
+    if (mt === 'application/pdf' || mt.startsWith('image/') || /xml/i.test(mt) || fn.toLowerCase().endsWith('.xml')) {
       attachments.push({
         attachmentId: msg.payload.body.attachmentId,
-        filename: msg.payload.filename || 'anexo',
+        filename: fn || 'anexo',
         mimeType: mt
       });
     }
