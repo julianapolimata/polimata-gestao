@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Chart } from 'chart.js/auto'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -9,6 +10,7 @@ import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
 import { getDocStatus, isOverdue } from '../lib/finance'
+import { calcDespesaRecorrente } from '../lib/indicadores'
 import { proximoCodigoPayable } from '../lib/codigos'
 import { promoverProvisao } from '../lib/gerarRecorrencias'
 
@@ -46,6 +48,15 @@ export default function Pagar() {
   const [filtrosExpanded, setFiltrosExpanded] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
+  const [anoSel, setAnoSel] = useState(String(new Date().getFullYear()))
+  const [recorrencias, setRecorrencias] = useState([])
+  const chartRef = useRef(null)
+  const chartInst = useRef(null)
+
+  useEffect(() => {
+    if (!user) return
+    supabase.from('recurring_masters').select('*').then(({ data }) => setRecorrencias(data || []))
+  }, [user])
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -133,6 +144,122 @@ export default function Pagar() {
     () => filtrados.reduce((s, x) => s + (parseFloat(x.data?.value) || 0), 0),
     [filtrados],
   )
+
+  // ── Anos disponíveis ────────────────────────────────────────────────
+  const anosDisponiveis = useMemo(() => {
+    const set = new Set()
+    for (const r of rows) {
+      const ref = r.data?.data_competencia || r.data?.due
+      if (ref) set.add(ref.slice(0, 4))
+    }
+    if (!set.size) set.add(String(new Date().getFullYear()))
+    return [...set].sort().reverse()
+  }, [rows])
+  useEffect(() => {
+    if (anosDisponiveis.length && !anosDisponiveis.includes(anoSel)) setAnoSel(anosDisponiveis[0])
+  }, [anosDisponiveis, anoSel])
+
+  // ── Despesa mês a mês do ano (competência), com composição por mês ──
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const porMes = useMemo(() => {
+    const meses = MESES.map((_, m) => ({ mes: m, total: 0, pago: 0, aPagar: 0, itens: [] }))
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      const ref = d.data_competencia || d.due
+      if (!ref || !String(ref).startsWith(anoSel)) continue
+      const m = parseInt(String(ref).slice(5, 7), 10) - 1
+      if (m < 0 || m > 11) continue
+      const v = Number(d.value || 0)
+      const g = meses[m]
+      g.total += v
+      if ((d.status || '').toLowerCase() === 'pago') g.pago += v
+      else g.aPagar += v
+      g.itens.push({ nome: d.supplier || '—', value: v, status: d.status || 'Pendente', codigo: r.codigo })
+    }
+    return meses
+  }, [rows, anoSel])
+
+  const kpisPag = useMemo(() => {
+    const gasto = porMes.reduce((s, m) => s + m.total, 0)
+    const pago = porMes.reduce((s, m) => s + m.pago, 0)
+    const aPagar = porMes.reduce((s, m) => s + m.aPagar, 0)
+    let vencido = 0
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      if ((d.status || '').toLowerCase() === 'pago') continue
+      const ref = d.data_competencia || d.due
+      if (ref && String(ref).startsWith(anoSel) && isOverdue(d.due)) vencido += Number(d.value || 0)
+    }
+    return { gasto, pago, aPagar, vencido }
+  }, [porMes, rows, anoSel])
+
+  // ── Concentração por fornecedor + ticket médio + nº de notas ────────
+  const analiseAno = useMemo(() => {
+    const porForn = new Map()
+    let nNotas = 0, gasto = 0
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      const ref = d.data_competencia || d.due
+      if (!ref || !String(ref).startsWith(anoSel)) continue
+      const v = Number(d.value || 0)
+      gasto += v; nNotas++
+      const c = d.supplier || '—'
+      porForn.set(c, (porForn.get(c) || 0) + v)
+    }
+    const fornecedores = [...porForn.entries()]
+      .map(([nome, val]) => ({ nome, val, pct: gasto ? val / gasto : 0 }))
+      .sort((a, b) => b.val - a.val)
+    return { fornecedores, nNotas, gasto, ticket: nNotas ? gasto / nNotas : 0 }
+  }, [rows, anoSel])
+
+  const custoRecorrente = useMemo(() => calcDespesaRecorrente(recorrencias), [recorrencias])
+
+  // ── Gráfico de despesa mês a mês ────────────────────────────────────
+  useEffect(() => {
+    if (!chartRef.current) return
+    if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null }
+    chartInst.current = new Chart(chartRef.current, {
+      type: 'line',
+      data: {
+        labels: MESES,
+        datasets: [
+          { label: 'Gasto', data: porMes.map(m => m.total), borderColor: 'rgba(231,76,60,1)', backgroundColor: 'rgba(231,76,60,0.10)', borderWidth: 2.5, tension: 0.35, fill: true, pointRadius: 4, pointBackgroundColor: 'rgba(231,76,60,1)', pointBorderColor: '#fff', pointBorderWidth: 1.5, pointHoverRadius: 6 },
+          { label: 'Pago', data: porMes.map(m => m.pago), borderColor: 'rgba(39,174,96,1)', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 3], tension: 0.35, fill: false, pointRadius: 3, pointBackgroundColor: 'rgba(39,174,96,1)', pointBorderColor: '#fff', pointBorderWidth: 1 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { font: { family: 'Montserrat', size: 11 }, color: '#00203E', padding: 14 } },
+          tooltip: {
+            callbacks: {
+              title: items => `${MESES[items[0].dataIndex]}/${anoSel}`,
+              label: () => '',
+              afterBody: items => {
+                const m = items[0].dataIndex
+                const itens = porMes[m].itens.slice().sort((a, b) => b.value - a.value)
+                if (!itens.length) return ['(sem despesa neste mês)']
+                const lines = itens.slice(0, 12).map(it => `• ${String(it.nome).slice(0, 26)}  ${fmtMoeda(it.value)}${(it.status || '').toLowerCase() === 'pago' ? ' ✓' : ''}`)
+                if (itens.length > 12) lines.push(`  … +${itens.length - 12} conta(s)`)
+                lines.push('────────────')
+                lines.push(`Total: ${fmtMoeda(porMes[m].total)}`)
+                return lines
+              },
+            },
+            titleFont: { family: 'Montserrat', weight: '600' }, bodyFont: { family: 'Montserrat', size: 11 }, padding: 12,
+          },
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
+          y: { beginAtZero: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+        },
+      },
+    })
+    return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null } }
+  }, [porMes, anoSel])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
@@ -278,29 +405,61 @@ export default function Pagar() {
             setExpanded={setFiltrosExpanded}
           />
 
-          {temDados && (
-            <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
-              <table style={{ ...tbl, tableLayout: 'fixed' }}>
-                {colgroup}
-                <thead>
-                  <tr>
-                    <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
-                    <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
-                    <th style={th}>Descrição</th>
-                    <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right">Valor</Th>
-                    <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir}>Datas</Th>
-                    <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
-                    <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir}>Status</Th>
-                    <th style={{ ...th, textAlign: 'center' }}></th>
-                  </tr>
-                </thead>
-              </table>
+        </>
+      )}
+    >
+      {/* Faixa de KPIs + gráfico de despesa mês a mês */}
+      {temDados && (
+        <>
+          <div style={kpiStrip}>
+            <Kpi label={`Gasto ${anoSel}`} valor={fmtMoeda(kpisPag.gasto)} cor="var(--red)" />
+            <Kpi label="Pago" valor={fmtMoeda(kpisPag.pago)} cor="var(--green)" />
+            <Kpi label="A pagar" valor={fmtMoeda(kpisPag.aPagar)} cor="var(--gold-dark)" />
+            <Kpi label="Vencido" valor={fmtMoeda(kpisPag.vencido)} cor="var(--red)" />
+            <Kpi label="Ticket médio" valor={fmtMoeda(analiseAno.ticket)} cor="var(--navy)" />
+            <Kpi label={`Nº de contas ${anoSel}`} valor={String(analiseAno.nNotas)} cor="var(--navy)" />
+            <Kpi label="Custo fixo · recorrente/mês" valor={fmtMoeda(custoRecorrente)} cor="var(--gold-dark)" />
+          </div>
+          <div style={chartCard}>
+            <div style={chartHeader}>
+              <div>
+                <div style={chartTitle}>Evolução da despesa — {anoSel}</div>
+                <div style={chartSub}>Passe o mouse num mês pra ver a composição · linha vermelha = gasto · tracejado verde = pago · empréstimos não entram aqui (é financiamento)</div>
+              </div>
+              <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
+                {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{ height: 260, position: 'relative' }}><canvas ref={chartRef} /></div>
+          </div>
+
+          {analiseAno.fornecedores.length > 0 && (
+            <div style={{ ...chartCard, marginTop: 16 }}>
+              <div style={chartTitle}>Concentração por fornecedor — {anoSel}</div>
+              <div style={chartSub}>Onde o seu dinheiro está indo</div>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {analiseAno.fornecedores.slice(0, 6).map(c => (
+                  <div key={c.nome} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: '0 0 210px', fontSize: 12, color: 'var(--navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.nome}>{c.nome}</div>
+                    <div style={{ flex: 1, height: 16, background: 'var(--cream)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(3, c.pct * 100)}%`, background: 'linear-gradient(90deg, var(--gold), var(--gold-dark))', borderRadius: 999 }} />
+                    </div>
+                    <div style={{ flex: '0 0 130px', textAlign: 'right', fontSize: 12 }}>
+                      <strong style={{ color: 'var(--navy)' }}>{(c.pct * 100).toFixed(1)}%</strong>
+                      <span style={{ color: 'var(--text-mid)' }}> · {fmtMoeda(c.val)}</span>
+                    </div>
+                  </div>
+                ))}
+                {analiseAno.fornecedores.length > 6 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }}>+ {analiseAno.fornecedores.length - 6} outro(s) fornecedor(es)</div>
+                )}
+              </div>
             </div>
           )}
         </>
       )}
-    >
-      <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
+
+      <div style={{ ...tableWrap, marginTop: temDados ? 16 : 0 }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : erro ? (
@@ -312,6 +471,18 @@ export default function Pagar() {
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}
+            <thead>
+              <tr>
+                <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
+                <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
+                <th style={th}>Descrição</th>
+                <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right">Valor</Th>
+                <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir}>Datas</Th>
+                <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
+                <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir}>Status</Th>
+                <th style={{ ...th, textAlign: 'center' }}></th>
+              </tr>
+            </thead>
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
@@ -395,7 +566,22 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
   )
 }
 
+function Kpi({ label, valor, cor }) {
+  return (
+    <div style={{ background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: '12px 16px', borderTop: `3px solid ${cor}` }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: cor, fontFamily: 'var(--body)' }}>{valor}</div>
+    </div>
+  )
+}
+
 // ─── styles ───────────────────────────────────────────────────────────────
+const kpiStrip = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }
+const chartCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 18, marginBottom: 4 }
+const chartHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12, flexWrap: 'wrap' }
+const chartTitle = { fontSize: 14, fontWeight: 600, color: 'var(--navy)', fontFamily: 'var(--body)' }
+const chartSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
+const anoSelect = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
 const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const selectTipoData = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const btnNovo = {
