@@ -10,6 +10,7 @@ import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
 import { getDocStatus, isOverdue } from '../lib/finance'
+import { calcMRR } from '../lib/indicadores'
 import { proximoCodigoReceivable } from '../lib/codigos'
 import { promoverProvisao } from '../lib/gerarRecorrencias'
 
@@ -48,8 +49,14 @@ export default function Receber() {
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
   const [anoSel, setAnoSel] = useState(String(new Date().getFullYear()))
+  const [recorrencias, setRecorrencias] = useState([])
   const chartRef = useRef(null)
   const chartInst = useRef(null)
+
+  useEffect(() => {
+    if (!user) return
+    supabase.from('recurring_masters').select('*').then(({ data }) => setRecorrencias(data || []))
+  }, [user])
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -190,17 +197,39 @@ export default function Receber() {
     return { faturado, recebido, aReceber, vencido }
   }, [porMes, rows, anoSel])
 
+  // ── Concentração por cliente + ticket médio + nº de notas ───────────
+  const analiseAno = useMemo(() => {
+    const porCliente = new Map()
+    let nNotas = 0, faturado = 0
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão') continue
+      const ref = d.data_competencia || d.due
+      if (!ref || !String(ref).startsWith(anoSel)) continue
+      const v = Number(d.value || 0)
+      faturado += v; nNotas++
+      const c = d.client || '—'
+      porCliente.set(c, (porCliente.get(c) || 0) + v)
+    }
+    const clientes = [...porCliente.entries()]
+      .map(([nome, val]) => ({ nome, val, pct: faturado ? val / faturado : 0 }))
+      .sort((a, b) => b.val - a.val)
+    return { clientes, nNotas, faturado, ticket: nNotas ? faturado / nNotas : 0, mesesComNota: porMes.filter(m => m.itens.length).length }
+  }, [rows, anoSel, porMes])
+
+  const mrr = useMemo(() => calcMRR(recorrencias), [recorrencias])
+
   // ── Gráfico de receita mês a mês ────────────────────────────────────
   useEffect(() => {
     if (!chartRef.current) return
     if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null }
     chartInst.current = new Chart(chartRef.current, {
-      type: 'bar',
+      type: 'line',
       data: {
         labels: MESES,
         datasets: [
-          { label: 'Recebido', data: porMes.map(m => m.recebido), backgroundColor: 'rgba(39,174,96,0.85)', borderColor: 'rgba(39,174,96,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
-          { label: 'A receber', data: porMes.map(m => m.aReceber), backgroundColor: 'rgba(204,145,94,0.85)', borderColor: 'rgba(204,145,94,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
+          { label: 'Faturado', data: porMes.map(m => m.total), borderColor: 'rgba(204,145,94,1)', backgroundColor: 'rgba(204,145,94,0.10)', borderWidth: 2.5, tension: 0.35, fill: true, pointRadius: 4, pointBackgroundColor: 'rgba(204,145,94,1)', pointBorderColor: '#fff', pointBorderWidth: 1.5, pointHoverRadius: 6 },
+          { label: 'Recebido', data: porMes.map(m => m.recebido), borderColor: 'rgba(39,174,96,1)', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 3], tension: 0.35, fill: false, pointRadius: 3, pointBackgroundColor: 'rgba(39,174,96,1)', pointBorderColor: '#fff', pointBorderWidth: 1 },
         ],
       },
       options: {
@@ -226,8 +255,8 @@ export default function Receber() {
           },
         },
         scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
-          y: { stacked: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+          x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
+          y: { beginAtZero: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
         },
       },
     })
@@ -389,12 +418,15 @@ export default function Receber() {
             <Kpi label="Recebido" valor={fmtMoeda(kpisRec.recebido)} cor="var(--green)" />
             <Kpi label="A receber" valor={fmtMoeda(kpisRec.aReceber)} cor="var(--gold-dark)" />
             <Kpi label="Vencido" valor={fmtMoeda(kpisRec.vencido)} cor="var(--red)" />
+            <Kpi label="Ticket médio" valor={fmtMoeda(analiseAno.ticket)} cor="var(--navy)" />
+            <Kpi label={`Nº de notas ${anoSel}`} valor={String(analiseAno.nNotas)} cor="var(--navy)" />
+            <Kpi label="MRR · recorrente/mês" valor={fmtMoeda(mrr)} cor="var(--gold-dark)" />
           </div>
           <div style={chartCard}>
             <div style={chartHeader}>
               <div>
                 <div style={chartTitle}>Evolução da receita — {anoSel}</div>
-                <div style={chartSub}>Passe o mouse num mês pra ver a composição · verde = recebido · cobre = a receber</div>
+                <div style={chartSub}>Passe o mouse num mês pra ver a composição · linha cobre = faturado · tracejado verde = recebido</div>
               </div>
               <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
                 {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
@@ -402,6 +434,30 @@ export default function Receber() {
             </div>
             <div style={{ height: 260, position: 'relative' }}><canvas ref={chartRef} /></div>
           </div>
+
+          {analiseAno.clientes.length > 0 && (
+            <div style={{ ...chartCard, marginTop: 16 }}>
+              <div style={chartTitle}>Concentração por cliente — {anoSel}</div>
+              <div style={chartSub}>Quem representa cada fatia da sua receita {analiseAno.clientes[0].pct > 0.5 && <strong style={{ color: 'var(--red)' }}>· ⚠️ dependência alta do maior cliente</strong>}</div>
+              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {analiseAno.clientes.slice(0, 6).map(c => (
+                  <div key={c.nome} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ flex: '0 0 210px', fontSize: 12, color: 'var(--navy)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.nome}>{c.nome}</div>
+                    <div style={{ flex: 1, height: 16, background: 'var(--cream)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(3, c.pct * 100)}%`, background: c.pct > 0.5 ? 'var(--red)' : 'linear-gradient(90deg, var(--gold), var(--gold-dark))', borderRadius: 999 }} />
+                    </div>
+                    <div style={{ flex: '0 0 130px', textAlign: 'right', fontSize: 12 }}>
+                      <strong style={{ color: 'var(--navy)' }}>{(c.pct * 100).toFixed(1)}%</strong>
+                      <span style={{ color: 'var(--text-mid)' }}> · {fmtMoeda(c.val)}</span>
+                    </div>
+                  </div>
+                ))}
+                {analiseAno.clientes.length > 6 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }}>+ {analiseAno.clientes.length - 6} outro(s) cliente(s)</div>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
 
