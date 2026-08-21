@@ -86,7 +86,15 @@ export default function FluxoCaixa() {
     const previstoOut = somaSe(fluxo.saidas, futuro)
     const totalIn = realizadoIn + previstoIn
     const totalOut = realizadoOut + previstoOut
-    return { totalIn, totalOut, balance: totalIn - totalOut, realizadoIn, previstoIn, realizadoOut, previstoOut }
+    // Financiamento (empréstimos) separado do operacional (estrutura DFC).
+    const soma = arr => (arr || []).reduce((a, v) => a + v, 0)
+    const finIn = soma(fluxo.entradasFin)
+    const finOut = soma(fluxo.saidasFin)
+    return {
+      totalIn, totalOut, balance: totalIn - totalOut, realizadoIn, previstoIn, realizadoOut, previstoOut,
+      finIn, finOut, finNet: finIn - finOut,
+      opIn: totalIn - finIn, opOut: totalOut - finOut,
+    }
   }, [fluxo])
 
   // ── Chart.js render ──────────────────────────────────────────────────
@@ -299,8 +307,8 @@ export default function FluxoCaixa() {
       {viewMode === 'grafico' && (<>
       {/* Cards de resumo — do ANO, com quebra realizado × previsto */}
       <div style={kpiGrid}>
-        <StatCard color="green" label={`Entradas ${ano}`} value={fmtMoney(totals.totalIn)} sub={`realizado ${fmtMoney(totals.realizadoIn)} · previsto ${fmtMoney(totals.previstoIn)}`} />
-        <StatCard color="red" label={`Saídas ${ano}`} value={fmtMoney(totals.totalOut)} sub={`realizado ${fmtMoney(totals.realizadoOut)} · previsto ${fmtMoney(totals.previstoOut)}`} />
+        <StatCard color="green" label={`Entradas ${ano}`} value={fmtMoney(totals.totalIn)} sub={totals.finIn > 0 ? `operacional ${fmtMoney(totals.opIn)} · financiamento ${fmtMoney(totals.finIn)}` : `realizado ${fmtMoney(totals.realizadoIn)} · previsto ${fmtMoney(totals.previstoIn)}`} />
+        <StatCard color="red" label={`Saídas ${ano}`} value={fmtMoney(totals.totalOut)} sub={totals.finOut > 0 ? `operacional ${fmtMoney(totals.opOut)} · financiamento ${fmtMoney(totals.finOut)}` : `realizado ${fmtMoney(totals.realizadoOut)} · previsto ${fmtMoney(totals.previstoOut)}`} />
         <StatCard
           color="gold"
           label={`Saldo ${ano}`}
@@ -308,7 +316,21 @@ export default function FluxoCaixa() {
           valueColor={totals.balance >= 0 ? 'var(--green)' : 'var(--red)'}
           sub="entradas − saídas no ano"
         />
+        {(totals.finIn > 0 || totals.finOut > 0) && (
+          <StatCard
+            color="navy"
+            label={`Financiamento ${ano}`}
+            value={fmtMoney(totals.finNet)}
+            valueColor={totals.finNet >= 0 ? 'var(--navy)' : 'var(--red)'}
+            sub={`captação ${fmtMoney(totals.finIn)} · amortização ${fmtMoney(totals.finOut)}`}
+          />
+        )}
       </div>
+      {(totals.finIn > 0 || totals.finOut > 0) && (
+        <div style={{ fontSize: 11, color: 'var(--text-mid)', margin: '-14px 2px 20px', lineHeight: 1.5 }}>
+          💡 <strong>Financiamento</strong> (empréstimos: captação e amortização) é caixa de verdade, mas <strong>não é receita/despesa operacional</strong> — por isso aparece separado. O gráfico e a tabela abaixo mostram o caixa <strong>total</strong>.
+        </div>
+      )}
 
       {/* Card do gráfico */}
       <div style={chartCard}>
@@ -403,7 +425,7 @@ function buildTableRows(serie, ano) {
 }
 
 function StatCard({ color, label, value, valueColor, sub }) {
-  const borders = { green: 'var(--green)', red: 'var(--red)', gold: 'var(--gold)' }
+  const borders = { green: 'var(--green)', red: 'var(--red)', gold: 'var(--gold)', navy: 'var(--navy)' }
   return (
     <div style={{ ...kpiCard, borderTop: `3px solid ${borders[color] || 'var(--gold)'}` }}>
       <div style={kpiLabel}>{label}</div>

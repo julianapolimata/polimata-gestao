@@ -140,6 +140,11 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
   const anoNum = Number(ano)
   const entradas = new Array(12).fill(0)
   const saidas = new Array(12).fill(0)
+  // Subconjunto de FINANCIAMENTO (empréstimos): captação (entrada) e amortização/
+  // juros (saída). Fica dentro de entradas/saidas (é caixa de verdade), mas também
+  // aqui pra a tela poder separar Operacional × Financiamento (estrutura DFC).
+  const entradasFin = new Array(12).fill(0)
+  const saidasFin = new Array(12).fill(0)
   const hoje = new Date()
   const mesCorte = hoje.getFullYear() === anoNum ? hoje.getMonth() : (hoje.getFullYear() < anoNum ? -1 : 12)
 
@@ -152,23 +157,23 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
   for (const r of receivable) {
     if (r.data?.status !== 'Recebido') continue
     const m = mesDe(r.data?.data_pagamento || r.due)
-    if (m >= 0) entradas[m] += Number(r.value || r.data?.value || 0)
+    if (m >= 0) { const v = Number(r.value || r.data?.value || 0); entradas[m] += v; if (r.data?.criado_via_emprestimo) entradasFin[m] += v }
   }
   for (const p of payable) {
     if (p.data?.status !== 'Pago') continue
     const m = mesDe(p.data?.data_pagamento || p.due)
-    if (m >= 0) saidas[m] += Number(p.value || p.data?.value || 0)
+    if (m >= 0) { const v = Number(p.value || p.data?.value || 0); saidas[m] += v; if (p.data?.criado_via_emprestimo) saidasFin[m] += v }
   }
   // Projeção (meses futuros): não-liquidados por vencimento + recorrências.
   for (const r of receivable) {
     if (r.data?.status === 'Recebido') continue
     const m = mesDe(r.due || r.data?.due)
-    if (m > mesCorte) entradas[m] += Number(r.value || r.data?.value || 0)
+    if (m > mesCorte) { const v = Number(r.value || r.data?.value || 0); entradas[m] += v; if (r.data?.criado_via_emprestimo) entradasFin[m] += v }
   }
   for (const p of payable) {
     if (p.data?.status === 'Pago') continue
     const m = mesDe(p.due || p.data?.due)
-    if (m > mesCorte) saidas[m] += Number(p.value || p.data?.value || 0)
+    if (m > mesCorte) { const v = Number(p.value || p.data?.value || 0); saidas[m] += v; if (p.data?.criado_via_emprestimo) saidasFin[m] += v }
   }
   for (const master of (recurringMasters || [])) {
     const d = master.data || {}
@@ -187,5 +192,8 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
   const acumulado = []
   let acc = 0
   for (let i = 0; i < 12; i++) { acc += saldo[i]; acumulado.push(acc) }
-  return { entradas, saidas, saldo, acumulado, mesCorte }
+  // Operacional = total − financiamento (por mês)
+  const entradasOp = entradas.map((e, i) => e - entradasFin[i])
+  const saidasOp = saidas.map((s, i) => s - saidasFin[i])
+  return { entradas, saidas, saldo, acumulado, mesCorte, entradasFin, saidasFin, entradasOp, saidasOp }
 }
