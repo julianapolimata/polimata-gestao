@@ -299,8 +299,11 @@ export default function Conciliacao() {
     const pares = []
     for (const ext of pendentes) {
       const tipo = ext.data?.tipo
+      // Compras de fatura de cartão NÃO entram no auto-match: elas são pagas
+      // juntas (na fatura), não por débito avulso. Casar 1 a 1 gera falso
+      // positivo (ex.: Mirante R$30 casando com um DÉB.PARCELAS R$30 qualquer).
       const pool = (tipo === 'entrada' ? receivable : payable)
-        .filter(c => c.status !== 'Provisão' && !usadosLanc.has(c.id))
+        .filter(c => c.status !== 'Provisão' && !c.data?.criado_via_import_fatura && !usadosLanc.has(c.id))
       const fortes = sugerirMatches(ext.data || {}, pool).filter(s => s.dentroTol)
       if (fortes.length === 1) {
         pares.push({ ext, lanc: fortes[0].lancamento, target: tipo === 'entrada' ? 'receivable' : 'payable' })
