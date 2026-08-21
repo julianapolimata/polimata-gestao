@@ -8,6 +8,27 @@ import ModalConciliarFatura from './components/ModalConciliarFatura'
 import { fmtMoney, flatten } from '../lib/finance'
 import { parseOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
+import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
+
+// Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
+// (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
+// nada de diferença sumindo. natureza: 'reduz' = recebi/paguei menos que a nota;
+// 'acresce' = veio a mais. tabela = onde o ajuste é postado.
+const AJUSTES_ENTRADA = [
+  { key: 'irrf', label: 'IRRF retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
+  { key: 'iss', label: 'ISS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
+  { key: 'inss', label: 'INSS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
+  { key: 'pcc', label: 'PIS/COFINS/CSLL retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
+  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'reduz', tabela: 'payable', cat: 'Despesas Financeiras' },
+  { key: 'desc', label: 'Desconto concedido', natureza: 'reduz', tabela: 'payable', cat: 'Descontos concedidos' },
+  { key: 'juros', label: 'Juros/Multa recebidos', natureza: 'acresce', tabela: 'receivable', cat: 'Receita Financeira' },
+]
+const AJUSTES_SAIDA = [
+  { key: 'juros', label: 'Juros/Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
+  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
+  { key: 'multa', label: 'Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
+  { key: 'desc', label: 'Desconto obtido', natureza: 'reduz', tabela: 'receivable', cat: 'Descontos obtidos' },
+]
 
 // =====================================================================
 // CONCILIAÇÃO BANCÁRIA v1.6
@@ -49,8 +70,14 @@ export default function Conciliacao() {
 
 
   const [selecionado, setSelecionado] = useState(null) // id da linha do extrato selecionada (vista 2 colunas)
+  const [marcados, setMarcados] = useState(new Set())   // ids dos lançamentos escolhidos (multi-seleção)
+  const [ajustes, setAjustes] = useState([])            // [{ id, key, valor }] ajustes que explicam a diferença
+  const [conciliando, setConciliando] = useState(false)
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
   const [erro, setErro] = useState(null)
+
+  // Zera a seleção/ajustes ao trocar a linha do extrato
+  useEffect(() => { setMarcados(new Set()); setAjustes([]) }, [selecionado])
 
   // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
   useEffect(() => {
@@ -269,20 +296,74 @@ export default function Conciliacao() {
     finally { setAutoConc(false) }
   }
 
-  // ── Ações ────────────────────────────────────────────────────────────
-  async function vincular(extrato, lancamento) {
-    const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
-    const statusNovo = tipoTabela === 'receivable' ? 'Recebido' : 'Pago'
-    const merged = { ...(lancamento.data || {}), status: statusNovo, data_pagamento: lancamento.data?.data_pagamento || extrato.data?.data }
+  // ── Mesa de conciliação (multi-seleção + ajustes) ────────────────────
+  function toggleMarcado(id) {
+    setMarcados(m => { const n = new Set(m); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function addAjuste() { setAjustes(a => [...a, { id: crypto.randomUUID(), key: tiposAjuste[0].key, valor: '' }]) }
+  function updAjuste(id, campo, val) { setAjustes(a => a.map(x => x.id === id ? { ...x, [campo]: val } : x)) }
+  function rmAjuste(id) { setAjustes(a => a.filter(x => x.id !== id)) }
+
+  // Confirma a conciliação SÓ quando o valor fecha: Σ(selecionados) ± ajustes = extrato.
+  async function conciliarMultiplo() {
+    const ext = selecionadoExt
+    if (!ext || !mesa.ok) return
+    const tipo = ext.data?.tipo
+    const target = tipo === 'entrada' ? 'receivable' : 'payable'
+    const statusFinal = target === 'receivable' ? 'Recebido' : 'Pago'
+    const dataExt = ext.data?.data
+    setConciliando(true)
     try {
-      // Atualiza o extrato e o lançamento numa transação atômica (RPC).
-      const { error } = await supabase.rpc('conciliar_vincular', {
-        p_extrato_id: extrato.id, p_target: tipoTabela, p_lanc_id: lancamento.id, p_merged: merged,
-      })
+      const selecionados = poolLanc.filter(l => marcados.has(l.id))
+      const p_ledger = selecionados.map(l => ({
+        id: l.id,
+        data: { ...(l.data || {}), status: statusFinal, data_pagamento: l.data?.data_pagamento || dataExt },
+      }))
+      const ajValidos = ajustes
+        .map(a => ({ def: tiposAjuste.find(t => t.key === a.key), v: Number(a.valor || 0) }))
+        .filter(a => a.def && a.v > 0)
+      // Gera códigos por tabela (uma leitura por tabela, incrementando)
+      let baseR = null, nR = 0, baseP = null, nP = 0
+      const hoje = new Date().toISOString().slice(0, 10)
+      const nome = (ext.data?.descricao || '').substring(0, 80)
+      const p_ajustes = []
+      for (const a of ajValidos) {
+        let codigo
+        if (a.def.tabela === 'receivable') {
+          if (baseR === null) { baseR = await proximoCodigoReceivable(); nR = parseInt(baseR.slice(1), 10) }
+          codigo = `1${String(nR++).padStart(5, '0')}`
+        } else {
+          if (baseP === null) { baseP = await proximoCodigoPayable(); nP = parseInt(baseP.slice(1), 10) }
+          codigo = `2${String(nP++).padStart(5, '0')}`
+        }
+        p_ajustes.push({
+          tabela: a.def.tabela,
+          codigo,
+          data: {
+            [a.def.tabela === 'receivable' ? 'client' : 'supplier']: nome,
+            desc: `${a.def.label} — conciliação`,
+            value: a.v,
+            due: dataExt, data_competencia: dataExt, data_pagamento: dataExt,
+            status: a.def.tabela === 'receivable' ? 'Recebido' : 'Pago',
+            cat: a.def.cat, subcat: '',
+            doc_status: 'dispensado', doc_motivo_dispensa: 'Ajuste de conciliação',
+            criado_via_conciliacao_ajuste: true, ajuste_tipo: a.def.key,
+            created: hoje,
+          },
+        })
+      }
+      const p_meta = {
+        conciliado_multiplo: true,
+        lancamento_ids: selecionados.map(l => l.id),
+        ajustes: p_ajustes.map(a => ({ tipo: a.data.ajuste_tipo, valor: a.data.value })),
+        banco_valor: mesa.B,
+      }
+      const { error } = await supabase.rpc('conciliar_multiplo', { p_extrato_id: ext.id, p_target: target, p_ledger, p_ajustes, p_meta })
       if (error) throw error
-      showToast('Conciliado.', 'success')
+      showToast(`Conciliado: ${selecionados.length} nota(s)${p_ajustes.length ? ` + ${p_ajustes.length} ajuste(s)` : ''}.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro: ' + e.message, 'error') }
+    } catch (e) { showToast('Erro ao conciliar: ' + e.message, 'error') }
+    finally { setConciliando(false) }
   }
 
   async function criarLancamento(extrato) {
@@ -329,11 +410,29 @@ export default function Conciliacao() {
     showToast('Voltou pra pendentes.', 'info'); setSelecionado(null); carregar()
   }
   async function desconciliar(extrato) {
-    if (!confirm('Desconciliar? Lançamento vinculado volta pra pendente.')) return
-    const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
-    await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
-    if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
-    showToast('Desconciliado.', 'info'); setSelecionado(null); carregar()
+    if (!confirm('Desconciliar? Os lançamentos vinculados voltam pra pendente e os ajustes (retenções/tarifas/juros) criados nesta conciliação são removidos.')) return
+    try {
+      const d = extrato.data || {}
+      const target = d.tipo === 'entrada' ? 'receivable' : 'payable'
+      if (d.conciliado_multiplo && Array.isArray(d.lancamento_ids)) {
+        // Conciliação múltipla: volta cada lançamento pra Pendente e apaga os ajustes.
+        for (const lid of d.lancamento_ids) {
+          const { data: row } = await supabase.from(target).select('data').eq('id', lid).single()
+          if (row) {
+            const nd = { ...(row.data || {}), status: 'Pendente', data_pagamento: null }
+            await supabase.from(target).update({ data: nd, conciliado_em: null, extrato_id: null }).eq('id', lid)
+          }
+        }
+        await supabase.from('receivable').delete().eq('extrato_id', extrato.id).eq('data->>criado_via_conciliacao_ajuste', 'true')
+        await supabase.from('payable').delete().eq('extrato_id', extrato.id).eq('data->>criado_via_conciliacao_ajuste', 'true')
+      } else {
+        // Caminho antigo (link único) — mantém compatibilidade.
+        const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
+        if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
+      }
+      await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
+      showToast('Desconciliado.', 'info'); setSelecionado(null); carregar()
+    } catch (e) { showToast('Erro ao desconciliar: ' + e.message, 'error') }
   }
 
   function limparPeriodo() {
@@ -357,6 +456,31 @@ export default function Conciliacao() {
     const resto = pool.filter(l => !usados.has(l.id)).sort((a, b) => (b.due || '').localeCompare(a.due || ''))
     return { sugeridos, mesmoValor, resto }
   }, [selecionadoExt, receivable, payable])
+
+  // ── Mesa: pool de lançamentos, tipos de ajuste e a matemática do fechamento ──
+  const poolLanc = useMemo(() => {
+    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return []
+    const tipo = selecionadoExt.data?.tipo
+    const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
+    return (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== final && c.status !== 'Provisão')
+  }, [selecionadoExt, receivable, payable])
+
+  const tiposAjuste = selecionadoExt?.data?.tipo === 'entrada' ? AJUSTES_ENTRADA : AJUSTES_SAIDA
+
+  const mesa = useMemo(() => {
+    const B = Math.abs(Number(selecionadoExt?.data?.valor || 0))
+    const selec = poolLanc.filter(l => marcados.has(l.id))
+    const S = selec.reduce((a, l) => a + Number(l.value || 0), 0)
+    let aNet = 0
+    for (const aj of ajustes) {
+      const def = tiposAjuste.find(t => t.key === aj.key)
+      const v = Number(aj.valor || 0)
+      if (!def || !v) continue
+      aNet += def.natureza === 'acresce' ? v : -v
+    }
+    const diff = +(B - (S + aNet)).toFixed(2)
+    return { B, S, aNet, diff, nSel: selec.length, ok: selec.length > 0 && Math.abs(diff) < 0.01 }
+  }, [selecionadoExt, poolLanc, marcados, ajustes, tiposAjuste])
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
   if (erro) return <AppLayout title="Conciliação"><EstadoErro onRetry={carregar} /></AppLayout>
@@ -471,7 +595,7 @@ export default function Conciliacao() {
             <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length}</span>}</div>
             <div style={painelBody}>
               {!selecionadoExt ? (
-                <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda pra ver as notas que combinam — e ligar uma na outra.</div>
+                <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha.</div>
               ) : selecionadoExt.status !== 'pendente' ? (
                 <div style={dicaVazia}>
                   Essa linha já está <strong>{selecionadoExt.status}</strong>.{' '}
@@ -487,21 +611,49 @@ export default function Conciliacao() {
                     <button onClick={() => marcarTransferencia(selecionadoExt)} style={btnAcao}>↔ Transferência</button>
                     <button onClick={() => ignorar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
                   </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
+                    Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.
+                  </div>
                   {lancsRank.sugeridos.length > 0 && <div style={grupoLabel}>💡 Provavelmente é esta</div>}
                   {lancsRank.sugeridos.map((s, i) => (
-                    <LancCard key={s.lancamento.id + '_' + i} lanc={s.lancamento} motivo={s.motivo} destaque onVincular={() => vincular(selecionadoExt, s.lancamento)} />
+                    <LancCard key={s.lancamento.id + '_' + i} lanc={s.lancamento} motivo={s.motivo} destaque marcado={marcados.has(s.lancamento.id)} onToggle={() => toggleMarcado(s.lancamento.id)} />
                   ))}
                   {lancsRank.mesmoValor.length > 0 && <div style={grupoLabel}>💰 Mesmo valor (data diferente)</div>}
                   {lancsRank.mesmoValor.map((s, i) => (
-                    <LancCard key={s.lancamento.id + '_mv_' + i} lanc={s.lancamento} motivo={s.motivo} onVincular={() => vincular(selecionadoExt, s.lancamento)} />
+                    <LancCard key={s.lancamento.id + '_mv_' + i} lanc={s.lancamento} motivo={s.motivo} marcado={marcados.has(s.lancamento.id)} onToggle={() => toggleMarcado(s.lancamento.id)} />
                   ))}
                   {lancsRank.resto.length > 0 && <div style={grupoLabel}>Outras notas em aberto</div>}
                   {lancsRank.resto.map(l => (
-                    <LancCard key={l.id} lanc={l} onVincular={() => vincular(selecionadoExt, l)} />
+                    <LancCard key={l.id} lanc={l} marcado={marcados.has(l.id)} onToggle={() => toggleMarcado(l.id)} />
                   ))}
                   {lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
                     <div style={dicaVazia}>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</div>
                   )}
+
+                  <div style={grupoLabel}>Ajustes — formação do valor</div>
+                  {ajustes.map(a => (
+                    <div key={a.id} style={ajusteRow}>
+                      <select value={a.key} onChange={e => updAjuste(a.id, 'key', e.target.value)} style={ajSelect}>
+                        {tiposAjuste.map(t => <option key={t.key} value={t.key}>{t.label} ({t.natureza === 'reduz' ? '−' : '+'})</option>)}
+                      </select>
+                      <input type="number" step="0.01" value={a.valor} onChange={e => updAjuste(a.id, 'valor', e.target.value)} placeholder="R$" style={ajInput} />
+                      <button onClick={() => rmAjuste(a.id)} style={ajRm} title="Remover">×</button>
+                    </div>
+                  ))}
+                  <button onClick={addAjuste} style={{ ...btnLink, display: 'block', padding: '6px 4px' }}>+ Adicionar ajuste (retenção, tarifa, juros, desconto…)</button>
+
+                  <div style={diffPanel}>
+                    <div style={diffRow}><span>Extrato</span><strong>{fmtMoney(mesa.B)}</strong></div>
+                    <div style={diffRow}><span>Selecionado ({mesa.nSel})</span><strong>{fmtMoney(mesa.S)}</strong></div>
+                    {mesa.aNet !== 0 && <div style={diffRow}><span>Ajustes</span><strong>{mesa.aNet > 0 ? '+' : ''}{fmtMoney(mesa.aNet)}</strong></div>}
+                    <div style={{ ...diffRow, ...diffTotal, color: mesa.ok ? 'var(--green)' : 'var(--red)' }}>
+                      <span>Diferença</span><strong>{fmtMoney(mesa.diff)}{mesa.ok ? ' ✓' : ''}</strong>
+                    </div>
+                    <button onClick={conciliarMultiplo} disabled={!mesa.ok || conciliando} style={{ ...btnConciliar, opacity: (mesa.ok && !conciliando) ? 1 : 0.5, cursor: (mesa.ok && !conciliando) ? 'pointer' : 'not-allowed' }}>
+                      {conciliando ? 'Conciliando…' : `✓ Conciliar${mesa.nSel ? ` ${mesa.nSel} nota(s)` : ''}`}
+                    </button>
+                    {!mesa.ok && mesa.nSel > 0 && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>}
+                  </div>
                 </>
               )}
             </div>
@@ -518,18 +670,19 @@ export default function Conciliacao() {
   )
 }
 
-function LancCard({ lanc, motivo, destaque, onVincular }) {
+function LancCard({ lanc, motivo, destaque, marcado, onToggle }) {
   const nome = lanc.data?.client || lanc.data?.supplier || lanc.desc || lanc.data?.desc || lanc.codigo || '(sem nome)'
   return (
-    <div style={{ ...lancCard, ...(destaque ? lancCardDestaque : {}) }}>
+    <div onClick={onToggle} style={{ ...lancCard, ...(destaque ? lancCardDestaque : {}), ...(marcado ? lancCardMarcado : {}), cursor: 'pointer' }}>
+      <input type="checkbox" checked={!!marcado} onChange={onToggle} onClick={e => e.stopPropagation()} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</div>
         <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
-          {lanc.codigo} · {fmtMoney(lanc.value)} · vence {lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}
+          {lanc.codigo || '—'} · vence {lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}
           {motivo ? ` · ${motivo}` : ''}
         </div>
       </div>
-      <button onClick={onVincular} style={btnOk}>✓ Ligar</button>
+      <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--navy)', whiteSpace: 'nowrap' }}>{fmtMoney(lanc.value)}</div>
     </div>
   )
 }
@@ -559,7 +712,6 @@ const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)'
 const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const inputFiltro = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 
-const btnOk = { padding: '6px 12px', borderRadius: 4, border: 'none', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
 const btnAcao = { padding: '6px 12px', borderRadius: 4, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', fontSize: 11, fontWeight: 600, fontFamily: 'var(--body)' }
 const btnLink = { background: 'none', border: 'none', color: 'var(--gold-dark)', cursor: 'pointer', fontSize: 11, fontWeight: 600, textDecoration: 'underline', fontFamily: 'var(--body)' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13, background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
@@ -577,3 +729,12 @@ const acoesBar = { display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 4px 
 const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '8px 4px 6px' }
 const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
 const lancCardDestaque = { border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.06)' }
+const lancCardMarcado = { border: '1.5px solid var(--navy)', background: 'rgba(0,32,62,0.05)' }
+const ajusteRow = { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }
+const ajSelect = { flex: 1, minWidth: 0, padding: '7px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const ajInput = { width: 92, padding: '7px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', textAlign: 'right' }
+const ajRm = { background: 'none', border: 'none', color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: '0 4px' }
+const diffPanel = { position: 'sticky', bottom: 0, marginTop: 12, padding: 12, borderRadius: 10, background: 'var(--cream)', border: '1px solid var(--cream-dark)', boxShadow: '0 -4px 10px rgba(0,32,62,0.05)' }
+const diffRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, color: 'var(--navy)', padding: '2px 0' }
+const diffTotal = { fontSize: 15, fontWeight: 700, borderTop: '1px solid var(--cream-dark)', marginTop: 4, paddingTop: 6 }
+const btnConciliar = { width: '100%', marginTop: 10, padding: '11px', borderRadius: 8, border: 'none', background: 'var(--gold)', color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
