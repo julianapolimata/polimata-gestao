@@ -110,9 +110,11 @@ export default function Conciliacao() {
   useEffect(() => { setPeriodoInicializado(false) }, [contaId])
 
   // ── Aplica filtros ───────────────────────────────────────────────────
-  const extratosFiltrados = useMemo(() => {
+  // Base = todos os filtros MENOS o status. As contagens do dropdown são feitas
+  // sobre a base, pra "Todos (N)" bater com a lista (antes a contagem ignorava
+  // data/busca e mostrava 202 enquanto a lista mostrava 180).
+  const extratosBase = useMemo(() => {
     let arr = extratos.filter(e => e.conta_id === contaId)
-    if (filtroStatus !== 'todos') arr = arr.filter(e => e.status === filtroStatus)
     if (dataDe) arr = arr.filter(e => (e.data?.data || '') >= dataDe)
     if (dataAte) arr = arr.filter(e => (e.data?.data || '') <= dataAte)
     if (filtroBusca.trim()) {
@@ -123,18 +125,21 @@ export default function Conciliacao() {
     const vmax = parseFloat(filtroValorMax)
     if (!isNaN(vmin)) arr = arr.filter(e => Number(e.data?.valor || 0) >= vmin)
     if (!isNaN(vmax)) arr = arr.filter(e => Number(e.data?.valor || 0) <= vmax)
-    arr.sort((a, b) => (b.data?.data || '').localeCompare(a.data?.data || ''))
     return arr
-  }, [extratos, contaId, filtroStatus, dataDe, dataAte, filtroBusca, filtroValorMin, filtroValorMax])
+  }, [extratos, contaId, dataDe, dataAte, filtroBusca, filtroValorMin, filtroValorMax])
 
-  // ── Contadores ───────────────────────────────────────────────────────
+  const extratosFiltrados = useMemo(() => {
+    let arr = extratosBase
+    if (filtroStatus !== 'todos') arr = arr.filter(e => e.status === filtroStatus)
+    return [...arr].sort((a, b) => (b.data?.data || '').localeCompare(a.data?.data || ''))
+  }, [extratosBase, filtroStatus])
+
+  // ── Contadores (sobre a base já filtrada por data/busca) ─────────────
   const counts = useMemo(() => {
     const c = { pendente: 0, conciliado: 0, ignorado: 0 }
-    for (const e of extratos) {
-      if (e.conta_id === contaId) c[e.status] = (c[e.status] || 0) + 1
-    }
+    for (const e of extratosBase) c[e.status] = (c[e.status] || 0) + 1
     return c
-  }, [extratos, contaId])
+  }, [extratosBase])
 
   // ── Saldos ───────────────────────────────────────────────────────────
   // Saldo no sistema DESTA conta = saldo inicial + movimento do extrato JÁ
