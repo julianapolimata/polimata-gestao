@@ -58,23 +58,19 @@ export default function SimplesNacional() {
   // Faturamento do mês: receivable cuja data_competencia (ou due) cai no mês selecionado
   const [mesSelecionado, setMesSelecionado] = useState(mesAnteriorISO)
 
+  // Base do DAS = NFS-e EMITIDAS: exclui Provisão (previsão, sem NF) e captação
+  // de empréstimo (financiamento, não é faturamento).
+  const ehFaturamento = r => {
+    const ref = r.data?.data_competencia || r.due
+    return ref && ref.startsWith(mesSelecionado) && r.data?.status !== 'Provisão' && !r.data?.criado_via_emprestimo
+  }
   const faturamentoMes = useMemo(() => {
-    return receivable
-      .filter(r => {
-        const ref = r.data?.data_competencia || r.due
-        return ref && ref.startsWith(mesSelecionado)
-      })
-      .reduce((s, r) => s + Number(r.value || 0), 0)
+    return receivable.filter(ehFaturamento).reduce((s, r) => s + Number(r.value || 0), 0)
   }, [receivable, mesSelecionado])
 
   // Lançamentos do mês pra mostrar detalhe
   const lancamentosDoMes = useMemo(() => {
-    return receivable
-      .filter(r => {
-        const ref = r.data?.data_competencia || r.due
-        return ref && ref.startsWith(mesSelecionado)
-      })
-      .sort((a, b) => (a.due || '').localeCompare(b.due || ''))
+    return receivable.filter(ehFaturamento).sort((a, b) => (a.due || '').localeCompare(b.due || ''))
   }, [receivable, mesSelecionado])
 
   // Projeção

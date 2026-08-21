@@ -107,7 +107,7 @@ export default function Receber() {
     if (dataDe || dataAte) {
       r = r.filter(item => {
         const v = tipoData === 'due' ? item.data?.due : item.data?.[tipoData]
-        if (!v) return false
+        if (!v) return true // opção A: sem a data selecionada, não esconde a linha
         if (dataDe && v < dataDe) return false
         if (dataAte && v > dataAte) return false
         return true

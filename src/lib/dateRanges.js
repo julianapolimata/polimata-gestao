@@ -42,6 +42,8 @@ export function resolveDateRange(periodo, customFrom, customTo) {
     return { from: fmtISO(new Date(y, 0, 1)), to: fmtISO(new Date(y, 11, 31)) }
   }
   if (periodo === 'custom') {
+    // Sem nenhuma data digitada, não ativa range nenhum (senão escondia linhas sem due).
+    if (!customFrom && !customTo) return null
     return { from: customFrom || '1900-01-01', to: customTo || '2999-12-31' }
   }
   return null
