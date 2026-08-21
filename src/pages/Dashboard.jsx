@@ -166,6 +166,20 @@ export default function Dashboard() {
     return { valAtual, valPassado, variacao, ultimos6, labelMesAtual: atual.label }
   }, [receivable])
 
+  // ── Acumulado do ano (competência): faturamento e despesas até hoje ──
+  const acumAno = useMemo(() => {
+    const y = new Date().getFullYear()
+    const mAtual = new Date().getMonth()
+    const noAnoAteHoje = ref => ref && ref.startsWith(String(y)) && (parseInt(ref.substring(5, 7), 10) - 1) <= mAtual
+    const fat = receivable
+      .filter(r => r.status !== 'Provisão' && noAnoAteHoje(r.data?.data_competencia || r.due))
+      .reduce((a, r) => a + r.value, 0)
+    const desp = payable
+      .filter(r => r.status !== 'Provisão' && noAnoAteHoje(r.data?.data_competencia || r.due))
+      .reduce((a, r) => a + r.value, 0)
+    return { fat, desp, resultado: fat - desp }
+  }, [receivable, payable])
+
   // ── Indicadores de mercado ───────────────────────────────────────────
   const anoAtual = String(new Date().getFullYear())
 
@@ -384,27 +398,35 @@ export default function Dashboard() {
           <div style={kpiSub}>{icc.sub}</div>
         </div>
 
-        {/* KPI 2: Saldo Projetado 30/60/90 */}
+        {/* KPI 2: Saldo Projetado 30/60/90 (com âncora "hoje") */}
         <div style={{ ...kpiCard, borderTop: '3px solid var(--navy)' }}>
           <div style={kpiLabel}>Saldo Projetado</div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 9 }}>
+            hoje <strong style={{ color: caixaAtual >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 14 }}>{fmtMoney(caixaAtual)}</strong>
+          </div>
           <div style={projGrid}>
             <ProjItem label="30d" valor={saldoProjetado.d30} />
             <ProjItem label="60d" valor={saldoProjetado.d60} />
             <ProjItem label="90d" valor={saldoProjetado.d90} />
           </div>
-          <div style={{ ...kpiSub, marginTop: 12 }}>caixa atual + a receber − a pagar</div>
+          <div style={{ ...kpiSub, marginTop: 9 }}>caixa de hoje + a receber − a pagar</div>
         </div>
 
-        {/* KPI 3: Faturamento Mensal + sparkline */}
+        {/* KPI 3: Faturamento & Despesas (mês + acumulado do ano) */}
         <div style={{ ...kpiCard, borderTop: '3px solid var(--gold)' }}>
           <div style={kpiLabel}>Faturamento — {faturamento.labelMesAtual}</div>
           <div style={{ ...kpiBigVal, color: 'var(--navy)' }}>{fmtMoney(faturamento.valAtual)}</div>
           {faturamento.variacao !== null && (
-            <div style={{ ...kpiSub, color: faturamento.variacao >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: faturamento.variacao >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, marginTop: 3 }}>
               {faturamento.variacao >= 0 ? '↑' : '↓'} {Math.abs(faturamento.variacao).toFixed(1)}% vs mês passado
             </div>
           )}
-          <div style={{ height: 50, marginTop: 10, position: 'relative' }}>
+          <div style={acumRow}>
+            <div style={acumItem}><span style={acumK}>Faturado {anoAtual}</span><span style={{ ...acumV, color: 'var(--green)' }}>{fmtMoney(acumAno.fat)}</span></div>
+            <div style={acumItem}><span style={acumK}>Despesas {anoAtual}</span><span style={{ ...acumV, color: 'var(--red)' }}>{fmtMoney(acumAno.desp)}</span></div>
+            <div style={acumItem}><span style={acumK}>Resultado</span><span style={{ ...acumV, color: acumAno.resultado >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(acumAno.resultado)}</span></div>
+          </div>
+          <div style={{ height: 38, marginTop: 8, position: 'relative' }}>
             <canvas ref={sparkRef} />
           </div>
         </div>
@@ -548,12 +570,16 @@ const barBox = { height: 6, borderRadius: 999, background: 'var(--cream)', margi
 const barFill = { display: 'block', height: '100%', borderRadius: 999, background: 'linear-gradient(90deg, var(--gold), var(--gold-dark))' }
 const maisLabel = { fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '4px 2px 10px' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
-const kpiGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }
-const kpiCard = { background: 'var(--white)', borderRadius: 12, padding: 20, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', display: 'flex', flexDirection: 'column' }
-const kpiLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 10, fontFamily: 'var(--body)' }
-const kpiBigVal = { fontSize: 28, fontWeight: 700, lineHeight: 1, fontFamily: 'var(--body)' }
-const kpiSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 8 }
+const kpiGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14, marginBottom: 24 }
+const kpiCard = { background: 'var(--white)', borderRadius: 12, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', display: 'flex', flexDirection: 'column' }
+const kpiLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 7, fontFamily: 'var(--body)' }
+const kpiBigVal = { fontSize: 24, fontWeight: 700, lineHeight: 1, fontFamily: 'var(--body)' }
+const kpiSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 6 }
 const projGrid = { display: 'flex', gap: 4 }
+const acumRow = { display: 'flex', flexDirection: 'column', gap: 3, marginTop: 10, paddingTop: 9, borderTop: '1px solid var(--cream-dark)' }
+const acumItem = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }
+const acumK = { fontSize: 11, color: 'var(--text-mid)' }
+const acumV = { fontSize: 12, fontWeight: 700, fontFamily: 'var(--body)' }
 const proxList = { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }
 const proxItem = { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 4, background: 'rgba(0,32,62,0.03)' }
 
