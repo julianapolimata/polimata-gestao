@@ -87,9 +87,23 @@ export default function ConferenciaFatura() {
       }
       const periodoUsado = periodoFatura(cartao, usoAno, usoMes)
       showToast(`Fatura identificada automaticamente: ${rotuloFatura(usoAno, usoMes)}.`, 'info')
-      // Dedup por fit_id (guardado dentro de data.fit_id_ofx pq payable não tem coluna fit_id)
-      const fitsExistentes = new Set(payable.filter(p => p.cartao_id === cartaoId && p.fit_id_ofx).map(p => p.fit_id_ofx))
-      const debitos = debitosOFX.filter(t => !t.fit_id || !fitsExistentes.has(t.fit_id))
+      // Dedup por (fit_id + descrição). Cuidados aprendidos com o extrato do Sicoob:
+      //  • O banco REUSA o mesmo fit_id em todas as parcelas de uma compra parcelada
+      //    (ex.: ANUIDADE 05/12, 06/12, 07/12 têm o mesmo fit_id). fit_id sozinho apagaria
+      //    parcelas legítimas — por isso a descrição, que traz o "NN/MM", entra na chave.
+      //  • Duas compras iguais no mesmo dia (ex.: 2× Anthropic + 2× IOF) recebem fit_ids
+      //    sequenciais distintos (…001, …002). A chave composta (data+valor+desc) sozinha
+      //    as fundiria por engano — o fit_id as mantém separadas.
+      //  • O fit_id vive em data.fit_id_ofx (payable não tem coluna própria), então lemos
+      //    p.data?.fit_id_ofx (p.fit_id_ofx seria sempre undefined).
+      // Sem fit_id, cai no fallback composto (data+valor+desc).
+      const norm = s => (s || '').trim().toLowerCase()
+      const chaveDe = (fit, desc, dcomp, valor) => fit
+        ? `fit:${fit}|${norm(desc)}`
+        : `cmp:${dcomp || ''}|${Math.abs(Number(valor || 0)).toFixed(2)}|${norm(desc)}`
+      const jaImportados = payable.filter(p => p.cartao_id === cartaoId && p.data?.criado_via_import_fatura)
+      const chavesExistentes = new Set(jaImportados.map(p => chaveDe(p.data?.fit_id_ofx, p.data?.desc, p.data?.data_competencia, p.data?.value)))
+      const debitos = debitosOFX.filter(t => !chavesExistentes.has(chaveDe(t.fit_id, t.descricao, t.data, t.valor)))
       if (!debitos.length) {
         showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
         return
