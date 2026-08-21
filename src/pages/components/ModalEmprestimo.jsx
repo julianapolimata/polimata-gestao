@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
+import { proximoCodigoEmprestimo } from '../../lib/codigos'
 
 
 // ============================================================================
@@ -308,10 +309,15 @@ Importante:
         }
 
         // Empréstimo + entrada + parcelas numa transação atômica (RPC).
-        const { error } = await supabase.rpc('criar_emprestimo', {
+        // A RPC devolve o id; geramos o código (EMP-NNN) e gravamos na coluna.
+        const codigo = await proximoCodigoEmprestimo()
+        const { data: novoId, error } = await supabase.rpc('criar_emprestimo', {
           p_emp: dataPayload, p_anexo_path: anexoPath, p_parcelas: parcelasData, p_entrada: entradaData,
         })
         if (error) throw error
+        if (novoId && codigo) {
+          await supabase.from('emprestimos_financiamentos').update({ codigo }).eq('id', novoId)
+        }
       }
       showToast(isEdit ? 'Atualizado.' : 'Empréstimo criado — entrada no caixa + parcelas (amortização/juros) geradas.', 'success')
       onSaved?.()
