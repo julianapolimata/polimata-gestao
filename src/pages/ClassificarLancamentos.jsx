@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { fmtMoney, flatten } from '../lib/finance'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
+import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
 import { showToast } from '../components/Toast'
 
 // =====================================================================
@@ -33,8 +34,8 @@ export default function ClassificarLancamentos() {
     if (!user) return
     setLoading(true)
     Promise.all([
-      supabase.from('payable').select('id,codigo,data'),
-      supabase.from('receivable').select('id,codigo,data'),
+      supabase.from('payable').select('id,codigo,data,anexo_path'),
+      supabase.from('receivable').select('id,codigo,data,anexo_path'),
       fetchPlanoContas(),
     ]).then(([rP, rR, pl]) => {
       const semCat = arr => (arr || []).map(flatten).filter(x => !String(x.data?.cat || '').trim() && x.data?.status !== 'Provisão')
@@ -84,6 +85,39 @@ export default function ClassificarLancamentos() {
     }
   }
 
+  // Muda a NATUREZA do grupo: move receita⇄despesa (tabela). Corrige lançamento
+  // que entrou na direção errada, sem sair da tela de classificação.
+  async function moverGrupo(grupo) {
+    const destino = aba === 'Saída' ? 'receivable' : 'payable'
+    const origem = aba === 'Saída' ? 'payable' : 'receivable'
+    const nomeDest = aba === 'Saída' ? 'Receitas' : 'Despesas'
+    if (!window.confirm(`"${grupo.nome}" (${grupo.itens.length} lançamento(s)) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a categoria continua a definir depois.`)) return
+    setSalvando(grupo.key)
+    try {
+      const base = destino === 'payable' ? await proximoCodigoPayable() : await proximoCodigoReceivable()
+      const prefixo = base[0]
+      let num = parseInt(base.slice(1), 10)
+      const rows = grupo.itens.map((it, i) => {
+        const d = { ...it.data }
+        if (destino === 'receivable') { d.client = d.supplier || d.client; delete d.supplier }
+        else { d.supplier = d.client || d.supplier; delete d.client }
+        if (d.status === (origem === 'receivable' ? 'Recebido' : 'Pago')) d.status = destino === 'receivable' ? 'Recebido' : 'Pago'
+        d.cat = ''; d.subcat = ''; d.movido_de = origem
+        return { user_id: user.id, codigo: `${prefixo}${String(num + i).padStart(5, '0')}`, anexo_path: it.anexo_path || null, data: d }
+      })
+      const { error: e1 } = await supabase.from(destino).insert(rows)
+      if (e1) throw e1
+      const { error: e2 } = await supabase.from(origem).delete().in('id', grupo.itens.map(x => x.id))
+      if (e2) { showToast('Copiado, mas falhou remover o original — apague manualmente.', 'warning') }
+      else showToast(`${grupo.itens.length} movido(s) para ${nomeDest}.`, 'success')
+      carregar()
+    } catch (e) {
+      showToast('Erro ao mover: ' + e.message, 'error')
+    } finally {
+      setSalvando(null)
+    }
+  }
+
   if (loading) return <AppLayout title="Classificar Lançamentos"><div style={emptyState}>Carregando…</div></AppLayout>
 
   return (
@@ -121,6 +155,14 @@ export default function ClassificarLancamentos() {
                     {subs.map(sc => <option key={sc} value={sc}>{sc}</option>)}
                   </select>
                   <button
+                    onClick={() => moverGrupo(g)}
+                    disabled={salvando === g.key}
+                    style={{ ...btnNatureza, opacity: salvando === g.key ? 0.5 : 1 }}
+                    title={`É ${aba === 'Saída' ? 'receita' : 'despesa'}? Mover para ${aba === 'Saída' ? 'Receitas' : 'Despesas'}`}
+                  >
+                    ⇄ {aba === 'Saída' ? 'é receita' : 'é despesa'}
+                  </button>
+                  <button
                     onClick={() => aplicar(g)}
                     disabled={!s.cat || salvando === g.key}
                     style={{ ...btnAplicar, opacity: (!s.cat || salvando === g.key) ? 0.5 : 1, cursor: (!s.cat || salvando === g.key) ? 'default' : 'pointer' }}
@@ -148,3 +190,4 @@ const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none', flex: '1 1 170px', minWidth: 150 }
 const btnAplicar = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700, background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)' }
+const btnNatureza = { border: '1.5px solid var(--cream-dark)', borderRadius: 6, padding: '8px 12px', fontSize: 11, fontWeight: 600, background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap' }
