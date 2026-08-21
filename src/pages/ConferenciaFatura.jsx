@@ -5,7 +5,7 @@ import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
-import { parseOFX } from '../lib/ofx'
+import { parseOFX, detectarTipoOFX } from '../lib/ofx'
 import { proximoCodigoPayable } from '../lib/codigos'
 import ModalConciliarFatura from './components/ModalConciliarFatura'
 
@@ -67,6 +67,17 @@ export default function ConferenciaFatura() {
       let texto
       try { texto = new TextDecoder('windows-1252').decode(buf) }
       catch { texto = new TextDecoder('utf-8').decode(buf) }
+      // Guard: impede importar um extrato de conta corrente como fatura de cartão.
+      // (Foi exatamente o que inflou as "faturas" de jul/ago com Pix, empréstimo e IOF.)
+      if (detectarTipoOFX(texto) === 'corrente') {
+        const forcar = window.confirm(
+          'Este arquivo parece um EXTRATO DE CONTA CORRENTE, não uma fatura de cartão ' +
+          '(contém movimentos como Pix, débitos e boletos).\n\n' +
+          'Para conciliar a conta, use "Extrato / Conciliação".\n\n' +
+          'Importar mesmo assim como fatura de cartão?'
+        )
+        if (!forcar) { showToast('Importação cancelada. Use Extrato / Conciliação para a conta corrente.', 'info'); return }
+      }
       const { transacoes } = parseOFX(texto)
       if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
       // Separar débitos (compras) de créditos (estornos/pagamentos)
