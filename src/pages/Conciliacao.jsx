@@ -9,6 +9,7 @@ import { fmtMoney, flatten } from '../lib/finance'
 import { parseOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
 import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
+import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
 // (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
@@ -74,11 +75,17 @@ export default function Conciliacao() {
   const [ajustes, setAjustes] = useState([])            // [{ id, key, valor }] ajustes que explicam a diferença
   const [conciliando, setConciliando] = useState(false)
   const [periodosFechados, setPeriodosFechados] = useState(new Set()) // 'YYYY-MM' travados
+  const [plano, setPlano] = useState([])
+  const [criarAberto, setCriarAberto] = useState(false) // form de "criar lançamento" aberto
+  const [nCat, setNCat] = useState('')
+  const [nSubcat, setNSubcat] = useState('')
+
+  useEffect(() => { fetchPlanoContas().then(p => setPlano(p || [])) }, [])
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
   const [erro, setErro] = useState(null)
 
-  // Zera a seleção/ajustes ao trocar a linha do extrato
-  useEffect(() => { setMarcados(new Set()); setAjustes([]) }, [selecionado])
+  // Zera a seleção/ajustes/form ao trocar a linha do extrato
+  useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat('') }, [selecionado])
 
   // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
   useEffect(() => {
@@ -385,6 +392,7 @@ export default function Conciliacao() {
 
   async function criarLancamento(extrato) {
     if (!user) return
+    if (!nCat) { showToast('Escolha a categoria do lançamento.', 'warning'); return }
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
     const dataExt = extrato.data?.data
     const novoLanc = {
@@ -393,7 +401,7 @@ export default function Conciliacao() {
       value: Number(extrato.data?.valor || 0),
       due: dataExt, data_pagamento: dataExt,
       status: tipoTabela === 'receivable' ? 'Recebido' : 'Pago',
-      cat: '', subcat: '', doc_status: 'pendente', sem_documento: true,
+      cat: nCat, subcat: nSubcat || '', doc_status: 'pendente', sem_documento: true,
       created: dataExt, criado_via_conciliacao: true,
     }
     try {
@@ -644,11 +652,37 @@ export default function Conciliacao() {
               ) : (
                 <>
                   <div style={acoesBar}>
-                    <button onClick={() => criarLancamento(selecionadoExt)} style={btnAcao}>+ Criar lançamento</button>
+                    <button onClick={() => setCriarAberto(v => !v)} style={criarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>+ Criar lançamento</button>
                     {selecionadoExt.data?.tipo === 'saida' && <button onClick={() => setModalFaturaExtrato(selecionadoExt)} style={btnAcao}>🪪 Fatura de cartão</button>}
                     <button onClick={() => marcarTransferencia(selecionadoExt)} style={btnAcao}>↔ Transferência</button>
                     <button onClick={() => ignorar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
                   </div>
+                  {criarAberto && (
+                    <div style={criarBox}>
+                      <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.5 }}>
+                        Cria uma {selecionadoExt.data?.tipo === 'entrada' ? 'receita' : 'despesa'} nova de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> e concilia. <strong>Classifique</strong>:
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <select value={nCat} onChange={e => { setNCat(e.target.value); setNSubcat('') }} style={ajSelect}>
+                          <option value="">— categoria —</option>
+                          {categoriasDe(plano, selecionadoExt.data?.tipo === 'entrada' ? 'Entrada' : 'Saída').map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        {(() => {
+                          const subs = subcategoriasDe(plano, selecionadoExt.data?.tipo === 'entrada' ? 'Entrada' : 'Saída', nCat)
+                          return (
+                            <select value={nSubcat} onChange={e => setNSubcat(e.target.value)} style={{ ...ajSelect, opacity: subs.length ? 1 : 0.5 }} disabled={!subs.length}>
+                              <option value="">{subs.length ? '— subcategoria (opcional) —' : 'sem subcategoria'}</option>
+                              {subs.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          )
+                        })()}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <button onClick={() => criarLancamento(selecionadoExt)} disabled={!nCat} style={{ ...btnConciliar, width: 'auto', marginTop: 0, padding: '8px 16px', opacity: nCat ? 1 : 0.5, cursor: nCat ? 'pointer' : 'not-allowed' }}>✓ Criar e conciliar</button>
+                        <button onClick={() => setCriarAberto(false)} style={btnAcao}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
                     Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.
                   </div>
@@ -780,6 +814,7 @@ const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransf
 const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
 const lancCardDestaque = { border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.06)' }
 const lancCardMarcado = { border: '1.5px solid var(--navy)', background: 'rgba(0,32,62,0.05)' }
+const criarBox = { padding: 12, borderRadius: 8, background: 'rgba(0,32,62,0.03)', border: '1px solid var(--cream-dark)', marginBottom: 10 }
 const ajusteRow = { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }
 const ajSelect = { flex: 1, minWidth: 0, padding: '7px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const ajInput = { width: 92, padding: '7px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', textAlign: 'right' }
