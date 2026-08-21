@@ -67,6 +67,8 @@ export default function Conciliacao() {
   const [filtroValorMin, setFiltroValorMin] = useState('')
   const [filtroValorMax, setFiltroValorMax] = useState('')
   const [periodoInicializado, setPeriodoInicializado] = useState(false)
+  const [notasNoPeriodo, setNotasNoPeriodo] = useState(true) // escopar notas ao período do extrato
+  const [buscaNota, setBuscaNota] = useState('')
 
 
 
@@ -495,9 +497,21 @@ export default function Conciliacao() {
     const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
     const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
     const usados = new Set(todas.map(s => s.lancamento.id))
-    const resto = pool.filter(l => !usados.has(l.id)).sort((a, b) => (b.due || '').localeCompare(a.due || ''))
+    let resto = pool.filter(l => !usados.has(l.id))
+    // Escopa a lista "outras notas" ao PERÍODO do extrato (por vencimento) — pra
+    // conciliar o caixa de um período sem uma lista gigante de todas as notas.
+    // (Os matches por valor acima ficam SEM esse limite, pra não sumir nota paga fora do mês.)
+    if (notasNoPeriodo) {
+      if (dataDe) resto = resto.filter(l => !l.due || l.due >= dataDe)
+      if (dataAte) resto = resto.filter(l => !l.due || l.due <= dataAte)
+    }
+    if (buscaNota.trim()) {
+      const q = buscaNota.trim().toLowerCase()
+      resto = resto.filter(l => `${l.data?.client || ''} ${l.data?.supplier || ''} ${l.desc || ''} ${l.codigo || ''}`.toLowerCase().includes(q))
+    }
+    resto.sort((a, b) => (b.due || '').localeCompare(a.due || ''))
     return { sugeridos, mesmoValor, resto }
-  }, [selecionadoExt, receivable, payable])
+  }, [selecionadoExt, receivable, payable, notasNoPeriodo, dataDe, dataAte, buscaNota])
 
   // ── Mesa: pool de lançamentos, tipos de ajuste e a matemática do fechamento ──
   const poolLanc = useMemo(() => {
@@ -685,6 +699,12 @@ export default function Conciliacao() {
                   )}
                   <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
                     Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 4px 8px', flexWrap: 'wrap' }}>
+                    <input value={buscaNota} onChange={e => setBuscaNota(e.target.value)} placeholder="🔍 Buscar nota..." style={{ ...inputFiltro, flex: 1, minWidth: 120 }} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-mid)', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Mostrar só as notas com vencimento no período filtrado do extrato">
+                      <input type="checkbox" checked={notasNoPeriodo} onChange={e => setNotasNoPeriodo(e.target.checked)} /> só do período
+                    </label>
                   </div>
                   {lancsRank.sugeridos.length > 0 && <div style={grupoLabel}>💡 Provavelmente é esta</div>}
                   {lancsRank.sugeridos.map((s, i) => (
