@@ -101,7 +101,7 @@ export default function ConferenciaFatura() {
         )
         if (!ok) { showToast('Importação cancelada — este arquivo já foi importado.', 'info'); return }
       }
-      const { transacoes } = parseOFX(texto)
+      const { transacoes, dataExtrato } = parseOFX(texto)
       if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
       // Separar débitos (compras) de créditos (estornos/pagamentos)
       const debitosOFX = transacoes.filter(t => t.tipo === 'saida')
@@ -109,16 +109,23 @@ export default function ConferenciaFatura() {
       if (!debitosOFX.length) { showToast('Nenhuma compra encontrada no OFX.', 'warning'); return }
       const datasDebito = debitosOFX.map(t => t.data).filter(Boolean).sort()
       const maxData = datasDebito[datasDebito.length - 1]
-      // Identifica a fatura AUTOMATICAMENTE: data da última compra + dia de fechamento
-      // do cartão. Compra até o fechamento → fatura deste mês; depois → próxima.
+      // Identifica a fatura AUTOMATICAMENTE.
+      // 1º) preferimos a data de referência do documento (DTASOF) — na fatura do
+      //     Sicoob é o próprio vencimento, então o mês dela É o mês da fatura.
+      //     (Confiável mesmo quando uma parcela traz data enganosa.)
+      // 2º) sem DTASOF, caímos na heurística antiga: data da última compra +
+      //     dia de fechamento (compra até o fechamento → fatura deste mês; depois → próxima).
       let usoAno = ano, usoMes = mes
-      if (maxData) {
+      if (dataExtrato) {
+        const [ey, em] = dataExtrato.split('-').map(Number)
+        usoAno = ey; usoMes = em - 1
+      } else if (maxData) {
         const dF = Number(cartao?.data?.dia_fechamento) || 1
         const [dy, dm, dd] = maxData.split('-').map(Number)
         usoAno = dy; usoMes = dm - 1
         if (dd > dF) { usoMes += 1; if (usoMes > 11) { usoMes = 0; usoAno += 1 } }
-        if (usoAno !== ano || usoMes !== mes) { setAno(usoAno); setMes(usoMes) }
       }
+      if (usoAno !== ano || usoMes !== mes) { setAno(usoAno); setMes(usoMes) }
       const periodoUsado = periodoFatura(cartao, usoAno, usoMes)
       showToast(`Fatura identificada automaticamente: ${rotuloFatura(usoAno, usoMes)}.`, 'info')
       // Dedup por (fit_id + descrição). Cuidados aprendidos com o extrato do Sicoob:
