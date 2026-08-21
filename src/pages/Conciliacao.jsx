@@ -34,6 +34,7 @@ export default function Conciliacao() {
   const [payable, setPayable] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [autoConc, setAutoConc] = useState(false)
   const [saldoBanco, setSaldoBanco] = useState(null)
 
   // Filtros
@@ -136,13 +137,18 @@ export default function Conciliacao() {
   }, [extratos, contaId])
 
   // ── Saldos ───────────────────────────────────────────────────────────
+  // Saldo no sistema DESTA conta = saldo inicial + movimento do extrato JÁ
+  // conciliado (cada linha conciliada tem um lançamento Recebido/Pago por trás).
+  // Antes somava recebido/pago de TODAS as contas — a divergência não batia com
+  // mais de uma conta. Agora a divergência = exatamente o que falta conciliar aqui.
   const saldoSistema = useMemo(() => {
     if (!conta) return 0
     const sIni = Number(conta.data?.saldo_inicial || 0)
-    const tIn = receivable.filter(r => r.status === 'Recebido').reduce((a, r) => a + r.value, 0)
-    const tOut = payable.filter(r => r.status === 'Pago').reduce((a, r) => a + r.value, 0)
+    const conc = extratos.filter(e => e.conta_id === contaId && e.status === 'conciliado')
+    const tIn = conc.filter(t => t.data?.tipo === 'entrada').reduce((a, t) => a + Number(t.data?.valor || 0), 0)
+    const tOut = conc.filter(t => t.data?.tipo === 'saida').reduce((a, t) => a + Number(t.data?.valor || 0), 0)
     return sIni + tIn - tOut
-  }, [conta, receivable, payable])
+  }, [conta, contaId, extratos])
 
   const saldoBancoCalculado = useMemo(() => {
     if (!conta) return null
@@ -223,6 +229,41 @@ export default function Conciliacao() {
     }
   }
 
+  // ── Conciliação automática em lote ───────────────────────────────────
+  // Concilia só os casos SEGUROS: valor exato + data próxima E um único
+  // candidato (sem ambiguidade). Os ambíguos ficam pra decisão manual.
+  async function conciliarAutomatico() {
+    const pendentes = extratos.filter(e => e.conta_id === contaId && e.status === 'pendente')
+    const usadosLanc = new Set()
+    const pares = []
+    for (const ext of pendentes) {
+      const tipo = ext.data?.tipo
+      const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
+      const pool = (tipo === 'entrada' ? receivable : payable)
+        .filter(c => c.status !== final && c.status !== 'Provisão' && !usadosLanc.has(c.id))
+      const fortes = sugerirMatches(ext.data || {}, pool).filter(s => s.dentroTol)
+      if (fortes.length === 1) {
+        pares.push({ ext, lanc: fortes[0].lancamento, target: tipo === 'entrada' ? 'receivable' : 'payable' })
+        usadosLanc.add(fortes[0].lancamento.id)
+      }
+    }
+    if (!pares.length) { showToast('Nenhum match automático seguro (valor + data, sem ambiguidade).', 'info'); return }
+    if (!confirm(`Conciliar automaticamente ${pares.length} transação(ões) que batem exato (mesmo valor e data próxima)? As ambíguas ficam pra você decidir uma a uma.`)) return
+    setAutoConc(true)
+    let ok = 0
+    try {
+      for (const p of pares) {
+        const statusNovo = p.target === 'receivable' ? 'Recebido' : 'Pago'
+        const merged = { ...(p.lanc.data || {}), status: statusNovo, data_pagamento: p.lanc.data?.data_pagamento || p.ext.data?.data }
+        const { error } = await supabase.rpc('conciliar_vincular', { p_extrato_id: p.ext.id, p_target: p.target, p_lanc_id: p.lanc.id, p_merged: merged })
+        if (!error) ok++
+      }
+      showToast(`${ok} transação(ões) conciliada(s) automaticamente.`, 'success')
+      setSelecionado(null); carregar()
+    } catch (e) { showToast('Erro na conciliação automática: ' + e.message, 'error') }
+    finally { setAutoConc(false) }
+  }
+
   // ── Ações ────────────────────────────────────────────────────────────
   async function vincular(extrato, lancamento) {
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
@@ -300,14 +341,16 @@ export default function Conciliacao() {
     [extratosFiltrados, selecionado]
   )
   const lancsRank = useMemo(() => {
-    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], resto: [] }
+    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
     const tipo = selecionadoExt.data?.tipo
     const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
     const pool = (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== final && c.status !== 'Provisão')
-    const sug = sugerirMatches(selecionadoExt.data || {}, pool)
-    const sugIds = new Set(sug.map(s => s.lancamento.id))
-    const resto = pool.filter(l => !sugIds.has(l.id)).sort((a, b) => (b.due || '').localeCompare(a.due || ''))
-    return { sugeridos: sug, resto }
+    const todas = sugerirMatches(selecionadoExt.data || {}, pool)
+    const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
+    const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
+    const usados = new Set(todas.map(s => s.lancamento.id))
+    const resto = pool.filter(l => !usados.has(l.id)).sort((a, b) => (b.due || '').localeCompare(a.due || ''))
+    return { sugeridos, mesmoValor, resto }
   }, [selecionadoExt, receivable, payable])
 
   if (loading) return <AppLayout title="Conciliação"><div style={emptyState}>Carregando…</div></AppLayout>
@@ -338,10 +381,15 @@ export default function Conciliacao() {
                 <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
                 {uploading ? '⏳ Processando…' : '📥 Importar OFX'}
               </label>
+              {counts.pendente > 0 && (
+                <button onClick={conciliarAutomatico} disabled={autoConc} style={btnAuto} title="Concilia os que batem exato (valor + data), sem ambiguidade">
+                  {autoConc ? '⏳ Conciliando…' : '⚡ Conciliar automáticos'}
+                </button>
+              )}
             </div>
             <div style={saldosBox}>
               <Saldo label="Saldo no Banco" sub="da conta no banco" valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
-              <Saldo label="Saldo no Sistema" sub="recebido − pago" valor={saldoSistema} />
+              <Saldo label="Saldo no Sistema" sub="conciliado nesta conta" valor={saldoSistema} />
               <Saldo
                 label="Divergência"
                 sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
@@ -415,7 +463,7 @@ export default function Conciliacao() {
 
           {/* DIREITA — notas a conciliar com a linha selecionada */}
           <div style={painel}>
-            <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.resto.length}</span>}</div>
+            <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length}</span>}</div>
             <div style={painelBody}>
               {!selecionadoExt ? (
                 <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda pra ver as notas que combinam — e ligar uma na outra.</div>
@@ -438,11 +486,15 @@ export default function Conciliacao() {
                   {lancsRank.sugeridos.map((s, i) => (
                     <LancCard key={s.lancamento.id + '_' + i} lanc={s.lancamento} motivo={s.motivo} destaque onVincular={() => vincular(selecionadoExt, s.lancamento)} />
                   ))}
+                  {lancsRank.mesmoValor.length > 0 && <div style={grupoLabel}>💰 Mesmo valor (data diferente)</div>}
+                  {lancsRank.mesmoValor.map((s, i) => (
+                    <LancCard key={s.lancamento.id + '_mv_' + i} lanc={s.lancamento} motivo={s.motivo} onVincular={() => vincular(selecionadoExt, s.lancamento)} />
+                  ))}
                   {lancsRank.resto.length > 0 && <div style={grupoLabel}>Outras notas em aberto</div>}
                   {lancsRank.resto.map(l => (
                     <LancCard key={l.id} lanc={l} onVincular={() => vincular(selecionadoExt, l)} />
                   ))}
-                  {lancsRank.sugeridos.length + lancsRank.resto.length === 0 && (
+                  {lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
                     <div style={dicaVazia}>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</div>
                   )}
                 </>
@@ -492,6 +544,7 @@ const labelTopo = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransfo
 const saldosBox = { display: 'flex', gap: 24, alignItems: 'center' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 200 }
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
+const btnAuto = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: 'var(--navy)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 
 const filtrosBar = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14 }
 const filtroSep = { fontSize: 11, color: 'var(--text-mid)' }
