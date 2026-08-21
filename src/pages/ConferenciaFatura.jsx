@@ -6,7 +6,7 @@ import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
 import { parseOFX, detectarTipoOFX } from '../lib/ofx'
-import { detectarParcelaLivre, removerSufixoParcela } from '../lib/parcelas'
+import { detectarParcelaLivre, removerSufixoParcela, gerarParcelas } from '../lib/parcelas'
 import { proximoCodigoPayable } from '../lib/codigos'
 import ModalConciliarFatura from './components/ModalConciliarFatura'
 
@@ -185,31 +185,66 @@ export default function ConferenciaFatura() {
       // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos.
       if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)
       const importacaoId = imp.id
-      // Cria N lançamentos em payable (fit_id dentro do JSONB data)
-      const payload = debitos.map(t => ({
+      const hoje = new Date().toISOString().slice(0, 10)
+      // Séries de parcelamento já existentes no cartão → parent_id + competência de origem.
+      // Evita recriar série já reconstruída/importada; parcela nova se anexa à série.
+      const seriesExistentes = new Map()
+      for (const p of payable.filter(p => p.cartao_id === cartaoId && p.data?.parcela_total)) {
+        const key = `${norm(removerSufixoParcela(p.data.desc))}|${p.data.parcela_total}`
+        if (!seriesExistentes.has(key)) seriesExistentes.set(key, { parentId: p.parent_id || p.id, dcomp: p.data.data_competencia })
+      }
+      // Monta as linhas. Parcelamento NOVO → gera a SÉRIE CHEIA (opção A: valor cheio na
+      // competência de origem + N parcelas nos vencimentos; passadas=Pago, futuras=Pendente).
+      // Compra normal → linha única, como antes.
+      const linhasInserir = []
+      for (const t of debitos) {
+        const baseComum = {
+          supplier: (t.descricao || '').substring(0, 80),
+          cat: '', subcat: '', forma_pagamento: 'Cartão Crédito',
+          criado_via_import_fatura: true, created: hoje,
+        }
+        const valor = Math.abs(Number(t.valor || 0))
+        const pc = detectarParcelaLivre(t.descricao)
+        if (!pc) {
+          linhasInserir.push({ data: { ...baseComum, desc: t.descricao, value: valor, data_competencia: t.data, due: periodoUsado.vencimento, status: 'Pendente', fit_id_ofx: t.fit_id || null } })
+          continue
+        }
+        const chaveSerie = `${norm(pc.serie)}|${pc.total}`
+        if (seriesExistentes.has(chaveSerie)) {
+          // série já existe: anexa esta parcela (competência = origem da série)
+          const { parentId, dcomp } = seriesExistentes.get(chaveSerie)
+          const due = periodoUsado.vencimento
+          linhasInserir.push({ parent_id: parentId, data: { ...baseComum, desc: `${pc.serie} ${pc.atual}/${pc.total}`, value: valor, data_competencia: dcomp, due, status: due < hoje ? 'Pago' : 'Pendente', data_pagamento: due < hoje ? due : null, fit_id_ofx: t.fit_id || null, parcela_atual: pc.atual, parcela_total: pc.total } })
+          continue
+        }
+        // parcelamento NOVO: gera a série cheia. Origem = mês desta fatura − (nº−1).
+        const origem = new Date(usoAno, usoMes - (pc.atual - 1), 1)
+        const dataCompra = `${origem.getFullYear()}-${String(origem.getMonth() + 1).padStart(2, '0')}-01`
+        const parcelas = gerarParcelas({
+          baseData: { ...baseComum, desc: pc.serie, data_competencia: dataCompra },
+          valorTotal: valor * pc.total,
+          numParcelas: pc.total, dataCompra, cartao,
+        })
+        const parentId = crypto.randomUUID()
+        parcelas.forEach((p, i) => {
+          const paga = p.due < hoje
+          linhasInserir.push({
+            ...(i === 0 ? { id: parentId } : { parent_id: parentId }),
+            data: { ...p, status: paga ? 'Pago' : 'Pendente', data_pagamento: paga ? p.due : null, fit_id_ofx: p.parcela_atual === pc.atual ? (t.fit_id || null) : null, criado_via_import_fatura: true },
+          })
+        })
+        seriesExistentes.set(chaveSerie, { parentId, dcomp: dataCompra })
+      }
+      let baseCodigo = await proximoCodigoPayable()
+      let baseNum = parseInt(baseCodigo.slice(1), 10)
+      const payloadComCodigo = linhasInserir.map((pl, i) => ({
         user_id: user.id,
         cartao_id: cartaoId,
         importacao_id: importacaoId,
-        data: {
-          supplier: (t.descricao || '').substring(0, 80),
-          desc: t.descricao,
-          value: Math.abs(Number(t.valor || 0)),
-          data_competencia: t.data,
-          due: periodoUsado.vencimento,
-          status: 'Pendente',
-          cat: '',
-          subcat: '',
-          forma_pagamento: 'Cartão Crédito',
-          fit_id_ofx: t.fit_id || null,
-          criado_via_import_fatura: true,
-          created: new Date().toISOString().slice(0, 10),
-        },
-      }))
-      let baseCodigo = await proximoCodigoPayable()
-      let baseNum = parseInt(baseCodigo.slice(1), 10)
-      const payloadComCodigo = payload.map((pl, i) => ({
-        ...pl,
+        ...(pl.id ? { id: pl.id } : {}),
+        parent_id: pl.parent_id ?? null,
         codigo: `2${String(baseNum + i).padStart(5, '0')}`,
+        data: pl.data,
       }))
       const { error } = await supabase.from('payable').insert(payloadComCodigo)
       if (error) {
@@ -217,7 +252,9 @@ export default function ConferenciaFatura() {
         await supabase.from('importacoes').delete().eq('id', importacaoId)
         throw error
       }
-      let msg = `${debitos.length} compras importadas da fatura.`
+      const extras = linhasInserir.length - debitos.length
+      let msg = `${debitos.length} lançamento(s) da fatura importado(s).`
+      if (extras > 0) msg += ` ${extras} parcela(s) de séries novas geradas automaticamente.`
       if (creditosOFX.length > 0) msg += ` ${creditosOFX.length} crédito(s) (estorno/pagamento) ignorado(s).`
       showToast(msg, 'success')
       if (uploadFalhou) showToast('Compras importadas, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
