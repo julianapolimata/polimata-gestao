@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Chart } from 'chart.js/auto'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -46,6 +47,9 @@ export default function Receber() {
   const [filtrosExpanded, setFiltrosExpanded] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
+  const [anoSel, setAnoSel] = useState(String(new Date().getFullYear()))
+  const chartRef = useRef(null)
+  const chartInst = useRef(null)
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -135,6 +139,100 @@ export default function Receber() {
     () => filtrados.reduce((s, x) => s + (parseFloat(x.data?.value) || 0), 0),
     [filtrados],
   )
+
+  // ── Anos disponíveis (por competência ou vencimento) ────────────────
+  const anosDisponiveis = useMemo(() => {
+    const set = new Set()
+    for (const r of rows) {
+      const ref = r.data?.data_competencia || r.data?.due
+      if (ref) set.add(ref.slice(0, 4))
+    }
+    if (!set.size) set.add(String(new Date().getFullYear()))
+    return [...set].sort().reverse()
+  }, [rows])
+  useEffect(() => {
+    if (anosDisponiveis.length && !anosDisponiveis.includes(anoSel)) setAnoSel(anosDisponiveis[0])
+  }, [anosDisponiveis, anoSel])
+
+  // ── Receita mês a mês do ano (competência), com composição por mês ──
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const porMes = useMemo(() => {
+    const meses = MESES.map((_, m) => ({ mes: m, total: 0, recebido: 0, aReceber: 0, itens: [] }))
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão') continue // provisão não é faturamento até virar NF
+      const ref = d.data_competencia || d.due
+      if (!ref || !String(ref).startsWith(anoSel)) continue
+      const m = parseInt(String(ref).slice(5, 7), 10) - 1
+      if (m < 0 || m > 11) continue
+      const v = Number(d.value || 0)
+      const g = meses[m]
+      g.total += v
+      if ((d.status || '').toLowerCase() === 'recebido') g.recebido += v
+      else g.aReceber += v
+      g.itens.push({ nome: d.client || '—', value: v, status: d.status || 'Pendente', codigo: r.codigo })
+    }
+    return meses
+  }, [rows, anoSel])
+
+  const kpisRec = useMemo(() => {
+    const faturado = porMes.reduce((s, m) => s + m.total, 0)
+    const recebido = porMes.reduce((s, m) => s + m.recebido, 0)
+    const aReceber = porMes.reduce((s, m) => s + m.aReceber, 0)
+    let vencido = 0
+    for (const r of rows) {
+      const d = r.data
+      if (!d || d.status === 'Provisão') continue
+      if ((d.status || '').toLowerCase() === 'recebido') continue
+      const ref = d.data_competencia || d.due
+      if (ref && String(ref).startsWith(anoSel) && isOverdue(d.due)) vencido += Number(d.value || 0)
+    }
+    return { faturado, recebido, aReceber, vencido }
+  }, [porMes, rows, anoSel])
+
+  // ── Gráfico de receita mês a mês ────────────────────────────────────
+  useEffect(() => {
+    if (!chartRef.current) return
+    if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null }
+    chartInst.current = new Chart(chartRef.current, {
+      type: 'bar',
+      data: {
+        labels: MESES,
+        datasets: [
+          { label: 'Recebido', data: porMes.map(m => m.recebido), backgroundColor: 'rgba(39,174,96,0.85)', borderColor: 'rgba(39,174,96,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
+          { label: 'A receber', data: porMes.map(m => m.aReceber), backgroundColor: 'rgba(204,145,94,0.85)', borderColor: 'rgba(204,145,94,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { font: { family: 'Montserrat', size: 11 }, color: '#00203E', padding: 14 } },
+          tooltip: {
+            callbacks: {
+              title: items => `${MESES[items[0].dataIndex]}/${anoSel}`,
+              label: () => '',
+              afterBody: items => {
+                const m = items[0].dataIndex
+                const itens = porMes[m].itens.slice().sort((a, b) => b.value - a.value)
+                if (!itens.length) return ['(sem faturamento neste mês)']
+                const lines = itens.slice(0, 12).map(it => `• ${String(it.nome).slice(0, 26)}  ${fmtMoeda(it.value)}${(it.status || '').toLowerCase() === 'recebido' ? ' ✓' : ''}`)
+                if (itens.length > 12) lines.push(`  … +${itens.length - 12} nota(s)`)
+                lines.push('────────────')
+                lines.push(`Total: ${fmtMoeda(porMes[m].total)}`)
+                return lines
+              },
+            },
+            titleFont: { family: 'Montserrat', weight: '600' }, bodyFont: { family: 'Montserrat', size: 11 }, padding: 12,
+          },
+        },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
+          y: { stacked: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+        },
+      },
+    })
+    return () => { if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null } }
+  }, [porMes, anoSel])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
@@ -280,29 +378,34 @@ export default function Receber() {
             setExpanded={setFiltrosExpanded}
           />
 
-          {temDados && (
-            <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
-              <table style={{ ...tbl, tableLayout: 'fixed' }}>
-                {colgroup}
-                <thead>
-                  <tr>
-                    <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
-                    <Th onClick={() => toggleSort('client')} active={sortCol === 'client'} dir={sortDir}>Cliente</Th>
-                    <th style={th}>Descrição</th>
-                    <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right">Valor</Th>
-                    <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir}>Datas</Th>
-                    <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
-                    <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir}>Status</Th>
-                    <th style={{ ...th, textAlign: 'center' }}></th>
-                  </tr>
-                </thead>
-              </table>
-            </div>
-          )}
         </>
       )}
     >
-      <div style={{ ...tableWrap, borderTopLeftRadius: temDados ? 0 : 10, borderTopRightRadius: temDados ? 0 : 10, borderTop: temDados ? 'none' : '1px solid var(--cream-dark)' }}>
+      {/* Faixa de KPIs + gráfico de receita mês a mês */}
+      {temDados && (
+        <>
+          <div style={kpiStrip}>
+            <Kpi label={`Faturado ${anoSel}`} valor={fmtMoeda(kpisRec.faturado)} cor="var(--navy)" />
+            <Kpi label="Recebido" valor={fmtMoeda(kpisRec.recebido)} cor="var(--green)" />
+            <Kpi label="A receber" valor={fmtMoeda(kpisRec.aReceber)} cor="var(--gold-dark)" />
+            <Kpi label="Vencido" valor={fmtMoeda(kpisRec.vencido)} cor="var(--red)" />
+          </div>
+          <div style={chartCard}>
+            <div style={chartHeader}>
+              <div>
+                <div style={chartTitle}>Evolução da receita — {anoSel}</div>
+                <div style={chartSub}>Passe o mouse num mês pra ver a composição · verde = recebido · cobre = a receber</div>
+              </div>
+              <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
+                {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div style={{ height: 260, position: 'relative' }}><canvas ref={chartRef} /></div>
+          </div>
+        </>
+      )}
+
+      <div style={{ ...tableWrap, marginTop: temDados ? 16 : 0 }}>
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : erro ? (
@@ -314,6 +417,18 @@ export default function Receber() {
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}
+            <thead>
+              <tr>
+                <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
+                <Th onClick={() => toggleSort('client')} active={sortCol === 'client'} dir={sortDir}>Cliente</Th>
+                <th style={th}>Descrição</th>
+                <Th onClick={() => toggleSort('value')} active={sortCol === 'value'} dir={sortDir} align="right">Valor</Th>
+                <Th onClick={() => toggleSort('due')} active={sortCol === 'due'} dir={sortDir}>Datas</Th>
+                <Th onClick={() => toggleSort('cat')} active={sortCol === 'cat'} dir={sortDir}>Categoria</Th>
+                <Th onClick={() => toggleSort('status')} active={sortCol === 'status'} dir={sortDir}>Status</Th>
+                <th style={{ ...th, textAlign: 'center' }}></th>
+              </tr>
+            </thead>
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
@@ -397,7 +512,22 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
   )
 }
 
+function Kpi({ label, valor, cor }) {
+  return (
+    <div style={{ background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: '12px 16px', borderTop: `3px solid ${cor}` }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: cor, fontFamily: 'var(--body)' }}>{valor}</div>
+    </div>
+  )
+}
+
 // ─── styles ───────────────────────────────────────────────────────────────
+const kpiStrip = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }
+const chartCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 18, marginBottom: 4 }
+const chartHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12, flexWrap: 'wrap' }
+const chartTitle = { fontSize: 14, fontWeight: 600, color: 'var(--navy)', fontFamily: 'var(--body)' }
+const chartSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
+const anoSelect = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
 const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const selectTipoData = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
 const btnNovo = {
