@@ -45,6 +45,14 @@ export default function NfseConfig() {
     descricao_padrao: '',
   })
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }))
+  // Reforma tributária (IBS/CBS) — objeto aninhado em reforma_ibs_cbs
+  const setReforma = (k, v) => setF(prev => ({ ...prev, reforma_ibs_cbs: { ...(prev.reforma_ibs_cbs || {}), [k]: v } }))
+  const setNbs = (i, codigo) => setF(prev => {
+    const arr = [...((prev.reforma_ibs_cbs?.nbs) || [])]
+    while (arr.length <= i) arr.push({ codigo: '', desc: '' })
+    arr[i] = { ...arr[i], codigo }
+    return { ...prev, reforma_ibs_cbs: { ...(prev.reforma_ibs_cbs || {}), nbs: arr } }
+  })
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -202,6 +210,40 @@ export default function NfseConfig() {
           </div>
           <div />
         </Row>
+
+        <div style={divider} />
+        <SecTitle>Reforma Tributária · IBS/CBS (2026)</SecTitle>
+        <div style={{ ...noteBox, marginBottom: 14 }}>
+          Códigos do padrão nacional (LC 214/2025), em <strong>fase de teste em 2026</strong>. Confirmados com o contador (JL Ramos / Rebeca Pereira, 20/08/2026).
+        </div>
+        <Row cols={2}>
+          <Field label="NBS principal (consultoria)">
+            <input value={f.reforma_ibs_cbs?.nbs?.[0]?.codigo || ''} onChange={e => setNbs(0, e.target.value)} placeholder="Ex: 1.1401.19.00" style={input} />
+          </Field>
+          <Field label="NBS secundário (apoio administrativo)">
+            <input value={f.reforma_ibs_cbs?.nbs?.[1]?.codigo || ''} onChange={e => setNbs(1, e.target.value)} placeholder="Ex: 1.1806.40.90" style={input} />
+          </Field>
+        </Row>
+        <Row cols={3}>
+          <Field label="CST (situação tributária)">
+            <input value={f.reforma_ibs_cbs?.cst || ''} onChange={e => setReforma('cst', e.target.value)} placeholder="Ex: 000" style={input} />
+          </Field>
+          <Field label="cClassTrib (classif. tributária)">
+            <input value={f.reforma_ibs_cbs?.cclasstrib || ''} onChange={e => setReforma('cclasstrib', e.target.value)} placeholder="Ex: 000001" style={input} />
+          </Field>
+          <Field label="cIndOp (indicador da operação)">
+            <input value={f.reforma_ibs_cbs?.cindop || ''} onChange={e => setReforma('cindop', e.target.value)} placeholder="Ex: 000001" style={input} />
+          </Field>
+        </Row>
+        <Row cols={2}>
+          <Field label="Alíquota IBS (%)">
+            <input type="number" step="0.01" value={f.reforma_ibs_cbs?.aliquota_ibs ?? ''} onChange={e => setReforma('aliquota_ibs', e.target.value === '' ? null : Number(e.target.value))} placeholder="Ex: 0,10" style={input} />
+          </Field>
+          <Field label="Alíquota CBS (%)">
+            <input type="number" step="0.01" value={f.reforma_ibs_cbs?.aliquota_cbs ?? ''} onChange={e => setReforma('aliquota_cbs', e.target.value === '' ? null : Number(e.target.value))} placeholder="Ex: 0,00" style={input} />
+          </Field>
+        </Row>
+
         <Row>
           <Field label="Discriminação padrão (usada quando não há modelo)">
             <textarea value={f.descricao_padrao} onChange={e => set('descricao_padrao', e.target.value)} placeholder="Texto padrão da nota. Aceita as mesmas variáveis dos modelos, ex: {cliente}, {competencia}, {valor}." style={{ ...input, minHeight: 70, resize: 'vertical', lineHeight: 1.5 }} />

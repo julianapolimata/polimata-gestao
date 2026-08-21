@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 
 import { fmtMoney, flatten } from '../lib/finance'
+import { showToast } from '../components/Toast'
 import {
-  descobrirFaixa,
+  descobrirFaixa, calcularAliquotaEfetiva,
   projetarDAS, compor, vencimentoDAS,
 } from '../lib/simplesNacional'
 
@@ -30,6 +31,10 @@ export default function SimplesNacional() {
   const [dasHist, setDasHist] = useState([])
   const [receivable, setReceivable] = useState([])
   const [loading, setLoading] = useState(true)
+  const [editando, setEditando] = useState(false)
+  const [formRbt12, setFormRbt12] = useState('')
+  const [formMunicipio, setFormMunicipio] = useState('')
+  const [salvando, setSalvando] = useState(false)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -49,6 +54,41 @@ export default function SimplesNacional() {
   useEffect(() => { carregar() }, [carregar])
 
   const cfg = config?.data || {}
+
+  function abrirEditor() {
+    setFormRbt12(cfg.rbt12_estimada != null ? String(cfg.rbt12_estimada) : '')
+    setFormMunicipio(cfg.municipio_iss || '')
+    setEditando(true)
+  }
+  // Prévia ao vivo enquanto digita a RBT12: faixa + alíquota efetiva calculadas.
+  const rbt12Form = Number(String(formRbt12).replace(/\./g, '').replace(',', '.')) || 0
+  const faixaForm = descobrirFaixa(rbt12Form)
+  const aliquotaForm = calcularAliquotaEfetiva(rbt12Form, faixaForm)
+
+  async function salvarConfig() {
+    if (rbt12Form <= 0) { showToast('Informe a RBT12 estimada (receita dos últimos 12 meses).', 'warning'); return }
+    const novo = {
+      ...(cfg || {}),
+      anexo: 'III',
+      rbt12_estimada: rbt12Form,
+      aliquota_efetiva: aliquotaForm,
+      municipio_iss: formMunicipio.trim() || null,
+      atualizado_em: new Date().toISOString().slice(0, 10),
+    }
+    setSalvando(true)
+    try {
+      if (config?.id) {
+        const { error } = await supabase.from('simples_nacional_config').update({ data: novo }).eq('id', config.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('simples_nacional_config').insert({ user_id: user.id, data: novo })
+        if (error) throw error
+      }
+      showToast('Configuração do Simples salva.', 'success')
+      setEditando(false); carregar()
+    } catch (e) { showToast('Erro ao salvar: ' + e.message, 'error') }
+    finally { setSalvando(false) }
+  }
 
   // Mês corrente — vamos projetar o DAS deste mês (vence dia 20 do próximo)
   const hoje = new Date()
@@ -100,17 +140,45 @@ export default function SimplesNacional() {
     return out
   }, [hoje])
 
+  const formEditor = (
+    <div style={parametrosBox}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>⚙️ Configuração do Simples Nacional</div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={campo}>
+            <span style={campoLabel}>RBT12 estimada (receita bruta dos últimos 12 meses)</span>
+            <input value={formRbt12} onChange={e => setFormRbt12(e.target.value)} placeholder="ex.: 240000" inputMode="decimal" style={input} />
+          </label>
+          <label style={campo}>
+            <span style={campoLabel}>Município do ISS</span>
+            <input value={formMunicipio} onChange={e => setFormMunicipio(e.target.value)} placeholder="ex.: Rio Claro/SP" style={input} />
+          </label>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-mid)' }}>
+          Anexo <strong>III</strong> (consultoria, Fator R ≥ 28%) · Faixa <strong>{faixaForm.faixa}</strong> (até {fmtMoney(faixaForm.ate)}) · Alíquota efetiva calculada: <strong style={{ color: 'var(--gold-dark)' }}>{fmtPct(aliquotaForm)}</strong>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button onClick={salvarConfig} disabled={salvando} style={btnPrimary}>{salvando ? 'Salvando…' : 'Salvar configuração'}</button>
+          {config && <button onClick={() => setEditando(false)} style={btnGhost}>Cancelar</button>}
+        </div>
+      </div>
+    </div>
+  )
+
   if (loading) return <AppLayout title="Simples Nacional"><div style={emptyState}>Carregando…</div></AppLayout>
 
-  if (!config) {
+  if (!config && !editando) {
     return (
       <AppLayout title="Simples Nacional">
-        <div style={emptyState}>
-          Calculadora ainda não configurada. Anexe um DAS recente pra eu extrair os parâmetros automaticamente via IA.
-          <br /><em style={{ fontSize: 11 }}>Em breve: upload de DAS PDF.</em>
+        <div style={{ fontSize: 13, color: 'var(--text-mid)', marginBottom: 14, lineHeight: 1.6 }}>
+          Configure a calculadora do Simples Nacional pra eu projetar o DAS do mês. Informe a RBT12 (receita dos últimos 12 meses) — a faixa e a alíquota efetiva saem automaticamente.
         </div>
+        {formEditor}
       </AppLayout>
     )
+  }
+  if (editando) {
+    return <AppLayout title="Simples Nacional">{formEditor}</AppLayout>
   }
 
   return (
@@ -118,7 +186,10 @@ export default function SimplesNacional() {
       {/* Banner parâmetros fiscais */}
       <div style={parametrosBox}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Configuração Polímata</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>Configuração Polímata{cfg.atualizado_em ? ` · atualizada em ${fmtDataBR(cfg.atualizado_em)}` : ''}</div>
+            <button onClick={abrirEditor} style={btnGhost}>⚙️ Editar</button>
+          </div>
           <div style={{ display: 'flex', gap: 24, marginTop: 8, flexWrap: 'wrap' }}>
             <Param label="Anexo" valor={`Anexo ${cfg.anexo || 'III'} (serviços)`} />
             <Param label="Faixa" valor={`Faixa ${faixaInfo.faixa}`} sub={`até ${fmtMoney(faixaInfo.ate)}`} />
@@ -274,6 +345,11 @@ const projecaoCard = { background: 'var(--white)', borderRadius: 12, padding: 24
 const formulaBox = { background: 'rgba(204,145,94,0.06)', borderLeft: '3px solid var(--gold)', padding: 14, borderRadius: 6, fontSize: 12, color: 'var(--navy)', display: 'flex', flexDirection: 'column', gap: 4 }
 const composicaoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }
 const select = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const campo = { display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 240px', minWidth: 200 }
+const campoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-mid)' }
+const input = { padding: '9px 11px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const btnPrimary = { padding: '9px 18px', border: 'none', borderRadius: 6, background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }
+const btnGhost = { padding: '7px 14px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 const tableCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip', marginBottom: 18 }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
