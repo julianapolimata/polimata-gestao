@@ -282,6 +282,41 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     }
   }
 
+  // ── Mover entre Contas a Receber ⇄ Contas a Pagar ────────────────────
+  // Corrige lançamento que entrou na direção errada (ex.: uma compra que caiu
+  // em Receber). Troca client⇄supplier, limpa categoria (as do plano de contas
+  // diferem entre receita e despesa) e gera código na tabela de destino.
+  async function moverEntreContas() {
+    if (!isEdit || !registro) return
+    const destino = isRec ? 'payable' : 'receivable'
+    const nomeDestino = isRec ? 'Contas a Pagar' : 'Contas a Receber'
+    if (!window.confirm(`Mover este lançamento para ${nomeDestino}?\n\nA categoria será limpa (as categorias de receita e despesa são diferentes) — você reclassifica depois. O anexo e os valores são preservados.`)) return
+    setSaving(true)
+    try {
+      const orig = { ...(registro.data || {}) }
+      if (isRec) { orig.supplier = orig.client || parte.trim(); delete orig.client }
+      else { orig.client = orig.supplier || parte.trim(); delete orig.supplier }
+      // status liquidado tem nome diferente entre as tabelas
+      if (orig.status === (isRec ? 'Recebido' : 'Pago')) orig.status = isRec ? 'Pago' : 'Recebido'
+      orig.cat = ''
+      orig.subcat = ''
+      orig.movido_de = tabela
+      const codigo = isRec ? await proximoCodigoPayable() : await proximoCodigoReceivable()
+      const payload = { user_id: user?.id || registro.user_id, codigo, anexo_path: registro.anexo_path || null, data: orig }
+      const { error: errIns } = await supabase.from(destino).insert(payload)
+      if (errIns) throw errIns
+      const { error: errDel } = await supabase.from(tabela).delete().eq('id', registro.id)
+      if (errDel) { showToast('Copiado para ' + nomeDestino + ', mas falhou remover o original — apague-o manualmente.', 'warning') }
+      else showToast(`Movido para ${nomeDestino} (${codigo}). Reclassifique a categoria lá.`, 'success')
+      onSaved?.()
+      onClose()
+    } catch (e) {
+      showToast('Erro ao mover: ' + e.message, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function abrirAnexo() {
     if (!anexoPath) return
     try {
@@ -318,6 +353,11 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       width={760}
       footer={
         <>
+          {isEdit && (
+            <button type="button" onClick={moverEntreContas} style={{ ...btnMover, marginRight: 'auto' }} disabled={saving} title={`Este lançamento é na verdade ${isRec ? 'uma despesa' : 'uma receita'}? Mova para ${isRec ? 'Contas a Pagar' : 'Contas a Receber'}.`}>
+              ⇄ Mover para {isRec ? 'Contas a Pagar' : 'Contas a Receber'}
+            </button>
+          )}
           <button type="button" onClick={onClose} style={btnGhost} disabled={saving}>Cancelar</button>
           <button type="button" onClick={handleSave} style={btnPrimary} disabled={saving}>
             {saving ? 'Salvando…' : 'Salvar'}
@@ -572,6 +612,12 @@ const btnGhost = {
   borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', letterSpacing: 0.5,
+}
+const btnMover = {
+  padding: '10px 14px', border: '1.5px solid var(--navy)',
+  borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
+  cursor: 'pointer', letterSpacing: 0.3,
 }
 const anexoRow = { display: 'flex', alignItems: 'center', gap: 10 }
 const anexoNome = { fontSize: 12, color: 'var(--navy)', fontWeight: 600 }
