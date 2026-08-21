@@ -67,13 +67,12 @@ export default function Dashboard() {
     const out = []
     const overdueRec = receivable.filter(r => r.status !== 'Recebido' && isOverdue(r.due))
     const overduePay = payable.filter(r => r.status !== 'Pago' && isOverdue(r.due))
-    if (overdueRec.length) out.push({ kind: 'danger', text: `⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a, r) => a + r.value, 0))}` })
-    if (overduePay.length) out.push({ kind: 'danger', text: `🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a, r) => a + r.value, 0))}` })
-    const semDoc = [
-      ...receivable.filter(r => getDocStatus(r) === 'pendente'),
-      ...payable.filter(r => getDocStatus(r) === 'pendente'),
-    ]
-    if (semDoc.length) out.push({ kind: 'warning', text: `📎 ${semDoc.length} lançamento(s) com NF pendente — ${fmtMoney(semDoc.reduce((a, r) => a + r.value, 0))} (atenção contábil)` })
+    if (overdueRec.length) out.push({ kind: 'danger', to: '/receber?filtro=vencidos', text: `⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a, r) => a + r.value, 0))}` })
+    if (overduePay.length) out.push({ kind: 'danger', to: '/pagar?filtro=vencidos', text: `🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a, r) => a + r.value, 0))}` })
+    const semDocRec = receivable.filter(r => getDocStatus(r) === 'pendente')
+    const semDocPay = payable.filter(r => getDocStatus(r) === 'pendente')
+    const semDoc = [...semDocRec, ...semDocPay]
+    if (semDoc.length) out.push({ kind: 'warning', to: semDocPay.length >= semDocRec.length ? '/pagar?filtro=sem_doc' : '/receber?filtro=sem_doc', text: `📎 ${semDoc.length} lançamento(s) com NF pendente — ${fmtMoney(semDoc.reduce((a, r) => a + r.value, 0))} (atenção contábil)` })
     return out
   }, [receivable, payable])
 
@@ -344,7 +343,16 @@ export default function Dashboard() {
       {alerts.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           {alerts.map((a, i) => (
-            <div key={i} style={a.kind === 'danger' ? alertDanger : alertWarning}>{a.text}</div>
+            <div
+              key={i}
+              onClick={() => navigate(a.to)}
+              role="button" tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter') navigate(a.to) }}
+              style={{ ...(a.kind === 'danger' ? alertDanger : alertWarning), cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}
+            >
+              <span>{a.text}</span>
+              <span style={{ opacity: 0.7, fontWeight: 700, whiteSpace: 'nowrap' }}>ver →</span>
+            </div>
           ))}
         </div>
       )}

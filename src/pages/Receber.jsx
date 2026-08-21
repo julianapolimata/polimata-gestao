@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -7,7 +8,7 @@ import ModalLancamento from './components/ModalLancamento'
 import FiltrosAvancados from './components/FiltrosAvancados'
 import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
-import { getDocStatus } from '../lib/finance'
+import { getDocStatus, isOverdue } from '../lib/finance'
 import { proximoCodigoReceivable } from '../lib/codigos'
 import { promoverProvisao } from '../lib/gerarRecorrencias'
 
@@ -63,12 +64,24 @@ export default function Receber() {
 
   useEffect(() => { recarregar() }, [recarregar])
 
+  // Filtro vindo por URL (ex.: cards de alerta do Início → ?filtro=vencidos)
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    const f = searchParams.get('filtro')
+    if (f === 'vencidos') setFiltroStatus('__vencidos__')
+    else if (f === 'sem_doc') setFiltroStatus('__sem_doc__')
+  }, [searchParams])
+
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     let r = rows
     if (filtroStatus) {
       if (filtroStatus === '__sem_doc__') r = r.filter(item => getDocStatus(item) === 'pendente')
       else if (filtroStatus === '__doc_dispensado__') r = r.filter(item => getDocStatus(item) === 'dispensado')
+      else if (filtroStatus === '__vencidos__') r = r.filter(item => {
+        const st = (item.data?.status || '').toLowerCase()
+        return st !== 'recebido' && st !== 'provisão' && st !== 'provisao' && isOverdue(item.data?.due)
+      })
       else r = r.filter(item => (item.data?.status || '').toLowerCase() === filtroStatus.toLowerCase())
     }
     if (q) {
@@ -195,6 +208,7 @@ export default function Receber() {
                 { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
                 { key: 'Recebido', label: 'Recebido', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
                 { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+                { key: '__vencidos__', label: '⚠️ Vencidos', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
                 { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
                 { key: '__doc_dispensado__', label: '✓ Doc dispensado', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
               ].map(opt => {
