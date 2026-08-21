@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
-import { fmtMoney, flatten } from '../lib/finance'
+import { fmtMoney } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
 
 function fmtDataBR(s) {
@@ -34,7 +34,9 @@ export default function Emprestimos() {
     supabase.from('emprestimos_financiamentos').select('*').order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setErro(error); setRows([]) }
-        else { setErro(null); setRows((data || []).map(flatten)) }
+        // Os campos do empréstimo (nome, tipo, saldo_atual, parcelas…) vivem em
+        // data — o flatten genérico não os expõe. Levantamos data pro topo aqui.
+        else { setErro(null); setRows((data || []).map(r => ({ ...r, ...r.data }))) }
         setLoading(false)
       })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -145,7 +147,8 @@ export default function Emprestimos() {
             <tbody>
               {filtrados.map(r => {
                 const status = r.status || 'ativa'
-                const proxParcela = r.proxima_parcela_vencimento || '—'
+                // Próximo vencimento = 1ª parcela ainda não paga do cronograma.
+                const proxParcela = (r.parcelas || []).find(p => !p.pago)?.vencimento || '—'
                 return (
                   <tr key={r.id} onClick={() => abrirEdicao(r)} style={{ cursor: 'pointer' }} title="Clique para ver/editar">
                     <td style={tdMono}>{r.codigo || '—'}</td>
