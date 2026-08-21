@@ -165,7 +165,7 @@ export default function Pagar() {
     const meses = MESES.map((_, m) => ({ mes: m, total: 0, pago: 0, aPagar: 0, itens: [] }))
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const m = parseInt(String(ref).slice(5, 7), 10) - 1
@@ -187,7 +187,7 @@ export default function Pagar() {
     let vencido = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
       if ((d.status || '').toLowerCase() === 'pago') continue
       const ref = d.data_competencia || d.due
       if (ref && String(ref).startsWith(anoSel) && isOverdue(d.due)) vencido += Number(d.value || 0)
@@ -201,7 +201,7 @@ export default function Pagar() {
     let nNotas = 0, gasto = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não gasto operacional
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const v = Number(d.value || 0)
