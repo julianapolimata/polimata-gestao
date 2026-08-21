@@ -457,7 +457,16 @@ async function createLancamento(parsed, att, base64) {
   const desc = String(parsed.descricao || 'Documento Fiscal').trim();
   const numero = parsed.numero_nf || '';
   const tipoDoc = parsed.tipo_documento || 'NF';
-  const isSaida = parsed.tipo === 'saida';
+  // Direção DETERMINÍSTICA pelo CNPJ da Polímata — não confia só no "tipo" da IA
+  // (que às vezes erra, ex.: NFS-e de compra classificada como receita).
+  // Emitente = Polímata → saída (receita/Receber); destinatário = Polímata →
+  // entrada (despesa/Pagar). Sem CNPJ reconhecível, cai no palpite da IA.
+  const emitCnpjDir = String(parsed.emitente_cnpj || '').replace(/\D/g, '');
+  const destCnpjDir = String(parsed.destinatario_cnpj || '').replace(/\D/g, '');
+  let isSaida;
+  if (emitCnpjDir === POLIMATA_CNPJ) isSaida = true;
+  else if (destCnpjDir === POLIMATA_CNPJ) isSaida = false;
+  else isSaida = parsed.tipo === 'saida';
   let val = parseFloat(parsed.valor_total) || 0;
   const moeda = (parsed.moeda || 'BRL').toUpperCase();
   const valorOrig = parseFloat(parsed.valor_original || parsed.valor_total) || 0;
