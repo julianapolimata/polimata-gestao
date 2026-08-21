@@ -145,8 +145,9 @@ export default function Conciliacao() {
   // data/busca e mostrava 202 enquanto a lista mostrava 180).
   const extratosBase = useMemo(() => {
     let arr = extratos.filter(e => e.conta_id === contaId)
-    if (dataDe) arr = arr.filter(e => (e.data?.data || '') >= dataDe)
-    if (dataAte) arr = arr.filter(e => (e.data?.data || '') <= dataAte)
+    // Sem data na linha, não esconde (mesmo critério nos dois limites).
+    if (dataDe) arr = arr.filter(e => !e.data?.data || e.data.data >= dataDe)
+    if (dataAte) arr = arr.filter(e => !e.data?.data || e.data.data <= dataAte)
     if (filtroBusca.trim()) {
       const q = filtroBusca.trim().toLowerCase()
       arr = arr.filter(e => (e.data?.descricao || '').toLowerCase().includes(q))

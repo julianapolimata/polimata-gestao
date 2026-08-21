@@ -63,7 +63,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     if (dataDe || dataAte) {
       r = r.filter(item => {
         const v = item.data?.[campoData]
-        if (!v) return false
+        if (!v) return true // não esconde a linha que não tem a data selecionada
         if (dataDe && v < dataDe) return false
         if (dataAte && v > dataAte) return false
         return true

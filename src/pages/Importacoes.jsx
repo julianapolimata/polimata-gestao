@@ -49,21 +49,19 @@ export default function Importacoes() {
 
   useEffect(() => { recarregar() }, [recarregar])
 
-  const filtrados = useMemo(() => {
-    let r = rows
-    if (filtroTipo) r = r.filter(x => x.tipo === filtroTipo)
-    if (busca.trim()) {
-      const q = busca.trim().toLowerCase()
-      r = r.filter(x => (x.arquivo_nome || '').toLowerCase().includes(q))
-    }
-    return r
-  }, [rows, filtroTipo, busca])
+  // Base = rows com a busca aplicada (mas sem o filtro de tipo) — pra a contagem
+  // dos chips bater com a lista.
+  const baseBusca = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(x => (x.arquivo_nome || '').toLowerCase().includes(q))
+  }, [rows, busca])
 
-  const counts = useMemo(() => {
-    const c = { total: rows.length, ativa: 0, revertida: 0 }
-    for (const r of rows) c[r.status] = (c[r.status] || 0) + 1
-    return c
-  }, [rows])
+  const filtrados = useMemo(
+    () => (filtroTipo ? baseBusca.filter(x => x.tipo === filtroTipo) : baseBusca),
+    [baseBusca, filtroTipo],
+  )
+
 
   async function carregarDetalhe(imp) {
     if (detalhe[imp.id]) return
@@ -132,8 +130,8 @@ export default function Importacoes() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {[
-                { k: '', l: 'Todos', c: counts.total },
-                ...Object.entries(TIPO_LABEL).map(([k, l]) => ({ k, l, c: rows.filter(r => r.tipo === k).length })).filter(x => x.c > 0),
+                { k: '', l: 'Todos', c: baseBusca.length },
+                ...Object.entries(TIPO_LABEL).map(([k, l]) => ({ k, l, c: baseBusca.filter(r => r.tipo === k).length })).filter(x => x.c > 0),
               ].map(s => (
                 <button key={s.k || 'all'} onClick={() => setFiltroTipo(s.k)} style={filtroTipo === s.k ? chipActive : chipInactive}>
                   {s.l} <span style={{ marginLeft: 4, opacity: 0.7 }}>{s.c}</span>
