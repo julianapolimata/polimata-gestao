@@ -28,6 +28,22 @@ export function removerSufixoParcela(descricao) {
   return String(descricao || '').replace(REGEX_PARCELA, '').trim()
 }
 
+// Igual à detecção normal, mas acha "X/Y" em QUALQUER lugar (não só no fim) —
+// necessário para memos de fatura que trazem a cidade depois da parcela
+// (ex.: "EBN *Canva 11/12 CURITIBA"). Devolve {atual, total, serie}, onde
+// serie é o texto antes do "X/Y" (o "nome" do parcelamento).
+const REGEX_PARCELA_LIVRE = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/
+export function detectarParcelaLivre(descricao) {
+  if (!descricao) return null
+  const s = String(descricao)
+  const m = s.match(REGEX_PARCELA_LIVRE)
+  if (!m) return null
+  const atual = parseInt(m[1], 10)
+  const total = parseInt(m[2], 10)
+  if (atual < 1 || total < 2 || atual > total) return null
+  return { atual, total, serie: s.slice(0, m.index).trim() }
+}
+
 /**
  * Calcula a data de vencimento da parcela K (1-N) a partir do cartão.
  * Lógica: a data da compra define em qual fatura a 1ª parcela cai.

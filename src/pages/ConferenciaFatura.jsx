@@ -6,6 +6,7 @@ import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
 import { parseOFX, detectarTipoOFX } from '../lib/ofx'
+import { detectarParcelaLivre, removerSufixoParcela } from '../lib/parcelas'
 import { proximoCodigoPayable } from '../lib/codigos'
 import ModalConciliarFatura from './components/ModalConciliarFatura'
 
@@ -144,7 +145,22 @@ export default function ConferenciaFatura() {
         : `cmp:${dcomp || ''}|${Math.abs(Number(valor || 0)).toFixed(2)}|${norm(desc)}`
       const jaImportados = payable.filter(p => p.cartao_id === cartaoId && p.data?.criado_via_import_fatura)
       const chavesExistentes = new Set(jaImportados.map(p => chaveDe(p.data?.fit_id_ofx, p.data?.desc, p.data?.data_competencia, p.data?.value)))
-      const debitos = debitosOFX.filter(t => !chavesExistentes.has(chaveDe(t.fit_id, t.descricao, t.data, t.valor)))
+      // Trava de PARCELAS: uma série de parcelamento já vive no sistema como N linhas
+      // ligadas (parcela_atual/total). Uma fatura nova traz uma parcela dessa série com
+      // fit_id e memo diferentes (cidade no fim), então a chave acima não pega. Aqui
+      // pulamos a parcela cuja (série + total + nº) já existe — evita duplicar a série.
+      const chaveParcela = (serie, total, atual) => `parc:${norm(serie)}|${total}|${atual}`
+      const parcelasExistentes = new Set(
+        payable
+          .filter(p => p.cartao_id === cartaoId && p.data?.parcela_total)
+          .map(p => chaveParcela(removerSufixoParcela(p.data.desc), p.data.parcela_total, p.data.parcela_atual))
+      )
+      const debitos = debitosOFX.filter(t => {
+        if (chavesExistentes.has(chaveDe(t.fit_id, t.descricao, t.data, t.valor))) return false
+        const pc = detectarParcelaLivre(t.descricao)
+        if (pc && parcelasExistentes.has(chaveParcela(pc.serie, pc.total, pc.atual))) return false
+        return true
+      })
       if (!debitos.length) {
         showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
         return
