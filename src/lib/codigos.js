@@ -57,6 +57,12 @@ export async function proximoCodigoPessoa(tipoPessoa) {
   return `${pref}-${String(next).padStart(3, '0')}`
 }
 
+export async function proximoCodigoEmprestimo() {
+  const { data } = await supabase.from('emprestimos_financiamentos').select('codigo').not('codigo', 'is', null)
+  const next = seqMax(data, /^EMP-(\d+)$/) + 1
+  return `EMP-${String(next).padStart(3, '0')}`
+}
+
 export async function proximoCodigoContrato() {
   const ano = new Date().getFullYear()
   const { data } = await supabase.from('contracts').select('codigo')
