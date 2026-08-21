@@ -174,12 +174,17 @@ export default function ConferenciaFatura() {
       // artefato do OFX) e pode abater um valor alto por engano — não criamos automático.
       const temCaraDeParcela = d => /\b\d{1,2}\s*\/\s*\d{2}\b/.test(d || '')
       const creditosAbatimento = creditosOFX.filter(t => !ehPagamentoFatura(t.descricao) && !temCaraDeParcela(t.descricao))
+      // Dedup de crédito NÃO pode usar fit_id: o Sicoob REUSA o mesmo fit_id no
+      // crédito recorrente (ex.: "DESC ANUIDADE POR USO VIS" −12,45 sai TODO mês com
+      // o mesmo fit_id e a mesma descrição). Chave por VENCIMENTO da fatura +
+      // descrição + valor: distingue os meses e ainda pega reimport da mesma fatura.
+      const chaveCredito = (venc, desc, valor) => `${venc || ''}|${norm(desc)}|${Math.abs(Number(valor || 0)).toFixed(2)}`
       const creditosExistentes = new Set(
         payable
           .filter(p => p.cartao_id === cartaoId && p.data?.criado_via_credito_fatura)
-          .map(p => chaveDe(p.data?.fit_id_ofx, p.data?.desc, p.data?.data_competencia, p.data?.value))
+          .map(p => chaveCredito(p.data?.due, p.data?.desc, p.data?.value))
       )
-      const creditos = creditosAbatimento.filter(t => !creditosExistentes.has(chaveDe(t.fit_id, t.descricao, t.data, t.valor)))
+      const creditos = creditosAbatimento.filter(t => !creditosExistentes.has(chaveCredito(periodoUsado.vencimento, t.descricao, t.valor)))
       if (!debitos.length && !creditos.length) {
         showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
         return
