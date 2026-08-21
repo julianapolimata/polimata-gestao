@@ -60,7 +60,7 @@ export default function ConferenciaFatura() {
     if (!file) return
     if (!cartaoId) { showToast('Selecione um cartão antes.', 'warning'); return }
     if (!user) { showToast('Sessão expirada.', 'error'); return }
-    if (!periodo) { showToast('Selecione mês/ano antes.', 'warning'); return }
+    if (!cartao) { showToast('Selecione um cartão antes.', 'warning'); return }
     setUploading(true)
     try {
       const buf = await file.arrayBuffer()
@@ -73,13 +73,20 @@ export default function ConferenciaFatura() {
       const debitosOFX = transacoes.filter(t => t.tipo === 'saida')
       const creditosOFX = transacoes.filter(t => t.tipo === 'entrada')
       if (!debitosOFX.length) { showToast('Nenhuma compra encontrada no OFX.', 'warning'); return }
-      // Sanity check: maior data dos débitos deve estar dentro do período da fatura
       const datasDebito = debitosOFX.map(t => t.data).filter(Boolean).sort()
       const maxData = datasDebito[datasDebito.length - 1]
-      if (maxData && periodo && (maxData < periodo.ini || maxData > periodo.fim)) {
-        const ok = confirm(`Atenção: maior data do OFX (${maxData}) está fora do período selecionado (${periodo.ini} → ${periodo.fim}). Continuar mesmo assim?`)
-        if (!ok) return
+      // Identifica a fatura AUTOMATICAMENTE: data da última compra + dia de fechamento
+      // do cartão. Compra até o fechamento → fatura deste mês; depois → próxima.
+      let usoAno = ano, usoMes = mes
+      if (maxData) {
+        const dF = Number(cartao?.data?.dia_fechamento) || 1
+        const [dy, dm, dd] = maxData.split('-').map(Number)
+        usoAno = dy; usoMes = dm - 1
+        if (dd > dF) { usoMes += 1; if (usoMes > 11) { usoMes = 0; usoAno += 1 } }
+        if (usoAno !== ano || usoMes !== mes) { setAno(usoAno); setMes(usoMes) }
       }
+      const periodoUsado = periodoFatura(cartao, usoAno, usoMes)
+      showToast(`Fatura identificada automaticamente: ${rotuloFatura(usoAno, usoMes)}.`, 'info')
       // Dedup por fit_id (guardado dentro de data.fit_id_ofx pq payable não tem coluna fit_id)
       const fitsExistentes = new Set(payable.filter(p => p.cartao_id === cartaoId && p.fit_id_ofx).map(p => p.fit_id_ofx))
       const debitos = debitosOFX.filter(t => !t.fit_id || !fitsExistentes.has(t.fit_id))
@@ -102,7 +109,7 @@ export default function ConferenciaFatura() {
         arquivo_nome: file.name,
         arquivo_path: arquivoPath,
         qtd_registros: debitos.length,
-        metadata: { cartao_id: cartaoId, mes, ano, periodo_ini: periodo.ini, periodo_fim: periodo.fim, vencimento: periodo.vencimento },
+        metadata: { cartao_id: cartaoId, mes: usoMes, ano: usoAno, periodo_ini: periodoUsado.ini, periodo_fim: periodoUsado.fim, vencimento: periodoUsado.vencimento },
       }).select('id').single()
       // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos.
       if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)
@@ -117,7 +124,7 @@ export default function ConferenciaFatura() {
           desc: t.descricao,
           value: Math.abs(Number(t.valor || 0)),
           data_competencia: t.data,
-          due: periodo.vencimento,
+          due: periodoUsado.vencimento,
           status: 'Pendente',
           cat: '',
           subcat: '',
