@@ -107,12 +107,15 @@ export default function Conciliacao() {
     if (!user) return
     if (!contaId) { setLoading(false); return }
     setLoading(true)
-    // Filtra transacoes_extrato POR CONTA no servidor (não traz de outras contas)
-    // receivable/payable: só não-finalizados ou conciliados (pra sugestões + manter linkados)
+    // Filtra transacoes_extrato POR CONTA no servidor (não traz de outras contas).
+    // Candidatas p/ conciliar = notas AINDA NÃO conciliadas (conciliado_em null),
+    // INCLUINDO as já "Recebido"/"Pago" — estar recebida no sistema não é a mesma
+    // coisa que estar amarrada ao extrato. Antes o filtro excluía as recebidas e
+    // por isso não dava pra ligá-las à linha do banco.
     Promise.all([
       supabase.from('transacoes_extrato').select('*').eq('conta_id', contaId).order('data->>data', { ascending: false }),
-      supabase.from('receivable').select('*').or('data->>status.neq.Recebido,conciliado_em.not.is.null'),
-      supabase.from('payable').select('*').or('data->>status.neq.Pago,conciliado_em.not.is.null'),
+      supabase.from('receivable').select('*').is('conciliado_em', null),
+      supabase.from('payable').select('*').is('conciliado_em', null),
       supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
     ]).then(([rE, rR, rP, rPer]) => {
       const err = rE.error || rR.error || rP.error
@@ -283,9 +286,8 @@ export default function Conciliacao() {
     const pares = []
     for (const ext of pendentes) {
       const tipo = ext.data?.tipo
-      const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
       const pool = (tipo === 'entrada' ? receivable : payable)
-        .filter(c => c.status !== final && c.status !== 'Provisão' && !usadosLanc.has(c.id))
+        .filter(c => c.status !== 'Provisão' && !usadosLanc.has(c.id))
       const fortes = sugerirMatches(ext.data || {}, pool).filter(s => s.dentroTol)
       if (fortes.length === 1) {
         pares.push({ ext, lanc: fortes[0].lancamento, target: tipo === 'entrada' ? 'receivable' : 'payable' })
@@ -491,8 +493,9 @@ export default function Conciliacao() {
   const lancsRank = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
     const tipo = selecionadoExt.data?.tipo
-    const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
-    const pool = (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== final && c.status !== 'Provisão')
+    // Candidatas = notas não conciliadas (já vêm assim do banco), menos Provisão.
+    // Inclui as já Recebido/Pago — o que importa é não estarem amarradas ao extrato.
+    const pool = (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== 'Provisão')
     const todas = sugerirMatches(selecionadoExt.data || {}, pool)
     const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
     const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
@@ -517,8 +520,7 @@ export default function Conciliacao() {
   const poolLanc = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return []
     const tipo = selecionadoExt.data?.tipo
-    const final = tipo === 'entrada' ? 'Recebido' : 'Pago'
-    return (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== final && c.status !== 'Provisão')
+    return (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== 'Provisão')
   }, [selecionadoExt, receivable, payable])
 
   const tiposAjuste = selecionadoExt?.data?.tipo === 'entrada' ? AJUSTES_ENTRADA : AJUSTES_SAIDA
@@ -776,11 +778,16 @@ export default function Conciliacao() {
 
 function LancCard({ lanc, motivo, destaque, marcado, onToggle }) {
   const nome = lanc.data?.client || lanc.data?.supplier || lanc.desc || lanc.data?.desc || lanc.codigo || '(sem nome)'
+  const st = (lanc.status || '').toLowerCase()
+  const jaLiquidado = st === 'recebido' || st === 'pago'
   return (
     <div onClick={onToggle} style={{ ...lancCard, ...(destaque ? lancCardDestaque : {}), ...(marcado ? lancCardMarcado : {}), cursor: 'pointer' }}>
       <input type="checkbox" checked={!!marcado} onChange={onToggle} onClick={e => e.stopPropagation()} />
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {nome}
+          {jaLiquidado && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: 'var(--green)', background: 'rgba(39,174,96,0.12)', padding: '1px 6px', borderRadius: 999, textTransform: 'uppercase' }}>{lanc.status}</span>}
+        </div>
         <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
           {lanc.codigo || '—'} · vence {lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}
           {motivo ? ` · ${motivo}` : ''}
