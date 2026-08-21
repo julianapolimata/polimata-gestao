@@ -50,7 +50,11 @@ export function parseOFX(texto) {
   // Período do extrato
   const periodoIni = normalizarData(pick(texto, 'DTSTART') || '')
   const periodoFim = normalizarData(pick(texto, 'DTEND') || '')
-  return { transacoes, saldoFinal, periodoIni, periodoFim }
+  // Data de referência do documento (LEDGERBAL/DTASOF). Numa fatura de cartão
+  // do Sicoob é a data de vencimento — sinal muito mais confiável que a data
+  // da última transação (parcelas trazem datas enganosas) para identificar o mês.
+  const dataExtrato = normalizarData(pick(texto, 'DTASOF') || '')
+  return { transacoes, saldoFinal, periodoIni, periodoFim, dataExtrato }
 }
 
 /**
