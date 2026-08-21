@@ -53,6 +53,21 @@ export function parseOFX(texto) {
   return { transacoes, saldoFinal, periodoIni, periodoFim }
 }
 
+/**
+ * Detecta se o OFX é de cartão de crédito ou conta corrente, pela estrutura
+ * do arquivo (message set do OFX). Serve para impedir que um extrato de conta
+ * corrente seja importado como fatura de cartão (e vice-versa).
+ * @returns {'cartao'|'corrente'|'desconhecido'}
+ */
+export function detectarTipoOFX(texto) {
+  const t = String(texto || '').toUpperCase()
+  const temCartao = /<CREDITCARDMSGSRS|<CCSTMTRS|<CCACCTFROM/.test(t)
+  const temCorrente = /<BANKMSGSRS|<STMTRS|<BANKACCTFROM/.test(t)
+  if (temCartao && !temCorrente) return 'cartao'
+  if (temCorrente && !temCartao) return 'corrente'
+  return 'desconhecido'
+}
+
 function pick(txt, tag) {
   const re = new RegExp(`<${tag}>([^<\\n]*)`, 'i')
   const m = txt.match(re)
