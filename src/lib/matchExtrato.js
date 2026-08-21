@@ -22,19 +22,23 @@ export function sugerirMatches(extrato, candidatos) {
   const cnpjExtrato = extrato.cnpj
   const resultados = []
   for (const c of candidatos) {
-    // Match obrigatório: valor exato (tolerância 0.01 pra arredondamento)
+    // Match obrigatório: valor exato (tolerância 0.01 pra arredondamento).
+    // A DATA não é mais filtro rígido — ela só ranqueia. Antes, pagar numa data
+    // diferente do vencimento escondia o match legítimo; agora ele aparece
+    // (marcado como "data diferente" quando fora da tolerância).
     const cVal = Number(c.value)
     if (Number.isNaN(cVal) || Math.abs(cVal - valor) > 0.01) continue
     // Data de referência: prefer data_pagamento (se já liquidado), fallback due, fallback created
     const refData = c.data?.data_pagamento || c.due || c.created
-    if (!refData) continue
-    const dataLanc = new Date(refData + 'T12:00:00')
-    const diffDias = Math.abs(dataExt - dataLanc) / MS_DIA
-    if (diffDias > TOL_DIAS) continue
-    // Bonifica match exato de data e match de CNPJ
+    const dataLanc = refData ? new Date(refData + 'T12:00:00') : null
+    const diffDias = dataLanc ? Math.abs(dataExt - dataLanc) / MS_DIA : Infinity
+    const dentroTol = diffDias <= TOL_DIAS
+    // Score: valor sempre bate (1). Data próxima bonifica; CNPJ bonifica forte.
     let score = 1
-    if (diffDias < 0.5) score += 0.3
-    const motivos = [`valor ${formatBR(valor)}`, `data ±${Math.round(diffDias)}d`]
+    if (diffDias < 0.5) score += 0.4
+    else if (dentroTol) score += 0.2
+    const motivos = [`valor ${formatBR(valor)}`]
+    if (Number.isFinite(diffDias)) motivos.push(dentroTol ? `data ±${Math.round(diffDias)}d` : `${Math.round(diffDias)}d de diferença`)
     if (cnpjExtrato && (c.data?.cnpj || c.data?.cnpj_parte)) {
       const cnpjLanc = String(c.data.cnpj || c.data.cnpj_parte).replace(/\D/g, '')
       if (cnpjLanc === cnpjExtrato) {
@@ -42,7 +46,7 @@ export function sugerirMatches(extrato, candidatos) {
         motivos.push('CNPJ confere')
       }
     }
-    resultados.push({ lancamento: c, score, motivo: motivos.join(' · ') })
+    resultados.push({ lancamento: c, score, motivo: motivos.join(' · '), dentroTol })
   }
   return resultados.sort((a, b) => b.score - a.score)
 }
