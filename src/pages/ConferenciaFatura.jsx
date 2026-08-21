@@ -40,7 +40,6 @@ export default function ConferenciaFatura() {
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth())
   const [uploading, setUploading] = useState(false)
-  const [backfilling, setBackfilling] = useState(false)
   const [modalConciliar, setModalConciliar] = useState(false)
   const [extratosDisponiveis, setExtratosDisponiveis] = useState([])
 
@@ -167,8 +166,14 @@ export default function ConferenciaFatura() {
       //    abatimento — na conciliação eles SUBTRAEM da fatura (fecha sem suspense).
       //  • PAGAMENTOS da fatura anterior ("PAGAMENTO", "PGTO", "débito automático") são a
       //    QUITAÇÃO da fatura — não são despesa nem crédito, então são ignorados.
-      const ehPagamentoFatura = d => /pagament|pgto|pag\.|debito\s*autom|débito\s*autom|d[ée]b\.?\s*conv|quita/i.test(d || '')
-      const creditosAbatimento = creditosOFX.filter(t => !ehPagamentoFatura(t.descricao))
+      // Exclui os PAGAMENTOS da fatura (não são estorno): "PAGAMENTO", "PGTO",
+      // "DÉBITO AUTOMÁTICO", "DEB AUT RECORRENT CARTAO" (débito recorrente que quita a
+      // fatura), "DÉB.CONV". Só passam créditos que são estorno/desconto de verdade.
+      const ehPagamentoFatura = d => /pagament|pgto|pag\.|d[ée]bito?\s*autom|deb\s*aut|recorrent|d[ée]b\.?\s*conv|quita/i.test(d || '')
+      // Crédito com cara de PARCELA (NN/MM) é ambíguo (estorno de compra parcelada vs
+      // artefato do OFX) e pode abater um valor alto por engano — não criamos automático.
+      const temCaraDeParcela = d => /\b\d{1,2}\s*\/\s*\d{2}\b/.test(d || '')
+      const creditosAbatimento = creditosOFX.filter(t => !ehPagamentoFatura(t.descricao) && !temCaraDeParcela(t.descricao))
       const creditosExistentes = new Set(
         payable
           .filter(p => p.cartao_id === cartaoId && p.data?.criado_via_credito_fatura)
@@ -300,95 +305,6 @@ export default function ConferenciaFatura() {
   }
 
 
-  // ── Backfill: relê as faturas OFX já importadas e cria os créditos (estornos/
-  //    descontos) que o importador antigo jogava fora. Roda com a sessão da usuária
-  //    (RLS), não duplica (dedup por fit_id+descrição) e ignora pagamentos de fatura.
-  async function backfillCreditos() {
-    if (!user) return
-    const ok = window.confirm(
-      'Reler as faturas de cartão já importadas e lançar os créditos/estornos que ficaram de fora ' +
-      '(ex.: "Desc anuidade por uso Vis")?\n\nNão duplica o que já existe. Pode rodar sem risco.'
-    )
-    if (!ok) return
-    setBackfilling(true)
-    try {
-      const { data: imps } = await supabase.from('importacoes')
-        .select('id, arquivo_path, cartao_id, metadata')
-        .eq('user_id', user.id).eq('tipo', 'ofx_fatura_cartao')
-        .not('arquivo_path', 'is', null)
-      if (!imps || !imps.length) { showToast('Nenhuma fatura arquivada para reprocessar.', 'info'); return }
-      const { data: payAtual } = await supabase.from('payable').select('id, cartao_id, data')
-      const norm = s => (s || '').trim().toLowerCase()
-      const chaveDe = (fit, desc, dcomp, valor) => fit
-        ? `fit:${fit}|${norm(desc)}`
-        : `cmp:${dcomp || ''}|${Math.abs(Number(valor || 0)).toFixed(2)}|${norm(desc)}`
-      const ehPagamentoFatura = d => /pagament|pgto|pag\.|debito\s*autom|débito\s*autom|d[ée]b\.?\s*conv|quita/i.test(d || '')
-      const existentes = new Set(
-        (payAtual || [])
-          .filter(p => p.data?.criado_via_credito_fatura)
-          .map(p => chaveDe(p.data?.fit_id_ofx, p.data?.desc, p.data?.data_competencia, p.data?.value))
-      )
-      const hoje = new Date().toISOString().slice(0, 10)
-      const novos = []
-      let faturasLidas = 0, faturasFalha = 0
-      for (const imp of imps) {
-        const cId = imp.cartao_id || imp.metadata?.cartao_id
-        const venc = imp.metadata?.vencimento || null
-        try {
-          const { data: blob, error: dlErr } = await supabase.storage.from('anexos-fiscais').download(imp.arquivo_path)
-          if (dlErr || !blob) { faturasFalha++; continue }
-          const buf = await blob.arrayBuffer()
-          let texto
-          try { texto = new TextDecoder('windows-1252').decode(buf) } catch { texto = new TextDecoder('utf-8').decode(buf) }
-          const { transacoes } = parseOFX(texto)
-          faturasLidas++
-          const creditos = (transacoes || [])
-            .filter(t => t.tipo === 'entrada' && !ehPagamentoFatura(t.descricao))
-          for (const t of creditos) {
-            const chave = chaveDe(t.fit_id, t.descricao, t.data, t.valor)
-            if (existentes.has(chave)) continue
-            existentes.add(chave) // evita duplicar entre faturas na mesma rodada
-            novos.push({ cId, importacao_id: imp.id, data: {
-              supplier: (t.descricao || '').substring(0, 80),
-              desc: t.descricao,
-              value: -Math.abs(Number(t.valor || 0)),
-              data_competencia: t.data,
-              due: venc || t.data,
-              status: 'Pago', data_pagamento: venc || t.data,
-              cat: 'Créditos/Estornos de cartão', subcat: '', forma_pagamento: 'Cartão Crédito',
-              criado_via_import_fatura: true, criado_via_credito_fatura: true, created: hoje,
-              fit_id_ofx: t.fit_id || null,
-            } })
-          }
-        } catch { faturasFalha++ }
-      }
-      if (!novos.length) {
-        showToast(`Nenhum crédito novo. ${faturasLidas} fatura(s) já estão completas.`, 'info')
-        return
-      }
-      const baseCodigo = await proximoCodigoPayable()
-      const baseNum = parseInt(baseCodigo.slice(1), 10)
-      const payload = novos.map((n, i) => ({
-        user_id: user.id,
-        cartao_id: n.cId,
-        importacao_id: n.importacao_id,
-        codigo: `2${String(baseNum + i).padStart(5, '0')}`,
-        data: n.data,
-      }))
-      const { error } = await supabase.from('payable').insert(payload)
-      if (error) throw error
-      let msg = `${novos.length} crédito(s)/estorno(s) recuperado(s) de ${faturasLidas} fatura(s).`
-      if (faturasFalha > 0) msg += ` ${faturasFalha} fatura(s) não puderam ser lidas.`
-      showToast(msg, 'success')
-      carregar()
-    } catch (err) {
-      console.error(err)
-      showToast('Erro no backfill: ' + err.message, 'error')
-    } finally {
-      setBackfilling(false)
-    }
-  }
-
   const cartao = useMemo(() => cartoes.find(c => c.id === cartaoId), [cartoes, cartaoId])
 
   const periodo = useMemo(() => cartao ? periodoFatura(cartao, ano, mes) : null, [cartao, ano, mes])
@@ -467,15 +383,6 @@ export default function ConferenciaFatura() {
               <input type="file" onChange={handleUploadFatura} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
               {uploading ? '⏳ Processando…' : '📥 Importar OFX da fatura'}
             </label>
-            <button
-              type="button"
-              onClick={backfillCreditos}
-              disabled={backfilling}
-              title="Relê as faturas já importadas e lança os créditos/estornos que ficaram de fora (não duplica)."
-              style={btnBackfill}
-            >
-              {backfilling ? '⏳ Recuperando…' : '↩ Recuperar créditos das faturas'}
-            </button>
           </div>
 
           {periodo && (
@@ -594,7 +501,6 @@ function Field({ label, children }) {
 
 const topo = { display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }
 const btnUploadFatura = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
-const btnBackfill = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: '#fff', color: 'var(--navy)', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
 const totalBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14, flexWrap: 'wrap', gap: 14 }
 const btnConciliar = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 180 }
