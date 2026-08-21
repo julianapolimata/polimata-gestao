@@ -69,6 +69,7 @@ export default function Conciliacao() {
   const [periodoInicializado, setPeriodoInicializado] = useState(false)
   const [notasNoPeriodo, setNotasNoPeriodo] = useState(true) // escopar notas ao período do extrato
   const [buscaNota, setBuscaNota] = useState('')
+  const [autoPendente, setAutoPendente] = useState(false) // dispara conciliação automática após carregar
 
 
 
@@ -149,7 +150,17 @@ export default function Conciliacao() {
       setPeriodoInicializado(true)
     }
   }, [rangeImportado, periodoInicializado])
-  useEffect(() => { setPeriodoInicializado(false) }, [contaId])
+  useEffect(() => { setPeriodoInicializado(false); setAutoPendente(true) }, [contaId])
+
+  // Concilia automaticamente os casos óbvios (valor + data + candidato único)
+  // logo após carregar — ao abrir a conta e após importar OFX. Silencioso e
+  // conservador; o que sobra ambíguo fica pra decisão manual.
+  useEffect(() => {
+    if (autoPendente && !loading && !autoConc && extratos.length) {
+      setAutoPendente(false)
+      conciliarAutomatico({ silencioso: true })
+    }
+  }, [autoPendente, loading, autoConc, extratos])
 
   // ── Aplica filtros ───────────────────────────────────────────────────
   // Base = todos os filtros MENOS o status. As contagens do dropdown são feitas
@@ -267,6 +278,7 @@ export default function Conciliacao() {
       if (uploadFalhou) showToast('Lançamentos importados, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
       if (saldoFinal != null) setSaldoBanco(saldoFinal)
       setPeriodoInicializado(false) // re-aplica range com o que foi importado
+      setAutoPendente(true)         // concilia os óbvios sozinho após importar
       carregar()
     } catch (err) {
       console.error(err)
@@ -280,7 +292,8 @@ export default function Conciliacao() {
   // ── Conciliação automática em lote ───────────────────────────────────
   // Concilia só os casos SEGUROS: valor exato + data próxima E um único
   // candidato (sem ambiguidade). Os ambíguos ficam pra decisão manual.
-  async function conciliarAutomatico() {
+  async function conciliarAutomatico(opts = {}) {
+    const { silencioso = false } = opts
     const pendentes = extratos.filter(e => e.conta_id === contaId && e.status === 'pendente' && !periodosFechados.has(String(e.data?.data || '').slice(0, 7)))
     const usadosLanc = new Set()
     const pares = []
@@ -294,8 +307,8 @@ export default function Conciliacao() {
         usadosLanc.add(fortes[0].lancamento.id)
       }
     }
-    if (!pares.length) { showToast('Nenhum match automático seguro (valor + data, sem ambiguidade).', 'info'); return }
-    if (!confirm(`Conciliar automaticamente ${pares.length} transação(ões) que batem exato (mesmo valor e data próxima)? As ambíguas ficam pra você decidir uma a uma.`)) return
+    if (!pares.length) { if (!silencioso) showToast('Nenhum match automático seguro (valor + data, sem ambiguidade).', 'info'); return }
+    if (!silencioso && !confirm(`Conciliar automaticamente ${pares.length} transação(ões) que batem exato (mesmo valor e data próxima)? As ambíguas ficam pra você decidir uma a uma.`)) return
     setAutoConc(true)
     let ok = 0
     try {
@@ -305,9 +318,9 @@ export default function Conciliacao() {
         const { error } = await supabase.rpc('conciliar_vincular', { p_extrato_id: p.ext.id, p_target: p.target, p_lanc_id: p.lanc.id, p_merged: merged })
         if (!error) ok++
       }
-      showToast(`${ok} transação(ões) conciliada(s) automaticamente.`, 'success')
+      if (ok) showToast(`${ok} transação(ões) conciliada(s) automaticamente${silencioso ? ' — confira' : ''}.`, silencioso ? 'info' : 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro na conciliação automática: ' + e.message, 'error') }
+    } catch (e) { if (!silencioso) showToast('Erro na conciliação automática: ' + e.message, 'error') }
     finally { setAutoConc(false) }
   }
 
