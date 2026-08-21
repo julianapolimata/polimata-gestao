@@ -3,8 +3,8 @@ import { Chart } from 'chart.js/auto'
 import AppLayout from '../components/AppLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { fmtMoney, flatten, calcularProjecaoFutura } from '../lib/finance'
-import { projetarRecorrencias } from '../lib/recorrencias'
+import { fmtMoney, flatten } from '../lib/finance'
+import { computeFluxoAnual } from '../lib/dre'
 import FluxoMatricial from './components/FluxoMatricial'
 
 // =====================================================================
@@ -21,10 +21,8 @@ export default function FluxoCaixa() {
   const { user } = useAuth()
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])
-  const [contracts, setContracts] = useState([])
   const [recurringMasters, setRecurringMasters] = useState([])
   const [loading, setLoading] = useState(true)
-  const [modo, setModo] = useState('projetado_6')
   const [tipoChart, setTipoChart] = useState('waterfall')
   const [viewMode, setViewMode] = useState('grafico')
   const [ano, setAno] = useState(String(new Date().getFullYear()))
@@ -38,13 +36,11 @@ export default function FluxoCaixa() {
     Promise.all([
       supabase.from('receivable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path'),
-      supabase.from('contracts').select('id,codigo,data,created_at,updated_at'),
       supabase.from('recurring_masters').select('*'),
-    ]).then(([rRec, rPay, rCon, rRm]) => {
+    ]).then(([rRec, rPay, rRm]) => {
       if (cancelled) return
       setReceivable((rRec.data || []).map(flatten))
       setPayable((rPay.data || []).map(flatten))
-      setContracts((rCon.data || []).map(flatten))
       setRecurringMasters(rRm.data || [])
       setLoading(false)
     })
@@ -63,76 +59,41 @@ export default function FluxoCaixa() {
     if (anosDisponiveis.length && !anosDisponiveis.includes(ano)) setAno(anosDisponiveis[0])
   }, [anosDisponiveis, ano])
 
-  // ── Totais cards ─────────────────────────────────────────────────────
-  const totals = useMemo(() => {
-    const totalIn = receivable.reduce((a, r) => a + r.value, 0)
-    const totalOut = payable.reduce((a, r) => a + r.value, 0)
-    return { totalIn, totalOut, balance: totalIn - totalOut }
-  }, [receivable, payable])
+  // ── Fluxo anual (jan–dez): realizado (meses passados, por pagamento) +
+  //    previsto (meses futuros, por vencimento + recorrências). Mesma lógica
+  //    do lib compartilhado — cards e tabela agora batem entre si e com o ano. ──
+  const fluxo = useMemo(
+    () => computeFluxoAnual({ receivable, payable, recurringMasters, ano }),
+    [receivable, payable, recurringMasters, ano],
+  )
 
-  // ── Série mensal ─────────────────────────────────────────────────────
-  const serie = useMemo(() => {
-    const entriesByMonth = new Array(12).fill(0)
-    const saidasByMonth = new Array(12).fill(0)
-    receivable.forEach(r => {
-      // Regime caixa REALIZADO: só entra o que foi de fato recebido, na
-      // data_pagamento. Sem o filtro de status, uma conta pendente vencida
-      // aparecia como caixa que entrou — contradizendo o Dashboard.
-      if (r.status !== 'Recebido') return
-      const d = r.data?.data_pagamento || r.due || r.created
-      if (!d || !d.startsWith(ano)) return
-      const m = parseInt(d.substring(5, 7), 10) - 1
-      if (m >= 0 && m < 12) entriesByMonth[m] += r.value
-    })
-    payable.forEach(r => {
-      if (r.status !== 'Pago') return
-      const d = r.data?.data_pagamento || r.due || r.created
-      if (!d || !d.startsWith(ano)) return
-      const m = parseInt(d.substring(5, 7), 10) - 1
-      if (m >= 0 && m < 12) saidasByMonth[m] += r.value
-    })
-    const curMonth = String(new Date().getFullYear()) === ano ? new Date().getMonth() : 11
-    // Projeção = base (lançamentos futuros + contratos) + recorrências futuras.
-    // As recorrências projetam a partir do PRÓXIMO mês, então não colidem com as
-    // provisões já materializadas do mês corrente (que ficam no lado realizado).
-    function projComRec(nMeses) {
-      const p = calcularProjecaoFutura(nMeses, { receivable, payable, contracts })
-      const rec = projetarRecorrencias(recurringMasters, nMeses)
-      return {
-        labels: p.labels,
-        entradas: p.entradas.map((v, i) => v + rec.entradas[i]),
-        saidas: p.saidas.map((v, i) => v + rec.saidas[i]),
-      }
-    }
-    let labels, dataIn, dataOut
-    if (modo === 'realizado') {
-      labels = MES_CURTO.slice(0, curMonth + 1)
-      dataIn = entriesByMonth.slice(0, curMonth + 1)
-      dataOut = saidasByMonth.slice(0, curMonth + 1)
-    } else if (modo === 'ambos') {
-      const proj = projComRec(6)
-      labels = [
-        ...MES_CURTO.slice(0, curMonth + 1).map(m => `${m}/${ano.slice(2)} ✓`),
-        ...proj.labels.map(l => `${l} →`),
-      ]
-      dataIn = [...entriesByMonth.slice(0, curMonth + 1), ...proj.entradas]
-      dataOut = [...saidasByMonth.slice(0, curMonth + 1), ...proj.saidas]
-    } else {
-      const n = { projetado_3: 3, projetado_6: 6, projetado_12: 12 }[modo] || 6
-      const proj = projComRec(n)
-      labels = proj.labels
-      dataIn = proj.entradas
-      dataOut = proj.saidas
-    }
-    const dataSaldo = dataIn.map((e, i) => e - dataOut[i])
-    return { labels, dataIn, dataOut, dataSaldo }
-  }, [receivable, payable, contracts, recurringMasters, ano, modo])
+  const serie = useMemo(() => ({
+    labels: MES_CURTO,
+    dataIn: fluxo.entradas,
+    dataOut: fluxo.saidas,
+    dataSaldo: fluxo.saldo,
+    futuros: MES_CURTO.map((_, m) => m > fluxo.mesCorte),
+  }), [fluxo])
+
+  // ── Totais cards (do ANO), com quebra realizado × previsto ───────────
+  const totals = useMemo(() => {
+    const somaSe = (arr, cond) => arr.reduce((a, v, m) => a + (cond(m) ? v : 0), 0)
+    const passado = m => m <= fluxo.mesCorte
+    const futuro = m => m > fluxo.mesCorte
+    const realizadoIn = somaSe(fluxo.entradas, passado)
+    const previstoIn = somaSe(fluxo.entradas, futuro)
+    const realizadoOut = somaSe(fluxo.saidas, passado)
+    const previstoOut = somaSe(fluxo.saidas, futuro)
+    const totalIn = realizadoIn + previstoIn
+    const totalOut = realizadoOut + previstoOut
+    return { totalIn, totalOut, balance: totalIn - totalOut, realizadoIn, previstoIn, realizadoOut, previstoOut }
+  }, [fluxo])
 
   // ── Chart.js render ──────────────────────────────────────────────────
   useEffect(() => {
     if (!canvasRef.current) return
     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
-    const { labels, dataIn, dataOut, dataSaldo } = serie
+    const { labels, dataIn, dataOut, dataSaldo, futuros } = serie
     if (!labels.length) return
 
     if (tipoChart === 'bar') {
@@ -141,8 +102,8 @@ export default function FluxoCaixa() {
         data: {
           labels,
           datasets: [
-            { label: 'Entradas', data: dataIn, backgroundColor: 'rgba(39,174,96,0.75)', borderColor: 'rgba(39,174,96,1)', borderWidth: 1.5, borderRadius: 4 },
-            { label: 'Saídas', data: dataOut, backgroundColor: 'rgba(231,76,60,0.75)', borderColor: 'rgba(231,76,60,1)', borderWidth: 1.5, borderRadius: 4 },
+            { label: 'Entradas', data: dataIn, backgroundColor: dataIn.map((_, i) => futuros[i] ? 'rgba(39,174,96,0.32)' : 'rgba(39,174,96,0.78)'), borderColor: 'rgba(39,174,96,1)', borderWidth: 1.5, borderRadius: 4 },
+            { label: 'Saídas', data: dataOut, backgroundColor: dataOut.map((_, i) => futuros[i] ? 'rgba(231,76,60,0.32)' : 'rgba(231,76,60,0.78)'), borderColor: 'rgba(231,76,60,1)', borderWidth: 1.5, borderRadius: 4 },
             { label: 'Saldo', data: dataSaldo,
               backgroundColor: dataSaldo.map(v => v >= 0 ? 'rgba(204,145,94,0.85)' : 'rgba(231,76,60,0.4)'),
               borderColor: dataSaldo.map(v => v >= 0 ? 'rgba(204,145,94,1)' : 'rgba(231,76,60,1)'),
@@ -171,7 +132,9 @@ export default function FluxoCaixa() {
         const bottom = running
         const top = running + s
         floatData.push({ x: labels[i], bottom, top, value: s })
-        barColors.push(s >= 0 ? 'rgba(39,174,96,0.82)' : 'rgba(231,76,60,0.82)')
+        barColors.push(s >= 0
+          ? (futuros[i] ? 'rgba(39,174,96,0.38)' : 'rgba(39,174,96,0.82)')
+          : (futuros[i] ? 'rgba(231,76,60,0.38)' : 'rgba(231,76,60,0.82)'))
         running = top
         acumulado.push(running)
       })
@@ -334,16 +297,16 @@ export default function FluxoCaixa() {
       )}
 
       {viewMode === 'grafico' && (<>
-      {/* Cards de resumo */}
+      {/* Cards de resumo — do ANO, com quebra realizado × previsto */}
       <div style={kpiGrid}>
-        <StatCard color="green" label="Entradas" value={fmtMoney(totals.totalIn)} sub="Total recebido + a receber" />
-        <StatCard color="red" label="Saídas" value={fmtMoney(totals.totalOut)} sub="Total pago + a pagar" />
+        <StatCard color="green" label={`Entradas ${ano}`} value={fmtMoney(totals.totalIn)} sub={`realizado ${fmtMoney(totals.realizadoIn)} · previsto ${fmtMoney(totals.previstoIn)}`} />
+        <StatCard color="red" label={`Saídas ${ano}`} value={fmtMoney(totals.totalOut)} sub={`realizado ${fmtMoney(totals.realizadoOut)} · previsto ${fmtMoney(totals.previstoOut)}`} />
         <StatCard
           color="gold"
-          label="Saldo"
+          label={`Saldo ${ano}`}
           value={fmtMoney(totals.balance)}
           valueColor={totals.balance >= 0 ? 'var(--green)' : 'var(--red)'}
-          sub="Entradas − Saídas"
+          sub="entradas − saídas no ano"
         />
       </div>
 
@@ -354,13 +317,6 @@ export default function FluxoCaixa() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <select value={ano} onChange={e => setAno(e.target.value)} style={selectStyle}>
               {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={modo} onChange={e => setModo(e.target.value)} style={selectStyle}>
-              <option value="realizado">Realizado</option>
-              <option value="projetado_3">Projeção +3 meses</option>
-              <option value="projetado_6">Projeção +6 meses</option>
-              <option value="projetado_12">Projeção +12 meses</option>
-              <option value="ambos">Realizado + Projetado</option>
             </select>
             <div style={toggleWrap}>
               <button
@@ -381,12 +337,13 @@ export default function FluxoCaixa() {
         </div>
       </div>
 
-      {/* Tabela mensal */}
+      {/* Tabela mensal — jan→dez, realizado × previsto */}
       <div style={{ ...chartCard, marginTop: 20 }}>
         <div style={chartHeader}>
-          <div style={chartTitle}>Resumo por Mês</div>
+          <div style={chartTitle}>Resumo por Mês · {ano}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>✓ realizado · → previsto</div>
         </div>
-        <div style={{ overflowX: 'visible' }}>
+        <div style={{ overflowX: 'auto' }}>
           <table style={tbl}>
             <thead>
               <tr>
@@ -402,8 +359,8 @@ export default function FluxoCaixa() {
                 <tr><td colSpan={5} style={emptyRow}>Nenhum lançamento em {ano}.</td></tr>
               ) : (
                 buildTableRows(serie, ano).map(row => (
-                  <tr key={row.key} style={{ borderBottom: '1px solid var(--cream-dark)' }}>
-                    <td style={{ ...td, fontWeight: 600 }}>{row.mes}</td>
+                  <tr key={row.key} style={{ borderBottom: '1px solid var(--cream-dark)', background: row.futuro ? 'rgba(204,145,94,0.04)' : 'transparent' }}>
+                    <td style={{ ...td, fontWeight: 600 }}>{row.mes} <span style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 600 }}>{row.futuro ? '→' : '✓'}</span></td>
                     <td style={{ ...td, textAlign: 'right', color: row.entradas > 0 ? 'var(--green)' : 'var(--text-mid)' }}>
                       {row.entradas > 0 ? fmtMoney(row.entradas) : '—'}
                     </td>
@@ -430,18 +387,19 @@ export default function FluxoCaixa() {
 
 function buildTableRows(serie, ano) {
   let acum = 0
-  const rows = serie.labels.map((mes, i) => {
+  // Cronológico (jan→dez): mais fácil de analisar o ano inteiro.
+  return serie.labels.map((mes, i) => {
     acum += serie.dataSaldo[i]
     return {
       key: `${mes}-${i}`,
-      mes: mes.includes('/') ? mes : `${mes}/${ano}`,
+      mes: `${mes}/${ano.slice(2)}`,
       entradas: serie.dataIn[i],
       saidas: serie.dataOut[i],
       saldo: serie.dataSaldo[i],
       acum,
+      futuro: serie.futuros[i],
     }
   })
-  return rows.reverse()
 }
 
 function StatCard({ color, label, value, valueColor, sub }) {
