@@ -73,6 +73,7 @@ export default function Conciliacao() {
   const [marcados, setMarcados] = useState(new Set())   // ids dos lançamentos escolhidos (multi-seleção)
   const [ajustes, setAjustes] = useState([])            // [{ id, key, valor }] ajustes que explicam a diferença
   const [conciliando, setConciliando] = useState(false)
+  const [periodosFechados, setPeriodosFechados] = useState(new Set()) // 'YYYY-MM' travados
   const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
   const [erro, setErro] = useState(null)
 
@@ -103,13 +104,15 @@ export default function Conciliacao() {
       supabase.from('transacoes_extrato').select('*').eq('conta_id', contaId).order('data->>data', { ascending: false }),
       supabase.from('receivable').select('*').or('data->>status.neq.Recebido,conciliado_em.not.is.null'),
       supabase.from('payable').select('*').or('data->>status.neq.Pago,conciliado_em.not.is.null'),
-    ]).then(([rE, rR, rP]) => {
+      supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
+    ]).then(([rE, rR, rP, rPer]) => {
       const err = rE.error || rR.error || rP.error
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
       setExtratos(rE.data || [])
       setReceivable((rR.data || []).map(flatten))
       setPayable((rP.data || []).map(flatten))
+      setPeriodosFechados(new Set((rPer.data || []).map(r => r.competencia)))
       setLoading(false)
     })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -265,7 +268,7 @@ export default function Conciliacao() {
   // Concilia só os casos SEGUROS: valor exato + data próxima E um único
   // candidato (sem ambiguidade). Os ambíguos ficam pra decisão manual.
   async function conciliarAutomatico() {
-    const pendentes = extratos.filter(e => e.conta_id === contaId && e.status === 'pendente')
+    const pendentes = extratos.filter(e => e.conta_id === contaId && e.status === 'pendente' && !periodosFechados.has(String(e.data?.data || '').slice(0, 7)))
     const usadosLanc = new Set()
     const pares = []
     for (const ext of pendentes) {
@@ -303,6 +306,13 @@ export default function Conciliacao() {
   function addAjuste() { setAjustes(a => [...a, { id: crypto.randomUUID(), key: tiposAjuste[0].key, valor: '' }]) }
   function updAjuste(id, campo, val) { setAjustes(a => a.map(x => x.id === id ? { ...x, [campo]: val } : x)) }
   function rmAjuste(id) { setAjustes(a => a.filter(x => x.id !== id)) }
+  // Suspense: joga a diferença que não dá pra resolver agora numa conta transitória
+  // (a esclarecer depois). Fecha a conciliação, mas o valor fica rastreável.
+  function jogarSuspense() {
+    const v = Math.abs(mesa.diff)
+    if (v < 0.01) return
+    setAjustes(a => [...a.filter(x => x.key !== 'suspense'), { id: crypto.randomUUID(), key: 'suspense', valor: v.toFixed(2), sinal: mesa.diff > 0 ? 'acresce' : 'reduz' }])
+  }
 
   // Confirma a conciliação SÓ quando o valor fecha: Σ(selecionados) ± ajustes = extrato.
   async function conciliarMultiplo() {
@@ -320,7 +330,13 @@ export default function Conciliacao() {
         data: { ...(l.data || {}), status: statusFinal, data_pagamento: l.data?.data_pagamento || dataExt },
       }))
       const ajValidos = ajustes
-        .map(a => ({ def: tiposAjuste.find(t => t.key === a.key), v: Number(a.valor || 0) }))
+        .map(a => {
+          const v = Number(a.valor || 0)
+          if (a.key === 'suspense') {
+            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória (a esclarecer)', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
+          }
+          return { def: tiposAjuste.find(t => t.key === a.key), v }
+        })
         .filter(a => a.def && a.v > 0)
       // Gera códigos por tabela (uma leitura por tabela, incrementando)
       let baseR = null, nR = 0, baseP = null, nP = 0
@@ -347,7 +363,7 @@ export default function Conciliacao() {
             status: a.def.tabela === 'receivable' ? 'Recebido' : 'Pago',
             cat: a.def.cat, subcat: '',
             doc_status: 'dispensado', doc_motivo_dispensa: 'Ajuste de conciliação',
-            criado_via_conciliacao_ajuste: true, ajuste_tipo: a.def.key,
+            criado_via_conciliacao_ajuste: true, ajuste_tipo: a.def.key, suspense: !!a.def.suspense,
             created: hoje,
           },
         })
@@ -439,11 +455,28 @@ export default function Conciliacao() {
     setDataDe(''); setDataAte('')
   }
 
+  // ── Trava/fechamento de período ──────────────────────────────────────
+  async function fecharPeriodo(comp) {
+    if (!comp || !contaId) return
+    if (!confirm(`Fechar o período ${comp} desta conta? As linhas do extrato desse mês ficam TRAVADAS (não dá pra conciliar nem desconciliar) até você reabrir.`)) return
+    const { error } = await supabase.from('conciliacao_periodos').insert({ conta_id: contaId, competencia: comp })
+    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    showToast(`Período ${comp} fechado. 🔒`, 'success'); setSelecionado(null); carregar()
+  }
+  async function reabrirPeriodo(comp) {
+    if (!confirm(`Reabrir o período ${comp}? Ele volta a aceitar conciliação.`)) return
+    const { error } = await supabase.from('conciliacao_periodos').delete().eq('conta_id', contaId).eq('competencia', comp)
+    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    showToast(`Período ${comp} reaberto. 🔓`, 'info'); carregar()
+  }
+
   // Vista 2 colunas: linha selecionada + notas em aberto rankeadas pra ela
   const selecionadoExt = useMemo(
     () => extratosFiltrados.find(e => e.id === selecionado) || null,
     [extratosFiltrados, selecionado]
   )
+  const compSelec = selecionadoExt?.data?.data ? String(selecionadoExt.data.data).slice(0, 7) : null
+  const periodoFechadoSelec = compSelec ? periodosFechados.has(compSelec) : false
   const lancsRank = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
     const tipo = selecionadoExt.data?.tipo
@@ -473,9 +506,11 @@ export default function Conciliacao() {
     const S = selec.reduce((a, l) => a + Number(l.value || 0), 0)
     let aNet = 0
     for (const aj of ajustes) {
-      const def = tiposAjuste.find(t => t.key === aj.key)
       const v = Number(aj.valor || 0)
-      if (!def || !v) continue
+      if (!v) continue
+      if (aj.key === 'suspense') { aNet += aj.sinal === 'acresce' ? v : -v; continue }
+      const def = tiposAjuste.find(t => t.key === aj.key)
+      if (!def) continue
       aNet += def.natureza === 'acresce' ? v : -v
     }
     const diff = +(B - (S + aNet)).toFixed(2)
@@ -596,6 +631,8 @@ export default function Conciliacao() {
             <div style={painelBody}>
               {!selecionadoExt ? (
                 <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha.</div>
+              ) : periodoFechadoSelec ? (
+                <div style={dicaVazia}>🔒 O período <strong>{compSelec}</strong> está <strong>fechado</strong> — a conciliação deste mês está travada. <button onClick={() => reabrirPeriodo(compSelec)} style={btnLink}>↻ Reabrir período</button></div>
               ) : selecionadoExt.status !== 'pendente' ? (
                 <div style={dicaVazia}>
                   Essa linha já está <strong>{selecionadoExt.status}</strong>.{' '}
@@ -633,9 +670,13 @@ export default function Conciliacao() {
                   <div style={grupoLabel}>Ajustes — formação do valor</div>
                   {ajustes.map(a => (
                     <div key={a.id} style={ajusteRow}>
-                      <select value={a.key} onChange={e => updAjuste(a.id, 'key', e.target.value)} style={ajSelect}>
-                        {tiposAjuste.map(t => <option key={t.key} value={t.key}>{t.label} ({t.natureza === 'reduz' ? '−' : '+'})</option>)}
-                      </select>
+                      {a.key === 'suspense' ? (
+                        <div style={{ ...ajSelect, display: 'flex', alignItems: 'center', color: 'var(--gold-dark)', fontWeight: 600, background: 'rgba(204,145,94,0.10)' }}>⚠️ Diferença a esclarecer (suspense)</div>
+                      ) : (
+                        <select value={a.key} onChange={e => updAjuste(a.id, 'key', e.target.value)} style={ajSelect}>
+                          {tiposAjuste.map(t => <option key={t.key} value={t.key}>{t.label} ({t.natureza === 'reduz' ? '−' : '+'})</option>)}
+                        </select>
+                      )}
                       <input type="number" step="0.01" value={a.valor} onChange={e => updAjuste(a.id, 'valor', e.target.value)} placeholder="R$" style={ajInput} />
                       <button onClick={() => rmAjuste(a.id)} style={ajRm} title="Remover">×</button>
                     </div>
@@ -652,8 +693,16 @@ export default function Conciliacao() {
                     <button onClick={conciliarMultiplo} disabled={!mesa.ok || conciliando} style={{ ...btnConciliar, opacity: (mesa.ok && !conciliando) ? 1 : 0.5, cursor: (mesa.ok && !conciliando) ? 'pointer' : 'not-allowed' }}>
                       {conciliando ? 'Conciliando…' : `✓ Conciliar${mesa.nSel ? ` ${mesa.nSel} nota(s)` : ''}`}
                     </button>
-                    {!mesa.ok && mesa.nSel > 0 && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>}
+                    {!mesa.ok && mesa.nSel > 0 && (
+                      <>
+                        <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>
+                        <button onClick={jogarSuspense} style={btnSuspense}>⚠️ Não sei agora — jogar {fmtMoney(Math.abs(mesa.diff))} em suspense</button>
+                      </>
+                    )}
                   </div>
+                  {compSelec && (
+                    <button onClick={() => fecharPeriodo(compSelec)} style={{ ...btnLink, display: 'block', marginTop: 12, color: 'var(--text-mid)', textAlign: 'center', width: '100%' }}>🔒 Fechar período {compSelec} (trava a conciliação deste mês)</button>
+                  )}
                 </>
               )}
             </div>
@@ -738,3 +787,4 @@ const diffPanel = { position: 'sticky', bottom: 0, marginTop: 12, padding: 12, b
 const diffRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, color: 'var(--navy)', padding: '2px 0' }
 const diffTotal = { fontSize: 15, fontWeight: 700, borderTop: '1px solid var(--cream-dark)', marginTop: 4, paddingTop: 6 }
 const btnConciliar = { width: '100%', marginTop: 10, padding: '11px', borderRadius: 8, border: 'none', background: 'var(--gold)', color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
+const btnSuspense = { width: '100%', marginTop: 8, padding: '9px', borderRadius: 8, border: '1.5px dashed var(--gold-dark)', background: 'rgba(204,145,94,0.08)', color: 'var(--gold-dark)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--body)' }
