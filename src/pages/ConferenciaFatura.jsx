@@ -15,6 +15,13 @@ import ModalConciliarFatura from './components/ModalConciliarFatura'
 // Decisão UX 30/05: período = (dia_fechamento+1 mês ant.) → (dia_fech).
 // =====================================================================
 
+// Impressão digital (SHA-256) do conteúdo do arquivo, em hex. Identifica
+// reimportação do MESMO documento independentemente do nome do arquivo.
+async function sha256Hex(buf) {
+  const h = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 function fmtDataBR(s) {
   if (!s) return '—'
   const [y, m, d] = s.split('-')
@@ -78,6 +85,22 @@ export default function ConferenciaFatura() {
         )
         if (!forcar) { showToast('Importação cancelada. Use Extrato / Conciliação para a conta corrente.', 'info'); return }
       }
+      // Duplicidade de DOCUMENTO: impressão digital (SHA-256) do arquivo.
+      // Se o mesmo arquivo já entrou antes, avisa (a dedup por transação ainda protegeria,
+      // mas o aviso é mais claro do que só "todas já importadas").
+      const hashArquivo = await sha256Hex(buf)
+      const { data: jaImp } = await supabase.from('importacoes')
+        .select('created_at, qtd_registros')
+        .eq('user_id', user.id).eq('tipo', 'ofx_fatura_cartao')
+        .eq('metadata->>hash', hashArquivo).limit(1)
+      if (jaImp && jaImp.length) {
+        const quando = new Date(jaImp[0].created_at).toLocaleDateString('pt-BR')
+        const ok = window.confirm(
+          `Este MESMO arquivo já foi importado em ${quando} (${jaImp[0].qtd_registros} lançamento(s)).\n\n` +
+          'Importar de novo? As compras repetidas serão ignoradas automaticamente.'
+        )
+        if (!ok) { showToast('Importação cancelada — este arquivo já foi importado.', 'info'); return }
+      }
       const { transacoes } = parseOFX(texto)
       if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
       // Separar débitos (compras) de créditos (estornos/pagamentos)
@@ -134,7 +157,7 @@ export default function ConferenciaFatura() {
         arquivo_nome: file.name,
         arquivo_path: arquivoPath,
         qtd_registros: debitos.length,
-        metadata: { cartao_id: cartaoId, mes: usoMes, ano: usoAno, periodo_ini: periodoUsado.ini, periodo_fim: periodoUsado.fim, vencimento: periodoUsado.vencimento },
+        metadata: { cartao_id: cartaoId, mes: usoMes, ano: usoAno, periodo_ini: periodoUsado.ini, periodo_fim: periodoUsado.fim, vencimento: periodoUsado.vencimento, hash: hashArquivo },
       }).select('id').single()
       // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos.
       if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)

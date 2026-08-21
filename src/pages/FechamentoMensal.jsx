@@ -47,6 +47,12 @@ function cContas(g) {
   if (pend === 0) return { tom: 'ok', txt: '✅ Tudo quitado' }
   return { tom: 'alerta', txt: `⚠️ ${pend} pendente(s)` }
 }
+function cFatura(g) {
+  if (g.fatTotal === 0) return { tom: 'vazio', txt: '— não importada' }
+  const pend = g.fatTotal - g.fatQuit
+  if (pend === 0) return { tom: 'ok', txt: `✅ ${g.fatTotal} lançs` }
+  return { tom: 'alerta', txt: `⚠️ ${pend} a pagar` }
+}
 function cDas(g) {
   if (g.impTotal === 0) return { tom: 'vazio', txt: '— sem imposto' }
   if (g.impPago >= g.impTotal) return { tom: 'ok', txt: '✅ Pago' }
@@ -68,7 +74,7 @@ export default function FechamentoMensal() {
     Promise.all([
       supabase.from('transacoes_extrato').select('id, dt:data->>data, st:data->>status, rev:data->>revisar'),
       supabase.from('receivable').select('id, due:data->>due, st:data->>status'),
-      supabase.from('payable').select('id, due:data->>due, st:data->>status, cat:data->>cat'),
+      supabase.from('payable').select('id, due:data->>due, st:data->>status, cat:data->>cat, fat:data->>criado_via_import_fatura'),
     ]).then(([e, r, p]) => {
       const err = e.error || r.error || p.error
       if (err) { setErro(err); setLoading(false); return }
@@ -83,7 +89,7 @@ export default function FechamentoMensal() {
 
   const linhas = useMemo(() => {
     const meses = {}
-    const get = k => (meses[k] || (meses[k] = { extTotal: 0, extResolv: 0, recTotal: 0, recQuit: 0, pagTotal: 0, pagQuit: 0, impTotal: 0, impPago: 0 }))
+    const get = k => (meses[k] || (meses[k] = { extTotal: 0, extResolv: 0, recTotal: 0, recQuit: 0, pagTotal: 0, pagQuit: 0, impTotal: 0, impPago: 0, fatTotal: 0, fatQuit: 0 }))
 
     for (const e of extratos) {
       const k = ym(e.dt); if (!k) continue
@@ -100,6 +106,7 @@ export default function FechamentoMensal() {
       const g = get(k); g.pagTotal++
       if (p.st === 'Pago') g.pagQuit++
       if (p.cat === 'Impostos') { g.impTotal++; if (p.st === 'Pago') g.impPago++ }
+      if (p.fat === 'true') { g.fatTotal++; if (p.st === 'Pago') g.fatQuit++ }
     }
     return Object.entries(meses)
       .sort((a, b) => b[0].localeCompare(a[0]))
@@ -135,13 +142,14 @@ export default function FechamentoMensal() {
                   <th style={{ ...th, width: 110 }}>Mês</th>
                   <th style={th}>Extrato</th>
                   <th style={th}>Conciliação</th>
+                  <th style={th}>Fatura cartão</th>
                   <th style={th}>Contas do mês</th>
                   <th style={th}>DAS / Impostos</th>
                 </tr>
               </thead>
               <tbody>
                 {linhas.map(g => {
-                  const cells = [cExtrato(g), cConcil(g), cContas(g), cDas(g)]
+                  const cells = [cExtrato(g), cConcil(g), cFatura(g), cContas(g), cDas(g)]
                   const tudoOk = cells.every(c => c.tom === 'ok' || c.tom === 'vazio')
                   return (
                     <tr key={g.ym}>
@@ -160,7 +168,7 @@ export default function FechamentoMensal() {
       </div>
 
       <div style={notaBox}>
-        <strong>Como o sistema decide:</strong> <em>Extrato</em> = tem linhas de extrato importadas no mês · <em>Conciliação</em> = % das linhas já batidas com lançamentos · <em>Contas do mês</em> = a receber/pagar com vencimento no mês, quantas ainda pendentes · <em>DAS/Impostos</em> = guias (categoria Impostos) do mês já pagas. Guias sem data e provisões não contam.
+        <strong>Como o sistema decide:</strong> <em>Extrato</em> = tem linhas de extrato importadas no mês · <em>Conciliação</em> = % das linhas já batidas com lançamentos · <em>Fatura cartão</em> = compras de fatura de cartão importadas com vencimento no mês (e quantas ainda a pagar) · <em>Contas do mês</em> = a receber/pagar com vencimento no mês, quantas ainda pendentes · <em>DAS/Impostos</em> = guias (categoria Impostos) do mês já pagas. Guias sem data e provisões não contam.
       </div>
     </AppLayout>
   )
