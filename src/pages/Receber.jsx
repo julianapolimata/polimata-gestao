@@ -85,7 +85,8 @@ export default function Receber() {
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    let r = rows
+    // Captação de empréstimo é financiamento — não é conta a receber. Fica no Fluxo/Empréstimos.
+    let r = rows.filter(item => !item.data?.criado_via_emprestimo)
     if (filtroStatus) {
       if (filtroStatus === '__sem_doc__') r = r.filter(item => getDocStatus(item) === 'pendente')
       else if (filtroStatus === '__doc_dispensado__') r = r.filter(item => getDocStatus(item) === 'dispensado')
@@ -167,7 +168,7 @@ export default function Receber() {
     const meses = MESES.map((_, m) => ({ mes: m, total: 0, recebido: 0, aReceber: 0, itens: [] }))
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão') continue // provisão não é faturamento até virar NF
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não receita // provisão não é faturamento até virar NF
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const m = parseInt(String(ref).slice(5, 7), 10) - 1
@@ -189,7 +190,7 @@ export default function Receber() {
     let vencido = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão') continue
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não receita
       if ((d.status || '').toLowerCase() === 'recebido') continue
       const ref = d.data_competencia || d.due
       if (ref && String(ref).startsWith(anoSel) && isOverdue(d.due)) vencido += Number(d.value || 0)
@@ -203,7 +204,7 @@ export default function Receber() {
     let nNotas = 0, faturado = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão') continue
+      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo) continue // empréstimo = financiamento, não receita
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const v = Number(d.value || 0)
