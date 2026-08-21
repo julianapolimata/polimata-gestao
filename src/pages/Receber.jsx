@@ -224,12 +224,12 @@ export default function Receber() {
     if (!chartRef.current) return
     if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null }
     chartInst.current = new Chart(chartRef.current, {
-      type: 'bar',
+      type: 'line',
       data: {
         labels: MESES,
         datasets: [
-          { label: 'Recebido', data: porMes.map(m => m.recebido), backgroundColor: 'rgba(39,174,96,0.85)', borderColor: 'rgba(39,174,96,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
-          { label: 'A receber', data: porMes.map(m => m.aReceber), backgroundColor: 'rgba(204,145,94,0.85)', borderColor: 'rgba(204,145,94,1)', borderWidth: 1, borderRadius: 4, stack: 'r' },
+          { label: 'Faturado', data: porMes.map(m => m.total), borderColor: 'rgba(204,145,94,1)', backgroundColor: 'rgba(204,145,94,0.10)', borderWidth: 2.5, tension: 0.35, fill: true, pointRadius: 4, pointBackgroundColor: 'rgba(204,145,94,1)', pointBorderColor: '#fff', pointBorderWidth: 1.5, pointHoverRadius: 6 },
+          { label: 'Recebido', data: porMes.map(m => m.recebido), borderColor: 'rgba(39,174,96,1)', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 3], tension: 0.35, fill: false, pointRadius: 3, pointBackgroundColor: 'rgba(39,174,96,1)', pointBorderColor: '#fff', pointBorderWidth: 1 },
         ],
       },
       options: {
@@ -255,8 +255,8 @@ export default function Receber() {
           },
         },
         scales: {
-          x: { stacked: true, grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
-          y: { stacked: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
+          x: { grid: { display: false }, ticks: { font: { family: 'Montserrat', size: 11 }, color: '#5a6a7a' } },
+          y: { beginAtZero: true, grid: { color: 'rgba(0,32,62,0.05)' }, ticks: { font: { family: 'Montserrat', size: 10 }, color: '#5a6a7a', callback: v => 'R$ ' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) } },
         },
       },
     })
@@ -426,7 +426,7 @@ export default function Receber() {
             <div style={chartHeader}>
               <div>
                 <div style={chartTitle}>Evolução da receita — {anoSel}</div>
-                <div style={chartSub}>Passe o mouse num mês pra ver a composição · verde = recebido · cobre = a receber</div>
+                <div style={chartSub}>Passe o mouse num mês pra ver a composição · linha cobre = faturado · tracejado verde = recebido</div>
               </div>
               <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
                 {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
