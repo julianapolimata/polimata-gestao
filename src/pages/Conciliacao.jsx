@@ -123,8 +123,12 @@ export default function Conciliacao() {
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
       setExtratos(rE.data || [])
-      setReceivable((rR.data || []).map(flatten))
-      setPayable((rP.data || []).map(flatten))
+      // PORTÃO DA ESCRITURAÇÃO: só nota ESCRITURADA é candidata a conciliar. Uma nota
+      // não revisada (escriturado != true) não sobe pra conciliação — é a 1ª camada da
+      // metodologia (escrituração contábil antes do cruzamento financeiro).
+      const soEscriturada = arr => (arr || []).filter(r => r.data?.escriturado === true)
+      setReceivable(soEscriturada(rR.data).map(flatten))
+      setPayable(soEscriturada(rP.data).map(flatten))
       setPeriodosFechados(new Set((rPer.data || []).map(r => r.competencia)))
       setLoading(false)
     })
@@ -390,7 +394,8 @@ export default function Conciliacao() {
             due: dataExt, data_competencia: dataExt, data_pagamento: dataExt,
             status: a.def.tabela === 'receivable' ? 'Recebido' : 'Pago',
             cat: a.def.cat, subcat: '',
-            doc_status: 'dispensado', doc_motivo_dispensa: 'Ajuste de conciliação',
+            doc_status: 'dispensado', doc_motivo_dispensa: 'Ajuste de conciliação', sem_documento: false,
+            escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'auto',
             criado_via_conciliacao_ajuste: true, ajuste_tipo: a.def.key, suspense: !!a.def.suspense,
             created: hoje,
           },
@@ -422,6 +427,7 @@ export default function Conciliacao() {
       due: dataExt, data_pagamento: dataExt,
       status: tipoTabela === 'receivable' ? 'Recebido' : 'Pago',
       cat: nCat, subcat: nSubcat || '', doc_status: 'pendente', sem_documento: true,
+      escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'manual',
       created: dataExt, criado_via_conciliacao: true,
     }
     try {

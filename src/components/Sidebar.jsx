@@ -144,7 +144,7 @@ export default function Sidebar() {
         <Section collapsed={collapsed}>Análise &amp; Decisão</Section>
         <NavItem to="/fluxo-caixa" collapsed={collapsed} label="Fluxo de Caixa" icon={ico(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>)} />
         <NavItem to="/dre" collapsed={collapsed} label="DRE Gerencial" icon={ico(<><line x1="3" y1="3" x2="3" y2="21"/><line x1="3" y1="21" x2="21" y2="21"/><polyline points="7 14 11 10 14 13 19 7"/></>)} />
-        <NavItem to="/classificar" collapsed={collapsed} label="Classificar Lançamentos" icon={ico(<><path d="M3 7h18"/><path d="M6 12h12"/><path d="M9 17h6"/></>)} />
+        <NavItem to="/classificar" collapsed={collapsed} label="Escrituração" icon={ico(<><path d="M3 7h18"/><path d="M6 12h12"/><path d="M9 17h6"/></>)} />
         <NavItem to="/fechamento-mensal" collapsed={collapsed} label="Fechamento Mensal" icon={ico(<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></>)} />
         <NavItem to="/relatorios" collapsed={collapsed} label="Exportar Relatório" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>)} />
 
