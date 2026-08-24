@@ -449,7 +449,10 @@ export default function ConferenciaFatura() {
                     return (
                       <tr key={p.id}>
                         <td style={{ ...td, fontWeight: 600, color: 'var(--text-mid)' }}>{p.codigo || '—'}</td>
-                        <td style={td}>{p.supplier || '—'}</td>
+                        <td style={td}>
+                          {p.supplier || '—'}
+                          {p.data?.escriturado !== true && <span style={badgeAEscriturar} title="Não escriturada — escriture antes de conciliar">a escriturar</span>}
+                        </td>
                         <td style={{ ...td, color: 'var(--text-mid)' }}>{p.desc || '—'}</td>
                         <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{parc}</td>
                         <td style={td}>{fmtDataBR(p.due)}</td>
@@ -506,6 +509,7 @@ function Field({ label, children }) {
 
 const topo = { display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }
 const btnUploadFatura = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
+const badgeAEscriturar = { marginLeft: 8, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }
 const totalBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14, flexWrap: 'wrap', gap: 14 }
 const btnConciliar = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 180 }
