@@ -6,29 +6,38 @@ import { fmtMoney, flatten } from '../lib/finance'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
 import { showToast } from '../components/Toast'
+import {
+  construirRegras, regraPara, escriturarAuto,
+  SITUACOES_FISCAIS, semDocumentoDe,
+} from '../lib/escrituracao'
 
 // =====================================================================
-// CLASSIFICAR EM MASSA — mostra tudo que está SEM categoria e deixa
-// classificar rápido, em lote, agrupado por fornecedor (as parcelas de
-// uma mesma série entram juntas). Destrava a DRE, que só conta o que
-// tem classificação no plano de contas.
+// ESCRITURAÇÃO — 1ª camada da conciliação. Mostra tudo que está
+// "A escriturar" (escriturado != true), agrupado por fornecedor. Você
+// revisa categoria + situação fiscal (OBRIGATÓRIA) e clica "Escriturar".
+// Só depois disso a nota fica disponível pra conciliação.
+//
+// Recorrente já aprovada antes (histórico manual unânime) sobe sozinha
+// pela regra aprendida — botão "Escriturar automáticas".
 // =====================================================================
 
-// Chave de agrupamento: fornecedor/descrição sem o sufixo de parcela (NN/MM…).
+// Chave de agrupamento visual: fornecedor sem o sufixo de parcela.
 function chaveGrupo(it) {
-  const base = it.data?.supplier || it.desc || it.codigo || '—'
+  const base = it.data?.supplier || it.data?.client || it.desc || it.codigo || '—'
   return (String(base).replace(/\s*\d{1,2}\/\d{1,2}.*$/, '').trim()) || String(base)
 }
 
 export default function ClassificarLancamentos() {
   const { user } = useAuth()
-  const [payable, setPayable] = useState([])
-  const [receivable, setReceivable] = useState([])
+  const [payable, setPayable] = useState([])       // A escriturar (despesas)
+  const [receivable, setReceivable] = useState([]) // A escriturar (receitas)
+  const [regras, setRegras] = useState(new Map())  // regras aprendidas (manual unânime)
   const [plano, setPlano] = useState([])
   const [loading, setLoading] = useState(true)
   const [aba, setAba] = useState('Saída') // Saída = despesas · Entrada = receitas
-  const [sel, setSel] = useState({})       // chave -> { cat, subcat }
+  const [sel, setSel] = useState({})       // chave -> { cat, subcat, situacao_fiscal, motivo }
   const [salvando, setSalvando] = useState(null)
+  const [autoRodando, setAutoRodando] = useState(false)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -38,9 +47,15 @@ export default function ClassificarLancamentos() {
       supabase.from('receivable').select('id,codigo,data,anexo_path'),
       fetchPlanoContas(),
     ]).then(([rP, rR, pl]) => {
-      const semCat = arr => (arr || []).map(flatten).filter(x => !String(x.data?.cat || '').trim() && x.data?.status !== 'Provisão')
-      setPayable(semCat(rP.data))
-      setReceivable(semCat(rR.data))
+      const pendentes = arr => (arr || []).map(flatten).filter(x => x.data?.escriturado !== true && x.data?.status !== 'Provisão')
+      setPayable(pendentes(rP.data))
+      setReceivable(pendentes(rR.data))
+      // Regras: das notas escrituradas MANUALMENTE (as duas tabelas).
+      const manuais = [
+        ...(rP.data || []).map(r => ({ ...r, tabela: 'payable' })),
+        ...(rR.data || []).map(r => ({ ...r, tabela: 'receivable' })),
+      ]
+      setRegras(construirRegras(manuais))
       setPlano(pl || [])
       setLoading(false)
     })
@@ -52,46 +67,94 @@ export default function ClassificarLancamentos() {
     const map = new Map()
     for (const it of src) {
       const key = chaveGrupo(it)
-      if (!map.has(key)) map.set(key, { key, nome: key, itens: [], total: 0 })
+      if (!map.has(key)) map.set(key, { key, nome: key, itens: [], total: 0, rep: it })
       const g = map.get(key)
       g.itens.push(it)
       g.total += it.value
     }
+    // Anexa a regra aprendida (se houver) a cada grupo.
+    for (const g of map.values()) g.regra = regraPara(g.rep.data, regras)
     return [...map.values()].sort((a, b) => b.total - a.total)
-  }, [aba, payable, receivable])
+  }, [aba, payable, receivable, regras])
 
   const categorias = useMemo(() => categoriasDe(plano, aba), [plano, aba])
   const totalPend = payable.length + receivable.length
+  const gruposComRegra = useMemo(() => grupos.filter(g => g.regra), [grupos])
 
   function setCampo(key, campo, valor) {
     setSel(s => ({ ...s, [key]: { ...s[key], [campo]: valor, ...(campo === 'cat' ? { subcat: '' } : {}) } }))
   }
 
-  async function aplicar(grupo) {
+  // Validação: categoria + situação fiscal obrigatórias; motivo obrigatório quando não é "com NF".
+  function validar(s) {
+    if (!s?.cat) return 'Escolha uma categoria.'
+    if (!s?.situacao_fiscal) return 'Informe a situação fiscal.'
+    if (s.situacao_fiscal !== 'vinculado' && !String(s.motivo || '').trim()) return 'Descreva o motivo (sem NF / NF pendente).'
+    return null
+  }
+
+  async function escriturar(grupo) {
     const s = sel[grupo.key]
-    if (!s?.cat) { showToast('Escolha uma categoria antes.', 'warning'); return }
+    const erro = validar(s)
+    if (erro) { showToast(erro, 'warning'); return }
     setSalvando(grupo.key)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
+    const agora = new Date().toISOString()
     try {
       await Promise.all(grupo.itens.map(it =>
-        supabase.from(table).update({ data: { ...it.data, cat: s.cat, subcat: s.subcat || '' } }).eq('id', it.id),
+        supabase.from(table).update({ data: {
+          ...it.data,
+          cat: s.cat, subcat: s.subcat || '',
+          doc_status: s.situacao_fiscal,
+          doc_motivo_dispensa: s.situacao_fiscal === 'vinculado' ? '' : s.motivo.trim(),
+          sem_documento: semDocumentoDe(s.situacao_fiscal),
+          escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
+        } }).eq('id', it.id),
       ))
-      showToast(`${grupo.itens.length} lançamento(s) classificados como "${s.cat}".`, 'success')
+      showToast(`${grupo.itens.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
       carregar()
     } catch (e) {
-      showToast('Erro ao salvar: ' + e.message, 'error')
+      showToast('Erro ao escriturar: ' + e.message, 'error')
     } finally {
       setSalvando(null)
     }
   }
 
-  // Muda a NATUREZA do grupo: move receita⇄despesa (tabela). Corrige lançamento
-  // que entrou na direção errada, sem sair da tela de classificação.
+  // Escritura em lote todos os grupos que têm regra aprendida (recorrentes).
+  async function escriturarAutomaticas() {
+    const alvo = gruposComRegra
+    if (!alvo.length) { showToast('Nenhuma recorrente reconhecida agora.', 'info'); return }
+    if (!window.confirm(
+      `${alvo.length} grupo(s) recorrente(s) reconhecido(s) pelo histórico.\n\n` +
+      'Escriturar automaticamente, copiando fielmente a classificação já aprovada por você? ' +
+      'Fica tudo marcado como automático e você pode reverter.'
+    )) return
+    setAutoRodando(true)
+    const table = aba === 'Saída' ? 'payable' : 'receivable'
+    const agora = new Date().toISOString()
+    try {
+      let n = 0
+      for (const g of alvo) {
+        await Promise.all(g.itens.map(it =>
+          supabase.from(table).update({ data: escriturarAuto(it.data, g.regra, agora) }).eq('id', it.id),
+        ))
+        n += g.itens.length
+      }
+      showToast(`${n} lançamento(s) escriturado(s) automaticamente por regra recorrente.`, 'success')
+      carregar()
+    } catch (e) {
+      showToast('Erro na escrituração automática: ' + e.message, 'error')
+    } finally {
+      setAutoRodando(false)
+    }
+  }
+
+  // Muda a NATUREZA do grupo: move receita⇄despesa (tabela).
   async function moverGrupo(grupo) {
     const destino = aba === 'Saída' ? 'receivable' : 'payable'
     const origem = aba === 'Saída' ? 'payable' : 'receivable'
     const nomeDest = aba === 'Saída' ? 'Receitas' : 'Despesas'
-    if (!window.confirm(`"${grupo.nome}" (${grupo.itens.length} lançamento(s)) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a categoria continua a definir depois.`)) return
+    if (!window.confirm(`"${grupo.nome}" (${grupo.itens.length} lançamento(s)) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a escrituração continua pendente lá.`)) return
     setSalvando(grupo.key)
     try {
       const base = destino === 'payable' ? await proximoCodigoPayable() : await proximoCodigoReceivable()
@@ -103,6 +166,7 @@ export default function ClassificarLancamentos() {
         else { d.supplier = d.client || d.supplier; delete d.client }
         if (d.status === (origem === 'receivable' ? 'Recebido' : 'Pago')) d.status = destino === 'receivable' ? 'Recebido' : 'Pago'
         d.cat = ''; d.subcat = ''; d.movido_de = origem
+        d.escriturado = false // muda de natureza → re-escritura na nova direção
         return { user_id: user.id, codigo: `${prefixo}${String(num + i).padStart(5, '0')}`, anexo_path: it.anexo_path || null, data: d }
       })
       const { error: e1 } = await supabase.from(destino).insert(rows)
@@ -118,14 +182,26 @@ export default function ClassificarLancamentos() {
     }
   }
 
-  if (loading) return <AppLayout title="Classificar Lançamentos"><div style={emptyState}>Carregando…</div></AppLayout>
+  if (loading) return <AppLayout title="Escrituração"><div style={emptyState}>Carregando…</div></AppLayout>
 
   return (
-    <AppLayout title="Classificar Lançamentos">
+    <AppLayout title="Escrituração">
       <div style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 16, lineHeight: 1.6 }}>
-        Estes lançamentos estão <strong>sem categoria</strong> — por isso não aparecem na DRE. Escolha a categoria de cada grupo (as parcelas de uma série já vêm juntas) e clique <strong>Classificar</strong>.
-        {totalPend === 0 && <span style={{ color: 'var(--green)' }}> Tudo classificado! 🎉</span>}
+        Estes lançamentos estão <strong>aguardando escrituração</strong> — não sobem pra conciliação até você revisar
+        categoria e <strong>situação fiscal</strong> e clicar <strong>Escriturar</strong>.
+        {totalPend === 0 && <span style={{ color: 'var(--green)' }}> Tudo escriturado! 🎉</span>}
       </div>
+
+      {gruposComRegra.length > 0 && (
+        <div style={autoBox}>
+          <div style={{ fontSize: 12, color: 'var(--navy)' }}>
+            <strong>{gruposComRegra.length}</strong> grupo(s) recorrente(s) reconhecido(s) pelo histórico — a classificação já aprovada por você pode ser aplicada fielmente.
+          </div>
+          <button onClick={escriturarAutomaticas} disabled={autoRodando} style={btnAuto}>
+            {autoRodando ? 'Escriturando…' : `↻ Escriturar automáticas (${gruposComRegra.length})`}
+          </button>
+        </div>
+      )}
 
       <div style={tabsBar}>
         <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.length})</button>
@@ -133,17 +209,21 @@ export default function ClassificarLancamentos() {
       </div>
 
       {grupos.length === 0 ? (
-        <div style={card}><div style={emptyState}>Nada a classificar aqui. ✓</div></div>
+        <div style={card}><div style={emptyState}>Nada a escriturar aqui. ✓</div></div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {grupos.map(g => {
             const s = sel[g.key] || {}
             const subs = subcategoriasDe(plano, aba, s.cat)
+            const precisaMotivo = s.situacao_fiscal && s.situacao_fiscal !== 'vinculado'
             return (
               <div key={g.key} style={card}>
                 <div style={grpRow}>
-                  <div style={{ minWidth: 0, flex: '1 1 260px' }}>
-                    <div style={grpNome} title={g.nome}>{g.nome}</div>
+                  <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+                    <div style={grpNome} title={g.nome}>
+                      {g.nome}
+                      {g.regra && <span style={badgeRegra} title={`Recorrente reconhecida: ${g.regra.cat}`}>recorrente</span>}
+                    </div>
                     <div style={grpMeta}>{g.itens.length} lançamento(s) · <strong style={{ color: aba === 'Saída' ? 'var(--red)' : 'var(--green)' }}>{fmtMoney(g.total)}</strong></div>
                   </div>
                   <select value={s.cat || ''} onChange={e => setCampo(g.key, 'cat', e.target.value)} style={selectStyle}>
@@ -151,9 +231,23 @@ export default function ClassificarLancamentos() {
                     {categorias.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <select value={s.subcat || ''} onChange={e => setCampo(g.key, 'subcat', e.target.value)} style={{ ...selectStyle, opacity: subs.length ? 1 : 0.5 }} disabled={!subs.length}>
-                    <option value="">{subs.length ? '— subcategoria (opcional) —' : 'sem subcategoria'}</option>
+                    <option value="">{subs.length ? '— subcategoria —' : 'sem subcategoria'}</option>
                     {subs.map(sc => <option key={sc} value={sc}>{sc}</option>)}
                   </select>
+                  <select value={s.situacao_fiscal || ''} onChange={e => setCampo(g.key, 'situacao_fiscal', e.target.value)} style={{ ...selectStyle, flex: '1 1 150px', borderColor: s.situacao_fiscal ? 'var(--cream-dark)' : 'var(--gold)' }}>
+                    <option value="">— situação fiscal * —</option>
+                    {SITUACOES_FISCAIS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                {precisaMotivo && (
+                  <input
+                    value={s.motivo || ''}
+                    onChange={e => setCampo(g.key, 'motivo', e.target.value)}
+                    placeholder="Motivo (por que não tem NF / o que está pendente)…"
+                    style={motivoInput}
+                  />
+                )}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                   <button
                     onClick={() => moverGrupo(g)}
                     disabled={salvando === g.key}
@@ -163,11 +257,11 @@ export default function ClassificarLancamentos() {
                     ⇄ {aba === 'Saída' ? 'é receita' : 'é despesa'}
                   </button>
                   <button
-                    onClick={() => aplicar(g)}
-                    disabled={!s.cat || salvando === g.key}
-                    style={{ ...btnAplicar, opacity: (!s.cat || salvando === g.key) ? 0.5 : 1, cursor: (!s.cat || salvando === g.key) ? 'default' : 'pointer' }}
+                    onClick={() => escriturar(g)}
+                    disabled={!!validar(s) || salvando === g.key}
+                    style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key) ? 'default' : 'pointer' }}
                   >
-                    {salvando === g.key ? 'Salvando…' : 'Classificar'}
+                    {salvando === g.key ? 'Escriturando…' : 'Escriturar'}
                   </button>
                 </div>
               </div>
@@ -181,13 +275,17 @@ export default function ClassificarLancamentos() {
 
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const card = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 14 }
+const autoBox = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--cream)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }
 const grpRow = { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }
-const grpNome = { fontSize: 13, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const grpNome = { fontSize: 13, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }
 const grpMeta = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
+const badgeRegra = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
-const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none', flex: '1 1 170px', minWidth: 150 }
+const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none', flex: '1 1 160px', minWidth: 140 }
+const motivoInput = { width: '100%', boxSizing: 'border-box', fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', outline: 'none', marginTop: 8 }
 const btnAplicar = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700, background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)' }
+const btnAuto = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700, background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap' }
 const btnNatureza = { border: '1.5px solid var(--cream-dark)', borderRadius: 6, padding: '8px 12px', fontSize: 11, fontWeight: 600, background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap' }

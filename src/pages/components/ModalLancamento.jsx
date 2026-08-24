@@ -184,6 +184,11 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         doc_status: docStatus,
         doc_motivo_dispensa: docStatus === 'dispensado' ? (docMotivo || null) : null,
         sem_documento: docStatus === 'pendente',
+        // Salvar manualmente com categoria + situação fiscal É escriturar (vira regra
+        // aprendida p/ recorrentes). Vira 'manual' mesmo que antes fosse auto/grandfather.
+        escriturado: true,
+        escriturado_em: new Date().toISOString(),
+        escriturado_por: 'manual',
         recorrente,
         rec_frequencia: recorrente ? recFreq : null,
         rec_ate: recorrente ? (recAte || null) : null,
