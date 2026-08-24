@@ -98,7 +98,13 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
     [lancamentos, marcados],
   )
   const diferenca = valorDebito - somaMarcados
-  const podeConciliar = Math.abs(diferenca) < 0.02
+  // PORTÃO DA ESCRITURAÇÃO: compra não escriturada não entra na conciliação da fatura.
+  const marcadosNaoEscriturados = useMemo(
+    () => lancamentos.filter(l => marcados.has(l.id) && l.data?.escriturado !== true),
+    [lancamentos, marcados],
+  )
+  const bloqueadoPorEscrituracao = marcadosNaoEscriturados.length > 0
+  const podeConciliar = Math.abs(diferenca) < 0.02 && !bloqueadoPorEscrituracao
   const anos = [year, year - 1, year - 2]
 
   function toggle(id) {
@@ -126,6 +132,8 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
         cat: encargoCat,
         subcat: '',
         forma_pagamento: 'Cartão Crédito',
+        doc_status: 'dispensado', doc_motivo_dispensa: 'Encargo de cartão', sem_documento: false,
+        escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'auto',
         criado_via_conciliacao_fatura: true,
         created: new Date().toISOString().slice(0, 10),
       },
@@ -266,7 +274,10 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
                             <input type="checkbox" checked={marcado} onChange={() => toggle(l.id)} onClick={e => e.stopPropagation()} />
                           </td>
                           <td style={td}>{fmtDataBR(l.data_competencia || l.due)}</td>
-                          <td style={td}>{l.desc || l.supplier || '—'}</td>
+                          <td style={td}>
+                            {l.desc || l.supplier || '—'}
+                            {l.data?.escriturado !== true && <span style={badgeAEscriturar} title="Não escriturada — escriture antes de conciliar">a escriturar</span>}
+                          </td>
                           <td style={{ ...td, color: 'var(--text-mid)' }}>{l.cat || '—'}</td>
                           <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoney(l.value)}</td>
                         </tr>
@@ -292,7 +303,12 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
                 <span>Diferença</span>
                 <span>{fmtMoney(diferenca)} {podeConciliar && '✓'}</span>
               </div>
-              {!podeConciliar && Math.abs(diferenca) > valorDebito * 0.3 && valorDebito > 0 && (
+              {bloqueadoPorEscrituracao && (
+                <div style={{ marginTop: 8, padding: 8, background: 'rgba(204,145,94,0.14)', borderRadius: 4, fontSize: 11, color: 'var(--navy)', lineHeight: 1.4 }}>
+                  📋 <strong>{marcadosNaoEscriturados.length} compra(s) ainda não escriturada(s).</strong> Uma compra só entra na conciliação depois de escriturada. Vá em <a href="/classificar" style={{ color: 'var(--gold)', fontWeight: 700 }}>Escrituração</a>, escriture-as e volte aqui.
+                </div>
+              )}
+              {!podeConciliar && !bloqueadoPorEscrituracao && Math.abs(diferenca) > valorDebito * 0.3 && valorDebito > 0 && (
                 <div style={{ marginTop: 8, padding: 8, background: 'rgba(231,76,60,0.10)', borderRadius: 4, fontSize: 11, color: 'var(--red)', lineHeight: 1.4 }}>
                   ⚠ <strong>Diferença grande.</strong> Verifica se: (1) você selecionou o débito certo do banco; (2) o mês de vencimento da fatura corresponde ao débito; (3) tem compras faltando ou desmarcadas que não deveriam estar.
                 </div>
@@ -359,3 +375,4 @@ const btnPrimary = { padding: '10px 18px', background: 'var(--gold)', color: '#f
 const btnSecondary = { padding: '10px 18px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--cream-dark)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--body)' }
 const btnOk = { padding: '8px 14px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)' }
 const emptyState = { padding: '40px 24px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 13, background: 'var(--cream)', borderRadius: 8 }
+const badgeAEscriturar = { marginLeft: 8, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }

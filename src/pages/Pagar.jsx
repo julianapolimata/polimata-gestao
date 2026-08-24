@@ -88,7 +88,9 @@ export default function Pagar() {
     let r = rows
     if (filtroStatus) {
       if (filtroStatus === '__sem_doc__') r = r.filter(item => getDocStatus(item) === 'pendente')
+      else if (filtroStatus === '__com_nf__') r = r.filter(item => getDocStatus(item) === 'vinculado')
       else if (filtroStatus === '__doc_dispensado__') r = r.filter(item => getDocStatus(item) === 'dispensado')
+      else if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && (item.data?.status !== 'Provisão'))
       else if (filtroStatus === '__vencidos__') r = r.filter(item => {
         const st = (item.data?.status || '').toLowerCase()
         return st !== 'pago' && st !== 'provisão' && st !== 'provisao' && isOverdue(item.data?.due)
@@ -139,6 +141,21 @@ export default function Pagar() {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('asc') }
   }
+
+  // Resumo fiscal: quantos têm NF, quantos sem NF (dispensado), quantos pendentes,
+  // e quantos ainda faltam escriturar. Ignora provisões (ainda não são lançamento).
+  const resumoFiscal = useMemo(() => {
+    const acc = { com_nf: 0, sem_nf: 0, pendente: 0, a_escriturar: 0 }
+    for (const item of rows) {
+      if (item.data?.status === 'Provisão') continue
+      if (item.data?.escriturado !== true) acc.a_escriturar++
+      const ds = getDocStatus(item)
+      if (ds === 'vinculado') acc.com_nf++
+      else if (ds === 'dispensado') acc.sem_nf++
+      else if (ds === 'pendente') acc.pendente++
+    }
+    return acc
+  }, [rows])
 
   const total = useMemo(
     () => filtrados.reduce((s, x) => s + (parseFloat(x.data?.value) || 0), 0),
@@ -334,8 +351,10 @@ export default function Pagar() {
                 { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
                 { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
                 { key: '__vencidos__', label: '🔴 Em atraso', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
+                { key: '__a_escriturar__', label: '📋 A escriturar', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
+                { key: '__com_nf__', label: '🧾 Com NF', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
+                { key: '__doc_dispensado__', label: '⊘ Sem NF', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
                 { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
-                { key: '__doc_dispensado__', label: '✓ Doc dispensado', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
               ].map(opt => {
                 const active = filtroStatus === opt.key
                 return (
@@ -378,6 +397,17 @@ export default function Pagar() {
               <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
               <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
             </div>
+          </div>
+
+          {/* Resumo fiscal — controle de documento (o que tem NF, o que não tem) */}
+          <div style={resumoFiscalBar}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>Situação fiscal:</span>
+            <button onClick={() => setFiltroStatus('__com_nf__')} style={fiscalPill('var(--green)')} title="Com nota fiscal">🧾 Com NF: <strong>{resumoFiscal.com_nf}</strong></button>
+            <button onClick={() => setFiltroStatus('__doc_dispensado__')} style={fiscalPill('var(--navy)')} title="Sem NF (dispensado, com motivo)">⊘ Sem NF: <strong>{resumoFiscal.sem_nf}</strong></button>
+            <button onClick={() => setFiltroStatus('__sem_doc__')} style={fiscalPill('var(--gold-dark)')} title="NF pendente">📎 Pendente: <strong>{resumoFiscal.pendente}</strong></button>
+            {resumoFiscal.a_escriturar > 0 && (
+              <button onClick={() => setFiltroStatus('__a_escriturar__')} style={fiscalPill('var(--gold-dark)')} title="Ainda não escrituradas">📋 A escriturar: <strong>{resumoFiscal.a_escriturar}</strong></button>
+            )}
           </div>
 
           {/* Filtro por data: De/Até + seletor de tipo */}
@@ -609,6 +639,8 @@ const resumo = {
   padding: '8px 14px', background: 'var(--white)',
   border: '1px solid var(--cream-dark)', borderRadius: 6,
 }
+const resumoFiscalBar = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, padding: '8px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
+const fiscalPill = (color) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: `1px solid var(--cream-dark)`, background: 'var(--white)', color, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' })
 const tableWrap = {
   background: 'var(--white)', borderRadius: 12,
   border: '1px solid var(--cream-dark)',
