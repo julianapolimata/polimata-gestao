@@ -43,11 +43,14 @@ export default function ClassificarLancamentos() {
     if (!user) return
     setLoading(true)
     Promise.all([
-      supabase.from('payable').select('id,codigo,data,anexo_path'),
-      supabase.from('receivable').select('id,codigo,data,anexo_path'),
+      supabase.from('payable').select('id,codigo,data,anexo_path,conciliado_em'),
+      supabase.from('receivable').select('id,codigo,data,anexo_path,conciliado_em'),
       fetchPlanoContas(),
     ]).then(([rP, rR, pl]) => {
-      const pendentes = arr => (arr || []).map(flatten).filter(x => x.data?.escriturado !== true && x.data?.status !== 'Provisão')
+      // Fila = A escriturar (escriturado != true) E ainda não conciliada E não é provisão.
+      const pendentes = arr => (arr || [])
+        .filter(r => !r.conciliado_em && r.data?.escriturado !== true && r.data?.status !== 'Provisão')
+        .map(flatten)
       setPayable(pendentes(rP.data))
       setReceivable(pendentes(rR.data))
       // Regras: das notas escrituradas MANUALMENTE (as duas tabelas).
