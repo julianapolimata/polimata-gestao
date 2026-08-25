@@ -12,9 +12,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable } from './codigos'
 
 // Campos de escrituração/fiscal aplicados quando uma nota é vinculada.
 function selo(classificacao, numero, agoraISO) {
-  return {
-    cat: classificacao?.cat || '',
-    subcat: classificacao?.subcat || '',
+  const s = {
     doc_status: 'vinculado',
     doc_motivo_dispensa: '',
     sem_documento: false,
@@ -23,6 +21,9 @@ function selo(classificacao, numero, agoraISO) {
     escriturado_em: agoraISO,
     escriturado_por: 'manual',
   }
+  // Só sobrescreve a categoria se veio uma nova (não apaga a existente no modo anexar).
+  if (classificacao?.cat) { s.cat = classificacao.cat; s.subcat = classificacao.subcat || '' }
+  return s
 }
 
 // Contexto de pagamento que a nota absorve da compra do cartão/banco (regime caixa:
@@ -38,12 +39,29 @@ function contextoPagamento(compra) {
   }
 }
 
-// ── Caso 1/2: vincular a uma NF do e-mail (nf_pending) ──────────────────────
-// nf = linha de nf_pending. compra = lançamento do cartão/banco sendo escriturado.
+// ── Vincular a uma NF do e-mail (nf_pending) ────────────────────────────────
+// nf = linha de nf_pending. compra = lançamento sendo escriturado/completado.
+// modo:
+//   'consolidar' (padrão) — o lançamento é uma DUPLICATA da nota (ex.: compra de
+//       cartão). A nota é a verdade: sobrevive, absorve o pagamento, e a duplicata sai.
+//   'anexar' — o lançamento JÁ é a saída (ex.: "NF pendente" que agora recebe a nota).
+//       Só anexa a prova (arquivo+número) ao lançamento; consome a NF pendente; nada é apagado.
 // Retorna { survivorId, survivorTabela, removidoId }.
-export async function vincularNFEmail({ nf, compra, compraTabela, classificacao }) {
+export async function vincularNFEmail({ nf, compra, compraTabela, classificacao, modo = 'consolidar' }) {
   const agora = new Date().toISOString()
   const nd = nf.data || {}
+
+  // Modo ANEXAR + NF ainda pendente: anexa a prova ao próprio lançamento, consome a NF.
+  if (modo === 'anexar' && !nf.lancamento_id) {
+    const merged = { ...(compra.data || {}), ...selo(classificacao, nd.numero, agora) }
+    const upd = { data: merged }
+    if (nd.anexo && !compra.anexo_path) upd.anexo_path = nd.anexo
+    const { error: eUp } = await supabase.from(compraTabela).update(upd).eq('id', compra.id)
+    if (eUp) throw eUp
+    // Baixa a NF pendente apontando pro lançamento (sem criar outro).
+    await supabase.from('nf_pending').update({ status: 'aprovado', approved_at: agora, lancamento_tipo: compraTabela, lancamento_id: compra.id }).eq('id', nf.id)
+    return { survivorId: compra.id, survivorTabela: compraTabela, removidoId: null }
+  }
 
   if (nf.lancamento_id) {
     // A nota JÁ é um lançamento (N). Ela sobrevive e absorve o contexto da compra.

@@ -13,7 +13,7 @@ import { vincularNFEmail, vincularNFArquivo } from '../../lib/vincularNF'
 // ===========================================================================
 function fmtDataBR(s) { if (!s) return '—'; const [y, m, d] = String(s).split('T')[0].split('-'); return d ? `${d}/${m}/${y}` : s }
 
-export default function SeletorNF({ open, onClose, compra, compraTabela, classificacao, user, onVinculado }) {
+export default function SeletorNF({ open, onClose, compra, compraTabela, classificacao, user, onVinculado, modo = 'consolidar' }) {
   const [nfs, setNfs] = useState([])
   const [loading, setLoading] = useState(true)
   const [processando, setProcessando] = useState(false)
@@ -32,7 +32,7 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
   async function vincularEmail(nf) {
     setProcessando(true)
     try {
-      const r = await vincularNFEmail({ nf, compra, compraTabela, classificacao, user })
+      const r = await vincularNFEmail({ nf, compra, compraTabela, classificacao, modo })
       showToast(r.removidoId ? 'Nota vinculada — compra duplicada unida à nota.' : 'Nota vinculada.', 'success')
       onVinculado?.(r); onClose?.()
     } catch (e) { showToast('Erro ao vincular: ' + e.message, 'error') }

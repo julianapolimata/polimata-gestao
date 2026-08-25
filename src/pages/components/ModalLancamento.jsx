@@ -7,6 +7,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable }
 import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '../../lib/anexos'
 import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/parcelas'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
+import SeletorNF from './SeletorNF'
 
 // =============================================================================
 // MODAL LANÇAMENTO — serve Contas a Receber (tipo='rec') e Pagar (tipo='pay').
@@ -53,6 +54,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [subcat, setSubcat] = useState('')
   const [notes, setNotes] = useState('')
   const [docStatus, setDocStatus] = useState('vinculado')
+  const [vincOpen, setVincOpen] = useState(false)
   const [docMotivo, setDocMotivo] = useState('')
   const [recorrente, setRecorrente] = useState(false)
   const [recFreq, setRecFreq] = useState('mensal')
@@ -466,6 +468,11 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
             </select>
           ) : <div />}
         </Row>
+        {isEdit && docStatus === 'pendente' && (
+          <button type="button" onClick={() => setVincOpen(true)} style={btnVincularNF}>
+            🔗 A nota chegou? Vincular NF (e-mail ou arquivo)
+          </button>
+        )}
       </div>
 
       {/* Anexo Fiscal */}
@@ -555,6 +562,16 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           </Row>
         )}
       </div>
+      <SeletorNF
+        open={vincOpen}
+        compra={registro}
+        compraTabela={tabela}
+        classificacao={{}}
+        modo="anexar"
+        user={user}
+        onClose={() => setVincOpen(false)}
+        onVinculado={() => { setVincOpen(false); showToast('NF vinculada ao lançamento.', 'success'); onSaved?.(); onClose?.() }}
+      />
     </Modal>
   )
 }
@@ -611,6 +628,11 @@ const boxLabel = {
 const checkboxLabel = {
   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
   fontWeight: 600, color: 'var(--navy)', fontSize: 12, fontFamily: 'var(--body)',
+}
+const btnVincularNF = {
+  marginTop: 10, width: '100%', padding: '9px 14px', borderRadius: 6,
+  border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.08)', color: 'var(--navy)',
+  cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--body)',
 }
 const btnGhost = {
   padding: '10px 18px', border: '1.5px solid var(--cream-dark)',
