@@ -28,6 +28,14 @@ function chaveGrupo(it) {
   return (String(base).replace(/\s*\d{1,2}\/\d{1,2}.*$/, '').trim()) || String(base)
 }
 
+// O lançamento JÁ tem a prova fiscal? (NFS-e própria/número, anexo, ou já vinculado)
+function temNF(it) {
+  return !!(it?.data?.numero_nf || it?.anexo_path || it?.data?.doc_status === 'vinculado')
+}
+
+// Data YYYY-MM-DD → DD/MM/YYYY.
+const br = s => s ? String(s).split('T')[0].split('-').reverse().join('/') : '—'
+
 export default function ClassificarLancamentos() {
   const { user } = useAuth()
   const [payable, setPayable] = useState([])       // A escriturar (despesas)
@@ -113,25 +121,50 @@ export default function ClassificarLancamentos() {
     const s = sel[grupo.key]
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
-    // "Com NF" não escritura em lote: exige vincular a nota de CADA lançamento (prova).
-    if (s.situacao_fiscal === 'vinculado') {
-      showToast('Com NF: abra o grupo (▸) e vincule a nota de cada lançamento.', 'warning')
-      setExpandido(prev => new Set(prev).add(grupo.key))
-      return
-    }
     // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
     const itensAlvo = grupo.itens.filter(it => !desmarcados.has(it.id))
     if (!itensAlvo.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
-    setSalvando(grupo.key)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
+
+    // "Com NF": escritura DIRETO os que já têm a nota (NFS-e própria / número / anexo).
+    // Só os que ainda NÃO têm nota precisam do "Vincular NF" (prova).
+    if (s.situacao_fiscal === 'vinculado') {
+      const comNota = itensAlvo.filter(temNF)
+      const semNota = itensAlvo.filter(it => !temNF(it))
+      if (!comNota.length) {
+        showToast('Nenhum destes tem nota ainda. Clique "Vincular NF" para anexar, ou use "NF pendente"/"Sem NF".', 'warning')
+        setExpandido(prev => new Set(prev).add(grupo.key))
+        return
+      }
+      setSalvando(grupo.key)
+      try {
+        await Promise.all(comNota.map(it =>
+          supabase.from(table).update({ data: {
+            ...it.data,
+            cat: s.cat, subcat: s.subcat || '',
+            doc_status: 'vinculado', doc_motivo_dispensa: '', sem_documento: false,
+            escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
+          } }).eq('id', it.id),
+        ))
+        let msg = `${comNota.length} escriturado(s) com NF.`
+        if (semNota.length) msg += ` ${semNota.length} sem nota — vincule ou mude a situação fiscal.`
+        showToast(msg, 'success')
+        carregar()
+      } catch (e) { showToast('Erro ao escriturar: ' + e.message, 'error') }
+      finally { setSalvando(null) }
+      return
+    }
+
+    // Sem NF / NF pendente: escritura em lote com o motivo.
+    setSalvando(grupo.key)
     try {
       await Promise.all(itensAlvo.map(it =>
         supabase.from(table).update({ data: {
           ...it.data,
           cat: s.cat, subcat: s.subcat || '',
           doc_status: s.situacao_fiscal,
-          doc_motivo_dispensa: s.situacao_fiscal === 'vinculado' ? '' : s.motivo.trim(),
+          doc_motivo_dispensa: s.motivo.trim(),
           sem_documento: semDocumentoDe(s.situacao_fiscal),
           escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
         } }).eq('id', it.id),
@@ -291,22 +324,30 @@ export default function ClassificarLancamentos() {
                   <div style={itensBox}>
                     <div style={{ fontSize: 10, color: 'var(--text-mid)', marginBottom: 6 }}>
                       {comNF
-                        ? <>Escolha a categoria e clique <strong>Vincular NF</strong> em cada lançamento — a prova (nota do e-mail ou arquivo) é obrigatória.</>
+                        ? <>Os que <strong>já têm nota</strong> (✓) são escriturados direto no botão <strong>Escriturar</strong>. Só clique <strong>Vincular NF</strong> nos que ainda não têm.</>
                         : <>Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.</>}
                     </div>
                     {g.itens.map(it => {
                       const marcado = !desmarcados.has(it.id)
+                      const jaTem = temNF(it)
+                      const receb = it.data?.data_pagamento || it.due
+                      const labelReceb = aba === 'Entrada' ? 'receb.' : 'venc.'
                       return (
                         <div key={it.id} style={{ ...itemRow, opacity: (comNF || marcado) ? 1 : 0.5 }}>
                           {!comNF && <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />}
-                          <span style={{ color: 'var(--text-mid)', width: 78, flexShrink: 0 }}>{(it.data?.data_competencia || it.due || '—').split('-').reverse().join('/')}</span>
+                          <span style={{ color: 'var(--text-mid)', width: 130, flexShrink: 0, fontSize: 10 }}>
+                            comp {br(it.data?.data_competencia || it.due)}<br />
+                            <span style={{ color: it.data?.data_pagamento ? 'var(--green)' : 'var(--text-mid)' }}>{labelReceb} {br(receb)}{it.data?.data_pagamento ? ' ✓' : ''}</span>
+                          </span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.desc || it.data?.supplier || it.data?.client || '—'}</span>
                           <span style={{ fontWeight: 600, width: 96, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(it.value)}</span>
                           {comNF
-                            ? <button
-                                onClick={() => { if (!s.cat) { showToast('Escolha a categoria antes de vincular.', 'warning'); return } setSeletorNF({ compra: it, tabela: aba === 'Saída' ? 'payable' : 'receivable', classificacao: { cat: s.cat, subcat: s.subcat || '' } }) }}
-                                style={btnVincularItem}
-                              >🔗 Vincular NF</button>
+                            ? (jaTem
+                                ? <span style={{ width: 110, textAlign: 'right', color: 'var(--green)', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>✓ NF {it.data?.numero_nf || ''}</span>
+                                : <button
+                                    onClick={() => { if (!s.cat) { showToast('Escolha a categoria antes de vincular.', 'warning'); return } setSeletorNF({ compra: it, tabela: aba === 'Saída' ? 'payable' : 'receivable', classificacao: { cat: s.cat, subcat: s.subcat || '' } }) }}
+                                    style={btnVincularItem}
+                                  >🔗 Vincular NF</button>)
                             : <span style={{ width: 62, textAlign: 'right', color: 'var(--text-mid)', fontSize: 10, flexShrink: 0 }}>{it.codigo || ''}</span>}
                         </div>
                       )
@@ -322,15 +363,13 @@ export default function ClassificarLancamentos() {
                   >
                     ⇄ {aba === 'Saída' ? 'é receita' : 'é despesa'}
                   </button>
-                  {!comNF && (
-                    <button
-                      onClick={() => escriturar(g)}
-                      disabled={!!validar(s) || salvando === g.key || itensMarcados.length === 0}
-                      style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 'default' : 'pointer' }}
-                    >
-                      {salvando === g.key ? 'Escriturando…' : (parcial ? `Escriturar ${itensMarcados.length}` : 'Escriturar')}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => escriturar(g)}
+                    disabled={!!validar(s) || salvando === g.key || itensMarcados.length === 0}
+                    style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 'default' : 'pointer' }}
+                  >
+                    {salvando === g.key ? 'Escriturando…' : (parcial ? `Escriturar ${itensMarcados.length}` : 'Escriturar')}
+                  </button>
                 </div>
               </div>
             )

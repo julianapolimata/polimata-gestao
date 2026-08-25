@@ -42,11 +42,16 @@ export function pontuarNF(lanc, nf) {
   return score
 }
 
-// Rankeia as NFs candidatas (só as com score > 0), maior primeiro.
+// Score mínimo pra uma NF ser considerada candidata. Abaixo disso é só ruído
+// (ex.: coincidência de data com valor/emitente totalmente diferentes) — não mostra.
+// 35 exige pelo menos valor próximo (≤2%) OU CNPJ igual OU nome + data.
+export const MIN_SCORE = 35
+
+// Rankeia as NFs candidatas (só as que passam do mínimo), maior primeiro.
 export function rankearNFs(lanc, nfs) {
   return (nfs || [])
     .map(nf => ({ nf, score: pontuarNF(lanc, nf) }))
-    .filter(x => x.score > 0)
+    .filter(x => x.score >= MIN_SCORE)
     .sort((a, b) => b.score - a.score)
 }
 
