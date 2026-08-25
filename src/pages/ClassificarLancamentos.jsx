@@ -10,6 +10,7 @@ import {
   construirRegras, regraPara, escriturarAuto,
   SITUACOES_FISCAIS, semDocumentoDe,
 } from '../lib/escrituracao'
+import SeletorNF from './components/SeletorNF'
 
 // =====================================================================
 // ESCRITURAÇÃO — 1ª camada da conciliação. Mostra tudo que está
@@ -40,6 +41,7 @@ export default function ClassificarLancamentos() {
   const [autoRodando, setAutoRodando] = useState(false)
   const [expandido, setExpandido] = useState(new Set())   // grupos abertos p/ ver os itens
   const [desmarcados, setDesmarcados] = useState(new Set()) // itens DESmarcados dentro de um grupo aberto
+  const [seletorNF, setSeletorNF] = useState(null)          // { compra, tabela, classificacao } p/ vincular NF
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -111,6 +113,12 @@ export default function ClassificarLancamentos() {
     const s = sel[grupo.key]
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
+    // "Com NF" não escritura em lote: exige vincular a nota de CADA lançamento (prova).
+    if (s.situacao_fiscal === 'vinculado') {
+      showToast('Com NF: abra o grupo (▸) e vincule a nota de cada lançamento.', 'warning')
+      setExpandido(prev => new Set(prev).add(grupo.key))
+      return
+    }
     // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
     const itensAlvo = grupo.itens.filter(it => !desmarcados.has(it.id))
     if (!itensAlvo.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
@@ -233,7 +241,8 @@ export default function ClassificarLancamentos() {
             const s = sel[g.key] || {}
             const subs = subcategoriasDe(plano, aba, s.cat)
             const precisaMotivo = s.situacao_fiscal && s.situacao_fiscal !== 'vinculado'
-            const aberto = expandido.has(g.key)
+            const comNF = s.situacao_fiscal === 'vinculado'
+            const aberto = expandido.has(g.key) || comNF // Com NF abre pra vincular por item
             const itensMarcados = g.itens.filter(it => !desmarcados.has(it.id))
             const parcial = g.itens.length > 1 && itensMarcados.length !== g.itens.length
             return (
@@ -281,18 +290,25 @@ export default function ClassificarLancamentos() {
                 {aberto && (
                   <div style={itensBox}>
                     <div style={{ fontSize: 10, color: 'var(--text-mid)', marginBottom: 6 }}>
-                      Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.
+                      {comNF
+                        ? <>Escolha a categoria e clique <strong>Vincular NF</strong> em cada lançamento — a prova (nota do e-mail ou arquivo) é obrigatória.</>
+                        : <>Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.</>}
                     </div>
                     {g.itens.map(it => {
                       const marcado = !desmarcados.has(it.id)
                       return (
-                        <label key={it.id} style={{ ...itemRow, opacity: marcado ? 1 : 0.5 }}>
-                          <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />
+                        <div key={it.id} style={{ ...itemRow, opacity: (comNF || marcado) ? 1 : 0.5 }}>
+                          {!comNF && <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />}
                           <span style={{ color: 'var(--text-mid)', width: 78, flexShrink: 0 }}>{(it.data?.data_competencia || it.due || '—').split('-').reverse().join('/')}</span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.desc || it.data?.supplier || it.data?.client || '—'}</span>
                           <span style={{ fontWeight: 600, width: 96, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(it.value)}</span>
-                          <span style={{ width: 62, textAlign: 'right', color: 'var(--text-mid)', fontSize: 10, flexShrink: 0 }}>{it.codigo || ''}</span>
-                        </label>
+                          {comNF
+                            ? <button
+                                onClick={() => { if (!s.cat) { showToast('Escolha a categoria antes de vincular.', 'warning'); return } setSeletorNF({ compra: it, tabela: aba === 'Saída' ? 'payable' : 'receivable', classificacao: { cat: s.cat, subcat: s.subcat || '' } }) }}
+                                style={btnVincularItem}
+                              >🔗 Vincular NF</button>
+                            : <span style={{ width: 62, textAlign: 'right', color: 'var(--text-mid)', fontSize: 10, flexShrink: 0 }}>{it.codigo || ''}</span>}
+                        </div>
                       )
                     })}
                   </div>
@@ -306,19 +322,31 @@ export default function ClassificarLancamentos() {
                   >
                     ⇄ {aba === 'Saída' ? 'é receita' : 'é despesa'}
                   </button>
-                  <button
-                    onClick={() => escriturar(g)}
-                    disabled={!!validar(s) || salvando === g.key || itensMarcados.length === 0}
-                    style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 'default' : 'pointer' }}
-                  >
-                    {salvando === g.key ? 'Escriturando…' : (parcial ? `Escriturar ${itensMarcados.length}` : 'Escriturar')}
-                  </button>
+                  {!comNF && (
+                    <button
+                      onClick={() => escriturar(g)}
+                      disabled={!!validar(s) || salvando === g.key || itensMarcados.length === 0}
+                      style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 'default' : 'pointer' }}
+                    >
+                      {salvando === g.key ? 'Escriturando…' : (parcial ? `Escriturar ${itensMarcados.length}` : 'Escriturar')}
+                    </button>
+                  )}
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      <SeletorNF
+        open={!!seletorNF}
+        compra={seletorNF?.compra}
+        compraTabela={seletorNF?.tabela}
+        classificacao={seletorNF?.classificacao}
+        user={user}
+        onClose={() => setSeletorNF(null)}
+        onVinculado={() => { setSeletorNF(null); carregar() }}
+      />
     </AppLayout>
   )
 }
@@ -332,7 +360,8 @@ const grpMeta = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
 const badgeRegra = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px' }
 const btnExpandir = { border: 'none', background: 'none', color: 'var(--navy)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '2px 4px', flexShrink: 0 }
 const itensBox = { marginTop: 10, padding: '10px 12px', background: 'var(--cream)', borderRadius: 8, border: '1px solid var(--cream-dark)' }
-const itemRow = { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 11, color: 'var(--navy)', cursor: 'pointer', borderBottom: '1px solid rgba(0,0,0,0.04)' }
+const itemRow = { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 11, color: 'var(--navy)', borderBottom: '1px solid rgba(0,0,0,0.04)' }
+const btnVincularItem = { border: '1.5px solid var(--navy)', background: 'var(--white)', color: 'var(--navy)', borderRadius: 6, padding: '4px 10px', fontSize: 10, fontWeight: 700, fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
