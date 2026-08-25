@@ -38,6 +38,8 @@ export default function ClassificarLancamentos() {
   const [sel, setSel] = useState({})       // chave -> { cat, subcat, situacao_fiscal, motivo }
   const [salvando, setSalvando] = useState(null)
   const [autoRodando, setAutoRodando] = useState(false)
+  const [expandido, setExpandido] = useState(new Set())   // grupos abertos p/ ver os itens
+  const [desmarcados, setDesmarcados] = useState(new Set()) // itens DESmarcados dentro de um grupo aberto
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -96,15 +98,27 @@ export default function ClassificarLancamentos() {
     return null
   }
 
+  // Alterna abrir/fechar um grupo (drill-down nos itens).
+  function toggleExpandir(key) {
+    setExpandido(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+  }
+  // Marca/desmarca um item dentro de um grupo aberto (pra escriturar só um subconjunto).
+  function toggleItem(id) {
+    setDesmarcados(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
   async function escriturar(grupo) {
     const s = sel[grupo.key]
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
+    // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
+    const itensAlvo = grupo.itens.filter(it => !desmarcados.has(it.id))
+    if (!itensAlvo.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
     setSalvando(grupo.key)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
     try {
-      await Promise.all(grupo.itens.map(it =>
+      await Promise.all(itensAlvo.map(it =>
         supabase.from(table).update({ data: {
           ...it.data,
           cat: s.cat, subcat: s.subcat || '',
@@ -114,7 +128,7 @@ export default function ClassificarLancamentos() {
           escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
         } }).eq('id', it.id),
       ))
-      showToast(`${grupo.itens.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
+      showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
       carregar()
     } catch (e) {
       showToast('Erro ao escriturar: ' + e.message, 'error')
@@ -219,15 +233,29 @@ export default function ClassificarLancamentos() {
             const s = sel[g.key] || {}
             const subs = subcategoriasDe(plano, aba, s.cat)
             const precisaMotivo = s.situacao_fiscal && s.situacao_fiscal !== 'vinculado'
+            const aberto = expandido.has(g.key)
+            const itensMarcados = g.itens.filter(it => !desmarcados.has(it.id))
+            const parcial = g.itens.length > 1 && itensMarcados.length !== g.itens.length
             return (
               <div key={g.key} style={card}>
                 <div style={grpRow}>
-                  <div style={{ minWidth: 0, flex: '1 1 240px' }}>
-                    <div style={grpNome} title={g.nome}>
-                      {g.nome}
-                      {g.regra && <span style={badgeRegra} title={`Recorrente reconhecida: ${g.regra.cat}`}>recorrente</span>}
+                  <div style={{ minWidth: 0, flex: '1 1 240px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    {g.itens.length > 1 && (
+                      <button onClick={() => toggleExpandir(g.key)} style={btnExpandir} title={aberto ? 'Fechar' : 'Ver os lançamentos'}>
+                        {aberto ? '▾' : '▸'}
+                      </button>
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={grpNome} title={g.nome}>
+                        {g.nome}
+                        {g.regra && <span style={badgeRegra} title={`Recorrente reconhecida: ${g.regra.cat}`}>recorrente</span>}
+                      </div>
+                      <div style={grpMeta}>
+                        {parcial
+                          ? <><strong style={{ color: 'var(--gold-dark)' }}>{itensMarcados.length}</strong> de {g.itens.length} marcado(s)</>
+                          : <>{g.itens.length} lançamento(s)</>} · <strong style={{ color: aba === 'Saída' ? 'var(--red)' : 'var(--green)' }}>{fmtMoney(itensMarcados.reduce((a, x) => a + x.value, 0))}</strong>
+                      </div>
                     </div>
-                    <div style={grpMeta}>{g.itens.length} lançamento(s) · <strong style={{ color: aba === 'Saída' ? 'var(--red)' : 'var(--green)' }}>{fmtMoney(g.total)}</strong></div>
                   </div>
                   <select value={s.cat || ''} onChange={e => setCampo(g.key, 'cat', e.target.value)} style={selectStyle}>
                     <option value="">— categoria —</option>
@@ -250,6 +278,25 @@ export default function ClassificarLancamentos() {
                     style={motivoInput}
                   />
                 )}
+                {aberto && (
+                  <div style={itensBox}>
+                    <div style={{ fontSize: 10, color: 'var(--text-mid)', marginBottom: 6 }}>
+                      Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.
+                    </div>
+                    {g.itens.map(it => {
+                      const marcado = !desmarcados.has(it.id)
+                      return (
+                        <label key={it.id} style={{ ...itemRow, opacity: marcado ? 1 : 0.5 }}>
+                          <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />
+                          <span style={{ color: 'var(--text-mid)', width: 78, flexShrink: 0 }}>{(it.data?.data_competencia || it.due || '—').split('-').reverse().join('/')}</span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.desc || it.data?.supplier || it.data?.client || '—'}</span>
+                          <span style={{ fontWeight: 600, width: 96, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(it.value)}</span>
+                          <span style={{ width: 62, textAlign: 'right', color: 'var(--text-mid)', fontSize: 10, flexShrink: 0 }}>{it.codigo || ''}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                   <button
                     onClick={() => moverGrupo(g)}
@@ -261,10 +308,10 @@ export default function ClassificarLancamentos() {
                   </button>
                   <button
                     onClick={() => escriturar(g)}
-                    disabled={!!validar(s) || salvando === g.key}
-                    style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key) ? 'default' : 'pointer' }}
+                    disabled={!!validar(s) || salvando === g.key || itensMarcados.length === 0}
+                    style={{ ...btnAplicar, opacity: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 0.5 : 1, cursor: (validar(s) || salvando === g.key || itensMarcados.length === 0) ? 'default' : 'pointer' }}
                   >
-                    {salvando === g.key ? 'Escriturando…' : 'Escriturar'}
+                    {salvando === g.key ? 'Escriturando…' : (parcial ? `Escriturar ${itensMarcados.length}` : 'Escriturar')}
                   </button>
                 </div>
               </div>
@@ -283,6 +330,9 @@ const grpRow = { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap
 const grpNome = { fontSize: 13, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 8 }
 const grpMeta = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
 const badgeRegra = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px' }
+const btnExpandir = { border: 'none', background: 'none', color: 'var(--navy)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '2px 4px', flexShrink: 0 }
+const itensBox = { marginTop: 10, padding: '10px 12px', background: 'var(--cream)', borderRadius: 8, border: '1px solid var(--cream-dark)' }
+const itemRow = { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 11, color: 'var(--navy)', cursor: 'pointer', borderBottom: '1px solid rgba(0,0,0,0.04)' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
