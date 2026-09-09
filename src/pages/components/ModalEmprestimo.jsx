@@ -277,6 +277,8 @@ Importante:
           subcat: 'Captação de empréstimo (entrada)',
           conta_id: contaCreditoId || null,
           criado_via_emprestimo: true,
+          escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'sistema',
+          doc_status: 'dispensado', doc_motivo_dispensa: 'Contrato de empréstimo (captação)', sem_documento: false,
           created: hoje,
         } : null
 
@@ -298,6 +300,10 @@ Importante:
             parcela_atual: Number(p.numero) || 0,
             parcela_total: Number(parcelasTotal) || 0,
             criado_via_emprestimo: true,
+            // Categoria vem do sistema e o contrato é o documento: nasce aceita,
+            // não vai pra fila de escrituração (72 linhas por financiamento).
+            escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'sistema',
+            doc_status: 'dispensado', doc_motivo_dispensa: 'Contrato de empréstimo', sem_documento: false,
             created: hoje,
           }
           if (amort > 0 || jur > 0) {

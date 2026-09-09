@@ -164,16 +164,28 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
     const m = mesDe(p.data?.data_pagamento || p.due)
     if (m >= 0) { const v = Number(p.value || p.data?.value || 0); saidas[m] += v; if (p.data?.criado_via_emprestimo) saidasFin[m] += v }
   }
-  // Projeção (meses futuros): não-liquidados por vencimento + recorrências.
+  // Projeção: não-liquidados por vencimento + recorrências.
+  //  • mês corrente e futuros → entram como previsto (antes o mês corrente aparecia
+  //    "realizado" com zero porque só m > mesCorte contava);
+  //  • vencidos em aberto (m < mesCorte) → NÃO somem: vão pra entradasAberto/saidasAberto
+  //    (R$ 25 mil de contas em aberto desapareciam do Fluxo).
+  const entradasAberto = new Array(12).fill(0)
+  const saidasAberto = new Array(12).fill(0)
   for (const r of receivable) {
-    if (r.data?.status === 'Recebido') continue
+    if (r.data?.status === 'Recebido' || r.data?.status === 'Provisão') continue
     const m = mesDe(r.due || r.data?.due)
-    if (m > mesCorte) { const v = Number(r.value || r.data?.value || 0); entradas[m] += v; if (r.data?.criado_via_emprestimo) entradasFin[m] += v }
+    if (m < 0) continue
+    const v = Number(r.value || r.data?.value || 0)
+    if (m >= mesCorte) { entradas[m] += v; if (r.data?.criado_via_emprestimo) entradasFin[m] += v }
+    else entradasAberto[m] += v
   }
   for (const p of payable) {
-    if (p.data?.status === 'Pago') continue
+    if (p.data?.status === 'Pago' || p.data?.status === 'Provisão') continue
     const m = mesDe(p.due || p.data?.due)
-    if (m > mesCorte) { const v = Number(p.value || p.data?.value || 0); saidas[m] += v; if (p.data?.criado_via_emprestimo) saidasFin[m] += v }
+    if (m < 0) continue
+    const v = Number(p.value || p.data?.value || 0)
+    if (m >= mesCorte) { saidas[m] += v; if (p.data?.criado_via_emprestimo) saidasFin[m] += v }
+    else saidasAberto[m] += v
   }
   for (const master of (recurringMasters || [])) {
     const d = master.data || {}
@@ -195,5 +207,5 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
   // Operacional = total − financiamento (por mês)
   const entradasOp = entradas.map((e, i) => e - entradasFin[i])
   const saidasOp = saidas.map((s, i) => s - saidasFin[i])
-  return { entradas, saidas, saldo, acumulado, mesCorte, entradasFin, saidasFin, entradasOp, saidasOp }
+  return { entradas, saidas, saldo, acumulado, mesCorte, entradasFin, saidasFin, entradasOp, saidasOp, entradasAberto, saidasAberto }
 }
