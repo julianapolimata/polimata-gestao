@@ -4,6 +4,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { FREQUENCIAS } from '../../lib/recorrencias'
+import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 
 export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
   const { user } = useAuth()
@@ -18,6 +19,8 @@ export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
   const [cat, setCat] = useState('')
+  const [subcat, setSubcat] = useState('')
+  const [plano, setPlano] = useState([]) // categoria vem do plano de contas (não texto livre)
   const [formaPagamento, setFormaPagamento] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [observacoes, setObservacoes] = useState('')
@@ -25,8 +28,10 @@ export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
 
   useEffect(() => {
     if (!open) return
+    fetchPlanoContas().then(pl => setPlano(pl || [])).catch(() => setPlano([]))
     const d = (isEdit && registro?.data) ? registro.data : {}
     setTipo(d.tipo || 'receita')
+    setSubcat(d.subcat || '')
     setDescricao(d.descricao || '')
     setParte(d.parte || '')
     setValor(d.valor != null ? String(d.valor) : '')
@@ -58,7 +63,8 @@ export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
         dia_vencimento: dia,
         data_inicio: dataInicio,
         data_fim: dataFim || null,
-        cat: cat.trim() || null,
+        cat: cat || null,
+        subcat: subcat || null,
         forma_pagamento: formaPagamento.trim() || null,
         ativo,
         observacoes: observacoes.trim() || null,
@@ -144,8 +150,17 @@ export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
       </Row>
 
       <Row cols={2}>
-        <Field label="Categoria">
-          <input value={cat} onChange={e => setCat(e.target.value)} placeholder="Ex: Receita de Serviços" style={input} />
+        <Field label="Categoria (plano de contas)">
+          <select value={cat} onChange={e => { setCat(e.target.value); setSubcat('') }} style={input}>
+            <option value="">— categoria —</option>
+            {categoriasDe(plano, tipo === 'receita' ? 'Entrada' : 'Saída').map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Subcategoria">
+          <select value={subcat} onChange={e => setSubcat(e.target.value)} style={input} disabled={!subcategoriasDe(plano, tipo === 'receita' ? 'Entrada' : 'Saída', cat).length}>
+            <option value="">— subcategoria —</option>
+            {subcategoriasDe(plano, tipo === 'receita' ? 'Entrada' : 'Saída', cat).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+          </select>
         </Field>
         <Field label="Forma de pagamento">
           <input value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} placeholder="Ex: Pix, Boleto…" style={input} />

@@ -72,7 +72,9 @@ export default function FechamentoMensal() {
     setLoading(true)
     // Seleciona só os campos necessários (evita puxar os anexos base64).
     Promise.all([
-      supabase.from('transacoes_extrato').select('id, dt:data->>data, st:data->>status, rev:data->>revisar'),
+      // status é COLUNA (a Conciliação grava status='conciliado'); data->>status não
+      // existe — por isso a coluna "Conciliação" ficava vermelha em todo mês.
+      supabase.from('transacoes_extrato').select('id, dt:data->>data, st:status, rev:data->>revisar'),
       supabase.from('receivable').select('id, due:data->>due, st:data->>status'),
       supabase.from('payable').select('id, due:data->>due, st:data->>status, cat:data->>cat, fat:data->>criado_via_import_fatura'),
     ]).then(([e, r, p]) => {

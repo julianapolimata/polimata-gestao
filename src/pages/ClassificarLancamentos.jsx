@@ -30,7 +30,8 @@ function chaveGrupo(it) {
 
 // O lançamento JÁ tem a prova fiscal? (NFS-e própria/número, anexo, ou já vinculado)
 function temNF(it) {
-  return !!(it?.data?.numero_nf || it?.anexo_path || it?.data?.doc_status === 'vinculado')
+  // data.anexo = arquivo que o robô do e-mail anexou (base64) — também é prova.
+  return !!(it?.data?.numero_nf || it?.anexo_path || it?.data?.anexo || it?.data?.doc_status === 'vinculado')
 }
 
 // Data YYYY-MM-DD → DD/MM/YYYY.
@@ -96,15 +97,29 @@ export default function ClassificarLancamentos() {
   const totalPend = payable.length + receivable.length
   const gruposComRegra = useMemo(() => grupos.filter(g => g.regra), [grupos])
 
-  function setCampo(key, campo, valor) {
-    setSel(s => ({ ...s, [key]: { ...s[key], [campo]: valor, ...(campo === 'cat' ? { subcat: '' } : {}) } }))
+  // PRÉ-CARGA: o grupo abre com o que o lançamento JÁ tem (categoria, situação fiscal,
+  // motivo) ou com a regra aprendida. Antes os seletores vinham vazios e a usuária
+  // reescolhia a categoria de 369 itens que já estavam classificados — a "parede".
+  function prefillDe(g) {
+    const d = g.rep?.data || {}
+    return {
+      cat: d.cat || g.regra?.cat || '',
+      subcat: d.subcat || g.regra?.subcat || '',
+      situacao_fiscal: d.doc_status || g.regra?.doc_status || '',
+      motivo: d.doc_motivo_dispensa || g.regra?.doc_motivo_dispensa || '',
+    }
+  }
+  const selDe = (g, base = sel) => base[g.key] || prefillDe(g)
+  function setCampo(g, campo, valor) {
+    setSel(prev => ({ ...prev, [g.key]: { ...selDe(g, prev), [campo]: valor, ...(campo === 'cat' ? { subcat: '' } : {}) } }))
   }
 
-  // Validação: categoria + situação fiscal obrigatórias; motivo obrigatório quando não é "com NF".
+  // Validação: categoria + situação fiscal obrigatórias; motivo obrigatório só em
+  // "Sem NF" (dispensado). "NF pendente" é um estado, não precisa de justificativa.
   function validar(s) {
     if (!s?.cat) return 'Escolha uma categoria.'
     if (!s?.situacao_fiscal) return 'Informe a situação fiscal.'
-    if (s.situacao_fiscal !== 'vinculado' && !String(s.motivo || '').trim()) return 'Descreva o motivo (sem NF / NF pendente).'
+    if (s.situacao_fiscal === 'dispensado' && !String(s.motivo || '').trim()) return 'Sem NF exige o motivo.'
     return null
   }
 
@@ -118,7 +133,7 @@ export default function ClassificarLancamentos() {
   }
 
   async function escriturar(grupo) {
-    const s = sel[grupo.key]
+    const s = selDe(grupo)
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
     // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
@@ -207,6 +222,42 @@ export default function ClassificarLancamentos() {
     }
   }
 
+  // Grupos PRONTOS = pré-carga já válida (categoria + situação fiscal, motivo se Sem NF).
+  const gruposProntos = grupos.filter(g => !validar(selDe(g)))
+  const itensProntosDe = g => {
+    const s = selDe(g)
+    const base = g.itens.filter(it => !desmarcados.has(it.id))
+    return s.situacao_fiscal === 'vinculado' ? base.filter(temNF) : base // Com NF só com prova
+  }
+  const totalProntos = gruposProntos.reduce((a, g) => a + itensProntosDe(g).length, 0)
+
+  // Escritura de uma vez tudo que está pronto — transforma a fila numa sessão de minutos.
+  async function escriturarProntos() {
+    if (!totalProntos) { showToast('Nada pronto ainda — preencha categoria e situação fiscal (e vincule a nota nos "Com NF").', 'info'); return }
+    if (!window.confirm(`Escriturar ${totalProntos} lançamento(s) em ${gruposProntos.length} grupo(s) com a classificação pré-carregada?\n\nConfira os grupos antes: o que estiver desmarcado ou sem nota (nos "Com NF") fica na fila.`)) return
+    setAutoRodando(true)
+    const table = aba === 'Saída' ? 'payable' : 'receivable'
+    const agora = new Date().toISOString()
+    try {
+      let n = 0
+      for (const g of gruposProntos) {
+        const s = selDe(g)
+        const itens = itensProntosDe(g)
+        await Promise.all(itens.map(it => supabase.from(table).update({ data: {
+          ...it.data, cat: s.cat, subcat: s.subcat || '',
+          doc_status: s.situacao_fiscal,
+          doc_motivo_dispensa: s.situacao_fiscal === 'vinculado' ? '' : String(s.motivo || '').trim(),
+          sem_documento: semDocumentoDe(s.situacao_fiscal),
+          escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
+        } }).eq('id', it.id)))
+        n += itens.length
+      }
+      showToast(`${n} lançamento(s) escriturado(s) — já disponíveis pra conciliação.`, 'success')
+      setSel({}); carregar()
+    } catch (e) { showToast('Erro ao escriturar: ' + e.message, 'error') }
+    finally { setAutoRodando(false) }
+  }
+
   // Muda a NATUREZA do grupo: move receita⇄despesa (tabela).
   async function moverGrupo(grupo) {
     const destino = aba === 'Saída' ? 'receivable' : 'payable'
@@ -261,6 +312,17 @@ export default function ClassificarLancamentos() {
         </div>
       )}
 
+      {totalProntos > 0 && (
+        <div style={autoBox}>
+          <div style={{ fontSize: 12, color: 'var(--navy)' }}>
+            <strong>{totalProntos}</strong> lançamento(s) em <strong>{gruposProntos.length}</strong> grupo(s) já vêm com categoria e situação fiscal pré-carregadas — confira e escriture de uma vez.
+          </div>
+          <button onClick={escriturarProntos} disabled={autoRodando} style={btnAplicar}>
+            {autoRodando ? 'Escriturando…' : `✓ Escriturar todos os prontos (${totalProntos})`}
+          </button>
+        </div>
+      )}
+
       <div style={tabsBar}>
         <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.length})</button>
         <button onClick={() => setAba('Entrada')} style={aba === 'Entrada' ? tabActive : tabInactive}>Receitas ({receivable.length})</button>
@@ -271,7 +333,7 @@ export default function ClassificarLancamentos() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {grupos.map(g => {
-            const s = sel[g.key] || {}
+            const s = selDe(g)
             const subs = subcategoriasDe(plano, aba, s.cat)
             const precisaMotivo = s.situacao_fiscal && s.situacao_fiscal !== 'vinculado'
             const comNF = s.situacao_fiscal === 'vinculado'
@@ -299,15 +361,15 @@ export default function ClassificarLancamentos() {
                       </div>
                     </div>
                   </div>
-                  <select value={s.cat || ''} onChange={e => setCampo(g.key, 'cat', e.target.value)} style={selectStyle}>
+                  <select value={s.cat || ''} onChange={e => setCampo(g,'cat', e.target.value)} style={selectStyle}>
                     <option value="">— categoria —</option>
                     {categorias.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <select value={s.subcat || ''} onChange={e => setCampo(g.key, 'subcat', e.target.value)} style={{ ...selectStyle, opacity: subs.length ? 1 : 0.5 }} disabled={!subs.length}>
+                  <select value={s.subcat || ''} onChange={e => setCampo(g,'subcat', e.target.value)} style={{ ...selectStyle, opacity: subs.length ? 1 : 0.5 }} disabled={!subs.length}>
                     <option value="">{subs.length ? '— subcategoria —' : 'sem subcategoria'}</option>
                     {subs.map(sc => <option key={sc} value={sc}>{sc}</option>)}
                   </select>
-                  <select value={s.situacao_fiscal || ''} onChange={e => setCampo(g.key, 'situacao_fiscal', e.target.value)} style={{ ...selectStyle, flex: '1 1 150px', borderColor: s.situacao_fiscal ? 'var(--cream-dark)' : 'var(--gold)' }}>
+                  <select value={s.situacao_fiscal || ''} onChange={e => setCampo(g,'situacao_fiscal', e.target.value)} style={{ ...selectStyle, flex: '1 1 150px', borderColor: s.situacao_fiscal ? 'var(--cream-dark)' : 'var(--gold)' }}>
                     <option value="">— situação fiscal * —</option>
                     {SITUACOES_FISCAIS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
@@ -315,7 +377,7 @@ export default function ClassificarLancamentos() {
                 {precisaMotivo && (
                   <input
                     value={s.motivo || ''}
-                    onChange={e => setCampo(g.key, 'motivo', e.target.value)}
+                    onChange={e => setCampo(g,'motivo', e.target.value)}
                     placeholder="Motivo (por que não tem NF / o que está pendente)…"
                     style={motivoInput}
                   />
@@ -333,8 +395,8 @@ export default function ClassificarLancamentos() {
                       const receb = it.data?.data_pagamento || it.due
                       const labelReceb = aba === 'Entrada' ? 'receb.' : 'venc.'
                       return (
-                        <div key={it.id} style={{ ...itemRow, opacity: (comNF || marcado) ? 1 : 0.5 }}>
-                          {!comNF && <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />}
+                        <div key={it.id} style={{ ...itemRow, opacity: marcado ? 1 : 0.5 }}>
+                          <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />
                           <span style={{ color: 'var(--text-mid)', width: 130, flexShrink: 0, fontSize: 10 }}>
                             comp {br(it.data?.data_competencia || it.due)}<br />
                             <span style={{ color: it.data?.data_pagamento ? 'var(--green)' : 'var(--text-mid)' }}>{labelReceb} {br(receb)}{it.data?.data_pagamento ? ' ✓' : ''}</span>
