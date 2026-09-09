@@ -27,12 +27,12 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
       .then(({ data }) => { setNfs(data || []); setLoading(false) })
   }, [open, user])
 
-  const ranking = useMemo(() => compra ? rankearNFs(compra, nfs) : [], [compra, nfs])
+  const ranking = useMemo(() => compra ? rankearNFs(compra, nfs, compraTabela) : [], [compra, nfs, compraTabela])
 
   async function vincularEmail(nf) {
     setProcessando(true)
     try {
-      const r = await vincularNFEmail({ nf, compra, compraTabela, classificacao, modo })
+      const r = await vincularNFEmail({ nf, compra, compraTabela, classificacao, modo, user })
       showToast(r.removidoId ? 'Nota vinculada — compra duplicada unida à nota.' : 'Nota vinculada.', 'success')
       onVinculado?.(r); onClose?.()
     } catch (e) { showToast('Erro ao vincular: ' + e.message, 'error') }

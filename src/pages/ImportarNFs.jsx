@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximoCodigoPessoa } from '../lib/codigos'
+import { anexoDaNF } from '../lib/vincularNF'
 
 // =====================================================================
 // IMPORTAR NFs v2 — tela de governança das NFs processadas pelo cron
@@ -237,10 +238,18 @@ export default function ImportarNFs() {
       }
       // 3. Cria o lançamento e baixa a pendência numa transação atômica (RPC).
       // Antes, se a baixa falhasse, a NF podia ser aprovada de novo → duplicata.
-      const { error: errAprovar } = await supabase.rpc('aprovar_nf', {
+      const { data: novoId, error: errAprovar } = await supabase.rpc('aprovar_nf', {
         p_pending_id: pending.id, p_target: target, p_codigo: codigo, p_lanc: novoLanc,
       })
       if (errAprovar) throw errAprovar
+      // 4. O arquivo da nota (base64 do robô) vai pro Storage e vira a PROVA do
+      //    lançamento. Antes o lançamento nascia "Com NF" sem o documento.
+      if (novoId && d.anexo) {
+        try {
+          const path = await anexoDaNF(d, { tabela: target, lancamentoId: novoId, userId: user.id })
+          if (path) await supabase.from(target).update({ anexo_path: path }).eq('id', novoId)
+        } catch (eAnx) { console.warn('anexo da NF não subiu:', eAnx); showToast('Lançado, mas o arquivo da nota não foi anexado — anexe pela edição.', 'warning') }
+      }
 
       showToast(`${codigo} aprovado e lançado.`, 'success')
       carregar()
