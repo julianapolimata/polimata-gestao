@@ -26,6 +26,7 @@ export default function FluxoCaixa() {
   const [tipoChart, setTipoChart] = useState('waterfall')
   const [viewMode, setViewMode] = useState('grafico')
   const [ano, setAno] = useState(String(new Date().getFullYear()))
+  const [contas, setContas] = useState([]) // saldo inicial das contas ancora o acumulado
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
 
@@ -37,11 +38,13 @@ export default function FluxoCaixa() {
       supabase.from('receivable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path'),
       supabase.from('recurring_masters').select('*'),
-    ]).then(([rRec, rPay, rRm]) => {
+      supabase.from('contas_bancarias').select('id,data'),
+    ]).then(([rRec, rPay, rRm, rCt]) => {
       if (cancelled) return
       setReceivable((rRec.data || []).map(flatten))
       setPayable((rPay.data || []).map(flatten))
       setRecurringMasters(rRm.data || [])
+      setContas((rCt.data || []).filter(c => c.data?.ativo !== false))
       setLoading(false)
     })
     return () => { cancelled = true }
@@ -62,10 +65,25 @@ export default function FluxoCaixa() {
   // ── Fluxo anual (jan–dez): realizado (meses passados, por pagamento) +
   //    previsto (meses futuros, por vencimento + recorrências). Mesma lógica
   //    do lib compartilhado — cards e tabela agora batem entre si e com o ano. ──
+  // Saldo com que o ANO começa = saldo inicial das contas + tudo que foi realizado
+  // (recebido − pago, inclusive financiamento) ANTES de 1º de janeiro do ano.
+  // Ancora o acumulado no caixa de verdade em vez de partir de zero.
+  const saldoInicialAno = useMemo(() => {
+    const base = contas.reduce((a, c) => a + (Number(c.data?.saldo_inicial) || 0), 0)
+    const antes = iso => iso && String(iso) < `${ano}-01-01`
+    const recebidoAntes = receivable.filter(r => r.status === 'Recebido' && antes(r.data?.data_pagamento || r.due)).reduce((a, r) => a + r.value, 0)
+    const pagoAntes = payable.filter(p => p.status === 'Pago' && antes(p.data?.data_pagamento || p.due)).reduce((a, p) => a + p.value, 0)
+    return base + recebidoAntes - pagoAntes
+  }, [contas, receivable, payable, ano])
+
   const fluxo = useMemo(
-    () => computeFluxoAnual({ receivable, payable, recurringMasters, ano }),
-    [receivable, payable, recurringMasters, ano],
+    () => computeFluxoAnual({ receivable, payable, recurringMasters, ano, saldoInicial: saldoInicialAno }),
+    [receivable, payable, recurringMasters, ano, saldoInicialAno],
   )
+  const emAberto = useMemo(() => ({
+    saidas: (fluxo.saidasAberto || []).reduce((a, v) => a + v, 0),
+    entradas: (fluxo.entradasAberto || []).reduce((a, v) => a + v, 0),
+  }), [fluxo])
 
   const serie = useMemo(() => ({
     labels: MES_CURTO,
@@ -316,6 +334,22 @@ export default function FluxoCaixa() {
           valueColor={totals.balance >= 0 ? 'var(--green)' : 'var(--red)'}
           sub="entradas − saídas no ano"
         />
+        <StatCard
+          color="navy"
+          label={`Saldo projetado · dez/${ano}`}
+          value={fmtMoney(fluxo.acumulado?.[11] ?? 0)}
+          valueColor={(fluxo.acumulado?.[11] ?? 0) >= 0 ? 'var(--navy)' : 'var(--red)'}
+          sub={`parte de ${fmtMoney(saldoInicialAno)} em 1º/jan (saldo inicial das contas + realizado anterior)`}
+        />
+        {(emAberto.saidas > 0 || emAberto.entradas > 0) && (
+          <StatCard
+            color="red"
+            label="Em aberto · vencido"
+            value={fmtMoney(emAberto.saidas - emAberto.entradas)}
+            valueColor="var(--red)"
+            sub={`a pagar ${fmtMoney(emAberto.saidas)} · a receber ${fmtMoney(emAberto.entradas)} — venceram e não foram liquidados; não estão no gráfico`}
+          />
+        )}
         {(totals.finIn > 0 || totals.finOut > 0) && (
           <StatCard
             color="navy"

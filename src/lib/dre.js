@@ -66,17 +66,28 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
     b.byCat[cat].total += val
     b.byCat[cat].byMes[m] += val
   }
+  // O que NÃO entrou — pra tela mostrar em vez de sumir em silêncio (revisão set/26:
+  // ~R$ 7,4 mil de saídas caíam fora por categoria fora do plano, sem aviso).
+  const fora = { count: 0, total: 0, porCat: {} }      // sem categoria / categoria fora do plano
+  const naoEscriturados = { count: 0, total: 0 }       // no ano, mas ainda sem revisão
   function processa(reg, tipoFin) {
     if (!incluirProvisao && reg.data?.status === 'Provisão') return
     const ref = reg.data?.data_competencia || reg.due || reg.created || null
     if (!ref || !String(ref).startsWith(ano)) return
     const m = parseInt(String(ref).substring(5, 7), 10) - 1
     if (m < 0 || m > 11) return
+    const val = Number(reg.value || 0)
+    if (reg.data?.status !== 'Provisão' && reg.data?.escriturado !== true) { naoEscriturados.count++; naoEscriturados.total += val }
     const cat = reg.data?.cat
-    if (!cat) return
-    const classif = resolveClassif(tipoFin, cat, reg.data?.subcat)
-    if (!classif) return
-    add(classif, cat, m, Number(reg.value || 0))
+    const classif = cat ? resolveClassif(tipoFin, cat, reg.data?.subcat) : null
+    if (!classif) {
+      const k = cat || '(sem categoria)'
+      fora.count++; fora.total += val
+      if (!fora.porCat[k]) fora.porCat[k] = { count: 0, total: 0, tipoFin }
+      fora.porCat[k].count++; fora.porCat[k].total += val
+      return
+    }
+    add(classif, cat, m, val)
   }
   receivable.forEach(r => processa(r, 'Entrada'))
   payable.forEach(r => processa(r, 'Saída'))
@@ -128,6 +139,10 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
       linhas.push({ ...blk, total, byMes, subItems })
     }
   }
+  // Anexa o "rodapé" ao resultado sem mudar a forma (array de linhas) que os
+  // relatórios e a tela já consomem.
+  linhas.fora = fora
+  linhas.naoEscriturados = naoEscriturados
   return linhas
 }
 
@@ -136,7 +151,10 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
  * Recebido/Pago) + Projeção (meses futuros: não-liquidados por vencimento +
  * recorrências). Retorna { entradas[12], saidas[12], saldo[12], acumulado[12] }.
  */
-export function computeFluxoAnual({ receivable = [], payable = [], recurringMasters = [], ano }) {
+// saldoInicial = saldo com que o ano COMEÇA (saldo inicial das contas + movimentos
+// realizados de anos anteriores). Sem ele o acumulado partia de zero em janeiro e
+// mostrava ~R$ 53 mil quando o banco tinha R$ 173 (revisão set/26).
+export function computeFluxoAnual({ receivable = [], payable = [], recurringMasters = [], ano, saldoInicial = 0 }) {
   const anoNum = Number(ano)
   const entradas = new Array(12).fill(0)
   const saidas = new Array(12).fill(0)
@@ -202,7 +220,7 @@ export function computeFluxoAnual({ receivable = [], payable = [], recurringMast
 
   const saldo = entradas.map((e, i) => e - saidas[i])
   const acumulado = []
-  let acc = 0
+  let acc = Number(saldoInicial) || 0
   for (let i = 0; i < 12; i++) { acc += saldo[i]; acumulado.push(acc) }
   // Operacional = total − financiamento (por mês)
   const entradasOp = entradas.map((e, i) => e - entradasFin[i])
