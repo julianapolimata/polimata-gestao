@@ -521,16 +521,19 @@ async function createLancamento(parsed, att, base64) {
     const item = c.data || {};
     if (!item.sem_documento) return false;
     if (Math.abs(Number(item.value || 0) - val) > 0.02) return false;
+    // Bloco 1: a NF só se anexa a um lançamento da MESMA parte (nome ou CNPJ).
+    // Antes bastava valor + data ±10d, e a nota podia ir parar no fornecedor errado.
     const partyMatch = isSaida
-      ? (item.client || '').toLowerCase() === (parte || '').toLowerCase()
-      : (item.supplier || '').toLowerCase() === (parte || '').toLowerCase();
-    if (!partyMatch) {
-      const itemDate = new Date((item.due || item.created || today) + 'T12:00:00');
-      const txDate = new Date(due + 'T12:00:00');
-      const diffDays = Math.abs(itemDate - txDate) / (1000 * 60 * 60 * 24);
-      if (diffDays > 10) return false;
-    }
-    return true;
+      ? (item.client || '').toLowerCase().trim() === (parte || '').toLowerCase().trim()
+      : (item.supplier || '').toLowerCase().trim() === (parte || '').toLowerCase().trim();
+    const cnpjItem = String(item.cnpj || item.emitente_cnpj || '').replace(/\D/g, '');
+    const cnpjNF = String(parsed.emitente_cnpj || '').replace(/\D/g, '');
+    const cnpjMatch = !!(cnpjItem && cnpjNF && cnpjItem === cnpjNF);
+    if (!partyMatch && !cnpjMatch) return false;
+    const itemDate = new Date((item.due || item.created || today) + 'T12:00:00');
+    const txDate = new Date(due + 'T12:00:00');
+    const diffDays = Math.abs(itemDate - txDate) / (1000 * 60 * 60 * 24);
+    return diffDays <= 45;
   });
 
   if (matchSemDoc) {
@@ -542,6 +545,7 @@ async function createLancamento(parsed, att, base64) {
       anexoNome: att.filename,
       anexoTipo: att.mimeType,
       sem_documento: false,
+      doc_status: 'vinculado', // a nota chegou: situação fiscal passa a "Com NF"
       // competência (data de emissão) vem da NF anexada — salvo se já foi preenchida à mão
       data_competencia: matchSemDoc.data.data_competencia || (parsed.data_emissao || '').slice(0, 10) || null,
       notes: (matchSemDoc.data.notes || '') + ` · Doc anexado em ${today} via email automático`

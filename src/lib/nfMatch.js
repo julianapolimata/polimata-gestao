@@ -48,8 +48,19 @@ export function pontuarNF(lanc, nf) {
 export const MIN_SCORE = 35
 
 // Rankeia as NFs candidatas (só as que passam do mínimo), maior primeiro.
-export function rankearNFs(lanc, nfs) {
+// Direção da NF (receita × despesa) — uma NF de receita nunca casa com uma despesa.
+export function tabelaDaNF(nf) {
+  const nd = nf?.data || nf || {}
+  const isSaida = nd.is_saida || nd.tipo === 'saida'
+  return nd.target_table || (isSaida ? 'receivable' : 'payable')
+}
+
+// Rankeia as NFs candidatas (só as que passam do mínimo E têm a mesma direção do
+// lançamento), maior primeiro. Sem o filtro de direção, vincular uma NF de receita
+// a uma compra criava a receita e APAGAVA a despesa.
+export function rankearNFs(lanc, nfs, tabela) {
   return (nfs || [])
+    .filter(nf => !tabela || tabelaDaNF(nf) === tabela)
     .map(nf => ({ nf, score: pontuarNF(lanc, nf) }))
     .filter(x => x.score >= MIN_SCORE)
     .sort((a, b) => b.score - a.score)

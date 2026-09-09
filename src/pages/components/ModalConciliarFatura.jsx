@@ -58,7 +58,9 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
     ]).then(([rC, rP, rE]) => {
       const ativos = (rC.data || []).filter(c => c.data?.ativo !== false)
       setCartoes(ativos)
-      setPayable((rP.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id })))
+      // _raw guarda a linha original: o jsonb inteiro (data) + colunas (conciliado_em…).
+      // Sem isso, conciliar achatava o lançamento e perdia escrituração/parcela/flags.
+      setPayable((rP.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id, _raw: r })))
       const debs = (rE.data || []).filter(e => e.data?.tipo === 'saida')
       setDebitos(debs)
       if (ativos.length > 0 && !cartaoId) setCartaoId(ativos[0].id)
@@ -84,7 +86,10 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
     return payable
       .filter(p => p.cartao_id === cartaoId)
       .filter(p => p.due && p.due >= venceMesIni && p.due <= venceMesFim)
-      .filter(p => p.status !== 'Pago')
+      // Entra tudo que AINDA NÃO foi conciliado — inclusive créditos/estornos (nascem
+      // "Pago") e parcelas passadas. Filtrar por status escondia o crédito e a soma
+      // nunca batia, empurrando a usuária a "lançar encargo" pra cobrir o que era crédito.
+      .filter(p => !p._raw?.conciliado_em)
       .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
   }, [payable, cartao, cartaoId, venceMesIni, venceMesFim])
 
@@ -156,16 +161,14 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
       for (const id of ids) {
         const lanc = lancamentos.find(l => l.id === id)
         if (!lanc) continue
+        // Parte do jsonb ORIGINAL e muda só o que a conciliação muda. Espalhar o
+        // objeto achatado por cima (como era) enterrava escriturado/competência/
+        // parcela/fit_id num data.data e corrompia o lançamento a cada uso.
         const merged = {
           ...(lanc._raw?.data || {}),
-          ...lanc,
           status: 'Pago',
           data_pagamento: dataExtrato,
         }
-        // Remove campos que vieram do flatten e não devem ir pra data jsonb
-        delete merged.id
-        delete merged.codigo
-        delete merged.cartao_id
         await supabase.from('payable').update({
           data: merged,
           conciliado_em: agora,
@@ -175,7 +178,9 @@ export default function ModalConciliarFatura({ open, onClose, extrato: extratoIn
       // 2) Atualizar extrato: status=conciliado + guarda lista de ids
       await supabase.from('transacoes_extrato').update({
         status: 'conciliado',
-        data: { ...(extrato.data || {}), lancamento_pares_ids: ids, conciliado_como: 'fatura_cartao' },
+        // Mesma forma que a mesa (conciliado_multiplo + lancamento_ids): assim o
+        // "desconciliar" reverte as N compras. lancamento_pares_ids fica por compatibilidade.
+        data: { ...(extrato.data || {}), conciliado_multiplo: true, lancamento_ids: ids, lancamento_pares_ids: ids, conciliado_como: 'fatura_cartao' },
       }).eq('id', extrato.id)
       showToast(`${ids.length} lançamentos conciliados com o débito.`, 'success')
       onConciliado?.()

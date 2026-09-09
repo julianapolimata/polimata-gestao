@@ -465,9 +465,14 @@ export default function Conciliacao() {
     try {
       const d = extrato.data || {}
       const target = d.tipo === 'entrada' ? 'receivable' : 'payable'
-      if (d.conciliado_multiplo && Array.isArray(d.lancamento_ids)) {
-        // Conciliação múltipla: volta cada lançamento pra Pendente e apaga os ajustes.
-        for (const lid of d.lancamento_ids) {
+      // Conciliação múltipla — pela mesa (lancamento_ids) OU pelo modal de fatura
+      // antigo (lancamento_pares_ids). Antes o modal caía no "else" e as N compras
+      // ficavam presas como conciliadas com nada, sumindo do pool pra sempre.
+      const idsMulti = Array.isArray(d.lancamento_ids) ? d.lancamento_ids
+        : (Array.isArray(d.lancamento_pares_ids) ? d.lancamento_pares_ids : null)
+      if (idsMulti && (d.conciliado_multiplo || d.conciliado_como === 'fatura_cartao')) {
+        // Volta cada lançamento pra Pendente e apaga os ajustes.
+        for (const lid of idsMulti) {
           const { data: row } = await supabase.from(target).select('data').eq('id', lid).single()
           if (row) {
             const nd = { ...(row.data || {}), status: 'Pendente', data_pagamento: null }

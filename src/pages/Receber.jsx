@@ -317,6 +317,11 @@ export default function Receber() {
   async function excluir(row, e) {
     e?.stopPropagation()
     const desc = row.data?.desc || row.codigo || 'este lançamento'
+    // Proteções (bloco 1): conciliado não se apaga (quebraria a conciliação do extrato);
+    // provisão de recorrência avisa (o gerador a recriaria no mês).
+    const { data: atual } = await supabase.from('receivable').select('conciliado_em, recurring_id').eq('id', row.id).single()
+    if (atual?.conciliado_em) { showToast('Este lançamento está conciliado com o extrato. Desconcilie na Conciliação antes de excluir.', 'warning'); return }
+    if (atual?.recurring_id && !confirm(`"${desc}" é uma provisão de recorrência — se você excluir, ela pode ser gerada de novo no mês. Excluir mesmo assim?`)) return
     if (!confirm(`Excluir "${desc}"?`)) return
     const { error } = await supabase.from('receivable').delete().eq('id', row.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }

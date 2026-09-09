@@ -315,6 +315,16 @@ export default function Pagar() {
   async function excluir(row, e) {
     e?.stopPropagation()
     const desc = row.data?.desc || row.codigo || 'este lançamento'
+    // Proteções (bloco 1): conciliado não se apaga; parcela avisa (a 1ª parcela é a
+    // "mãe" — apagá-la leva as filhas por cascata); provisão de recorrência avisa.
+    const { data: atual } = await supabase.from('payable').select('conciliado_em, parent_id, recurring_id').eq('id', row.id).single()
+    if (atual?.conciliado_em) { showToast('Este lançamento está conciliado com o extrato. Desconcilie na Conciliação antes de excluir.', 'warning'); return }
+    if (atual?.parent_id && !confirm(`"${desc}" é uma parcela de uma série. Excluir só esta parcela?`)) return
+    if (!atual?.parent_id) {
+      const { count } = await supabase.from('payable').select('id', { count: 'exact', head: true }).eq('parent_id', row.id)
+      if (count > 0 && !confirm(`"${desc}" é a 1ª parcela de uma série: excluir apaga TAMBÉM as outras ${count} parcela(s). Continuar?`)) return
+    }
+    if (atual?.recurring_id && !confirm(`"${desc}" é uma provisão de recorrência — se você excluir, ela pode ser gerada de novo no mês. Excluir mesmo assim?`)) return
     if (!confirm(`Excluir "${desc}"?`)) return
     const { error } = await supabase.from('payable').delete().eq('id', row.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
