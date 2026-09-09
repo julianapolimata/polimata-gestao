@@ -38,6 +38,21 @@ export function isOverdue(due) {
   return new Date(due + 'T23:59:59') < new Date()
 }
 
+/**
+ * Regra ÚNICA de "é movimento operacional?" — usada por Início, DRE, Fluxo,
+ * Contas a Pagar/Receber e Relatórios. Fora: Provisão (previsão, não fato),
+ * empréstimo (financiamento) e crédito/estorno de fatura (abatimento).
+ * Antes cada tela tinha a sua e os números nunca batiam entre elas.
+ */
+export function ehOperacional(reg) {
+  const d = reg?.data || reg || {}
+  const st = d.status || reg?.status
+  if (st === 'Provisão') return false
+  if (d.criado_via_emprestimo) return false
+  if (d.criado_via_credito_fatura) return false
+  return true
+}
+
 /** Status do documento fiscal de um lançamento. */
 export function getDocStatus(reg) {
   if (!reg) return 'vinculado'

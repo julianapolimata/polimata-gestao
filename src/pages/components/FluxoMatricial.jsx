@@ -34,8 +34,8 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
     const slots = {} // slots[mes] = { real:{opIn,opOut,invIn,invOut}, proj:{...} }
     for (let m = 0; m < 12; m++) {
       slots[m] = {
-        real: { opIn: 0, opOut: 0, invIn: 0, invOut: 0 },
-        proj: { opIn: 0, opOut: 0, invIn: 0, invOut: 0 },
+        real: { opIn: 0, opOut: 0, invIn: 0, invOut: 0, finIn: 0, finOut: 0 },
+        proj: { opIn: 0, opOut: 0, invIn: 0, invOut: 0, finIn: 0, finOut: 0 },
       }
     }
 
@@ -50,9 +50,13 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
     receivable.forEach(r => {
       const tipo = classificarFluxo({ ...r, _tipoFin: 'Entrada' }, plano)
       // Projetado: usa vencimento (qualquer lançamento)
+      // Provisão é previsão, não fato — não entra nem no Projetado (contava em dobro
+      // com o mestre de recorrência) nem no Real.
+      if (r.status === 'Provisão') return
       if (ehDoAno(r.due)) {
         const m = mesDe(r.due)
         if (tipo === 'investimento') slots[m].proj.invIn += r.value
+        else if (tipo === 'financiamento') slots[m].proj.finIn += r.value
         else slots[m].proj.opIn += r.value
       }
       // Real: só liquidado, usa data_pagamento (com fallback)
@@ -61,6 +65,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
         if (ehDoAno(ref)) {
           const m = mesDe(ref)
           if (tipo === 'investimento') slots[m].real.invIn += r.value
+          else if (tipo === 'financiamento') slots[m].real.finIn += r.value
           else slots[m].real.opIn += r.value
         }
       }
@@ -69,9 +74,11 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
     // ── Payable ─────────────────────────────────────────────────────────
     payable.forEach(r => {
       const tipo = classificarFluxo({ ...r, _tipoFin: 'Saída' }, plano)
+      if (r.status === 'Provisão') return
       if (ehDoAno(r.due)) {
         const m = mesDe(r.due)
         if (tipo === 'investimento') slots[m].proj.invOut += r.value
+        else if (tipo === 'financiamento') slots[m].proj.finOut += r.value
         else slots[m].proj.opOut += r.value
       }
       if (r.status === 'Pago') {
@@ -79,6 +86,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
         if (ehDoAno(ref)) {
           const m = mesDe(ref)
           if (tipo === 'investimento') slots[m].real.invOut += r.value
+          else if (tipo === 'financiamento') slots[m].real.finOut += r.value
           else slots[m].real.opOut += r.value
         }
       }
@@ -95,8 +103,12 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
       const saldoOpProj = s.proj.opIn - s.proj.opOut
       const invRealLiq = s.real.invIn - s.real.invOut
       const invProjLiq = s.proj.invIn - s.proj.invOut
-      const variacaoReal = saldoOpReal + invRealLiq
-      const variacaoProj = saldoOpProj + invProjLiq
+      // Financiamento (captação − amortização/juros de empréstimo) — linha própria da
+      // DFC. Antes caía em "Operacional" e inflava o saldo operacional (R$ 22,5 mil em jan).
+      const finRealLiq = s.real.finIn - s.real.finOut
+      const finProjLiq = s.proj.finIn - s.proj.finOut
+      const variacaoReal = saldoOpReal + invRealLiq + finRealLiq
+      const variacaoProj = saldoOpProj + invProjLiq + finProjLiq
       const saldoIniReal = saldoRealAcum
       const saldoIniProj = saldoProjAcum
       const saldoFimReal = saldoIniReal + variacaoReal
@@ -105,8 +117,8 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
       saldoProjAcum = saldoFimProj
       meses.push({
         m, label: MES_LABEL[m],
-        real: { saldoIni: saldoIniReal, opIn: s.real.opIn, opOut: s.real.opOut, saldoOp: saldoOpReal, inv: invRealLiq, saldoFim: saldoFimReal },
-        proj: { saldoIni: saldoIniProj, opIn: s.proj.opIn, opOut: s.proj.opOut, saldoOp: saldoOpProj, inv: invProjLiq, saldoFim: saldoFimProj },
+        real: { saldoIni: saldoIniReal, opIn: s.real.opIn, opOut: s.real.opOut, saldoOp: saldoOpReal, inv: invRealLiq, fin: finRealLiq, saldoFim: saldoFimReal },
+        proj: { saldoIni: saldoIniProj, opIn: s.proj.opIn, opOut: s.proj.opOut, saldoOp: saldoOpProj, inv: invProjLiq, fin: finProjLiq, saldoFim: saldoFimProj },
       })
     }
     // Total ano = soma colunas de cada métrica (saldoIni e saldoFim são do últ mês)
@@ -115,6 +127,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
         opIn: meses.reduce((a, x) => a + x.real.opIn, 0),
         opOut: meses.reduce((a, x) => a + x.real.opOut, 0),
         inv: meses.reduce((a, x) => a + x.real.inv, 0),
+        fin: meses.reduce((a, x) => a + x.real.fin, 0),
         saldoOp: meses.reduce((a, x) => a + x.real.saldoOp, 0),
         saldoIni: 0,
         saldoFim: saldoRealAcum,
@@ -123,6 +136,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
         opIn: meses.reduce((a, x) => a + x.proj.opIn, 0),
         opOut: meses.reduce((a, x) => a + x.proj.opOut, 0),
         inv: meses.reduce((a, x) => a + x.proj.inv, 0),
+        fin: meses.reduce((a, x) => a + x.proj.fin, 0),
         saldoOp: meses.reduce((a, x) => a + x.proj.saldoOp, 0),
         saldoIni: 0,
         saldoFim: saldoProjAcum,
@@ -137,6 +151,7 @@ export default function FluxoMatricial({ receivable, payable, anosDisponiveis })
     { id: 'opOut', label: '(−) Saídas Operacionais', kind: 'neg', get: c => c.opOut },
     { id: 'saldoOp', label: '= Saldo Operacional', kind: 'sub', get: c => c.saldoOp },
     { id: 'inv', label: '(+/−) Atividades de Investimento', kind: 'inv', get: c => c.inv },
+    { id: 'fin', label: '(+/−) Atividades de Financiamento', kind: 'inv', get: c => c.fin },
     { id: 'saldoFim', label: '= Saldo Final', kind: 'tot', get: c => c.saldoFim },
   ]
 

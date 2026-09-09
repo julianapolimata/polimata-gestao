@@ -3,8 +3,10 @@
 // Polímata (navy + gold). As bibliotecas (jspdf, exceljs) são carregadas
 // SOB DEMANDA (import dinâmico) — só baixam quando a usuária exporta.
 // =============================================================================
-import { fmtMoney, fmtDate, flatten } from './finance'
+import { fmtMoney, fmtDate, flatten, ehOperacional } from './finance'
 import { computeDRE, computeFluxoAnual } from './dre'
+// O PDF tem de ser a tela: mesma regra (sem Provisão, sem empréstimo, sem crédito de
+// fatura) que Receber/Pagar/Início usam. Antes a captação saía como "Entrada" no Movimento.
 
 const BRAND = {
   navy: '#00203E',
@@ -90,7 +92,7 @@ function relFluxo(fx, ano) {
 }
 
 function relLancamentos(titulo, rows, parteKey, de, ate) {
-  const filtrados = rows.filter(r => noPeriodo(r.due || r.data?.data_competencia, de, ate))
+  const filtrados = rows.filter(r => ehOperacional(r) && noPeriodo(r.due || r.data?.data_competencia, de, ate))
     .sort((a, b) => (a.due || '').localeCompare(b.due || ''))
   const colunas = [
     { header: 'Código', align: 'left', largura: 55 },
@@ -119,8 +121,8 @@ function relLancamentos(titulo, rows, parteKey, de, ate) {
 }
 
 function relMovimento(receivable, payable, de, ate) {
-  const entradas = receivable.filter(r => noPeriodo(r.due, de, ate)).map(r => ({ ...r, _tipo: 'Entrada' }))
-  const saidas = payable.filter(r => noPeriodo(r.due, de, ate)).map(r => ({ ...r, _tipo: 'Saída' }))
+  const entradas = receivable.filter(r => ehOperacional(r) && noPeriodo(r.due, de, ate)).map(r => ({ ...r, _tipo: 'Entrada' }))
+  const saidas = payable.filter(r => ehOperacional(r) && noPeriodo(r.due, de, ate)).map(r => ({ ...r, _tipo: 'Saída' }))
   const todos = [...entradas, ...saidas].sort((a, b) => (a.due || '').localeCompare(b.due || ''))
   const colunas = [
     { header: 'Vencimento', align: 'center', largura: 70 },

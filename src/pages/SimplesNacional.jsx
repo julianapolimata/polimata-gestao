@@ -100,10 +100,14 @@ export default function SimplesNacional() {
 
   // Base do DAS = NFS-e EMITIDAS: exclui Provisão (previsão, sem NF) e captação
   // de empréstimo (financiamento, não é faturamento).
-  const ehFaturamento = r => {
+  // Base do DAS = NFS-e EMITIDA (prova fiscal), não qualquer recebível: juros,
+  // reembolso e crédito não são faturamento (bench: Omie/OneFlow apura por documento).
+  const ehNfEmitida = r => r.data?.doc_status === 'vinculado' || !!r.data?.numero_nf
+  const ehFaturamentoEm = (r, mesISO) => {
     const ref = r.data?.data_competencia || r.due
-    return ref && ref.startsWith(mesSelecionado) && r.data?.status !== 'Provisão' && !r.data?.criado_via_emprestimo
+    return ref && ref.startsWith(mesISO) && r.data?.status !== 'Provisão' && !r.data?.criado_via_emprestimo && ehNfEmitida(r)
   }
+  const ehFaturamento = r => ehFaturamentoEm(r, mesSelecionado)
   const faturamentoMes = useMemo(() => {
     return receivable.filter(ehFaturamento).reduce((s, r) => s + Number(r.value || 0), 0)
   }, [receivable, mesSelecionado])
@@ -114,8 +118,25 @@ export default function SimplesNacional() {
   }, [receivable, mesSelecionado])
 
   // Projeção
-  const aliquotaEf = Number(cfg.aliquota_efetiva || 0)
-  const faixaInfo = useMemo(() => descobrirFaixa(Number(cfg.rbt12_estimada || 0)), [cfg.rbt12_estimada])
+  // RBT12 CALCULADA dos 12 meses anteriores ao mês selecionado (NFs emitidas). O valor
+  // digitado (rbt12_estimada) só serve de override quando a base ainda não tem 12 meses.
+  const rbt12Calc = useMemo(() => {
+    const [y0, m0] = mesSelecionado.split('-').map(Number)
+    let soma = 0
+    for (let i = 1; i <= 12; i++) {
+      const d = new Date(y0, m0 - 1 - i, 1)
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      soma += receivable.filter(r => ehFaturamentoEm(r, iso)).reduce((s, r) => s + Number(r.value || 0), 0)
+    }
+    return soma
+  }, [receivable, mesSelecionado])
+  const rbt12 = Number(cfg.rbt12_estimada) > 0 ? Number(cfg.rbt12_estimada) : rbt12Calc
+  const faixaInfo = useMemo(() => descobrirFaixa(rbt12), [rbt12])
+  // Alíquota efetiva recalculada na leitura (a gravada ficava congelada ao trocar de faixa).
+  const aliquotaEf = useMemo(() => {
+    const calc = calcularAliquotaEfetiva(rbt12, faixaInfo)
+    return Number.isFinite(calc) && calc > 0 ? calc : Number(cfg.aliquota_efetiva || 0)
+  }, [rbt12, faixaInfo, cfg.aliquota_efetiva])
   const projecao = useMemo(() => projetarDAS({ faturamentoMes, aliquotaEfetiva: aliquotaEf }), [faturamentoMes, aliquotaEf])
   const composicao = useMemo(() => compor(projecao.dasLiquido, faixaInfo.faixa), [projecao.dasLiquido, faixaInfo.faixa])
   const vencimento = vencimentoDAS(mesSelecionado)

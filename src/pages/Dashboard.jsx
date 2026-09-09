@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
   fmtMoney, flatten, isOverdue, getDocStatus, inMonth, monthLabels, today,
+  ehOperacional,
 } from '../lib/finance'
 import { fetchPlanoContas } from '../lib/planoContas'
 import { calcMRR, calcDespesaRecorrente, calcInadimplencia, calcMargem, calcLiquidez, calcConcentracao } from '../lib/indicadores'
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const [payable, setPayable] = useState([])
   const [recurringMasters, setRecurringMasters] = useState([])
   const [plano, setPlano] = useState([])
+  const [contas, setContas] = useState([]) // saldo inicial das contas ancora o caixa
   const [painelCfg, setPainelCfg] = useState(null)
   const [metaMeses, setMetaMeses] = useState(6)
   const [loading, setLoading] = useState(true)
@@ -48,11 +50,13 @@ export default function Dashboard() {
       supabase.from('recurring_masters').select('*'),
       supabase.from('painel_config').select('*').limit(1),
       fetchPlanoContas(),
-    ]).then(([rRec, rPay, rRm, rCfg, planoData]) => {
+      supabase.from('contas_bancarias').select('id,data'),
+    ]).then(([rRec, rPay, rRm, rCfg, planoData, rCt]) => {
       if (cancelled) return
       setReceivable((rRec.data || []).map(flatten))
       setPayable((rPay.data || []).map(flatten))
       setRecurringMasters(rRm.data || [])
+      setContas((rCt.data || []).filter(c => c.data?.ativo !== false))
       const cfg = rCfg.data?.[0] || null
       setPainelCfg(cfg)
       if (cfg?.data?.meta_icc_meses != null) setMetaMeses(Number(cfg.data.meta_icc_meses))
@@ -65,23 +69,33 @@ export default function Dashboard() {
   // ── Alertas ──────────────────────────────────────────────────────────
   const alerts = useMemo(() => {
     const out = []
-    const overdueRec = receivable.filter(r => r.status !== 'Recebido' && isOverdue(r.due))
-    const overduePay = payable.filter(r => r.status !== 'Pago' && isOverdue(r.due))
+    // Mesma regra do Receber/Pagar (ehOperacional): sem Provisão, sem empréstimo, sem
+    // crédito de fatura. Antes o Início dizia "3 vencidos" e a lista mostrava 2.
+    const overdueRec = receivable.filter(r => ehOperacional(r) && r.status !== 'Recebido' && isOverdue(r.due))
+    const overduePay = payable.filter(r => ehOperacional(r) && r.status !== 'Pago' && isOverdue(r.due))
     if (overdueRec.length) out.push({ kind: 'danger', to: '/receber?filtro=vencidos', text: `⚠️ ${overdueRec.length} recebível(is) vencido(s) — ${fmtMoney(overdueRec.reduce((a, r) => a + r.value, 0))}` })
     if (overduePay.length) out.push({ kind: 'danger', to: '/pagar?filtro=vencidos', text: `🔴 ${overduePay.length} pagamento(s) em atraso — ${fmtMoney(overduePay.reduce((a, r) => a + r.value, 0))}` })
-    const semDocRec = receivable.filter(r => getDocStatus(r) === 'pendente')
-    const semDocPay = payable.filter(r => getDocStatus(r) === 'pendente')
-    const semDoc = [...semDocRec, ...semDocPay]
-    if (semDoc.length) out.push({ kind: 'warning', to: semDocPay.length >= semDocRec.length ? '/pagar?filtro=sem_doc' : '/receber?filtro=sem_doc', text: `📎 ${semDoc.length} lançamento(s) com NF pendente — ${fmtMoney(semDoc.reduce((a, r) => a + r.value, 0))} (atenção contábil)` })
+    // NF pendente: um alerta por tela (o link levava a uma só e o número não batia).
+    const semDocRec = receivable.filter(r => ehOperacional(r) && getDocStatus(r) === 'pendente')
+    const semDocPay = payable.filter(r => ehOperacional(r) && getDocStatus(r) === 'pendente')
+    if (semDocPay.length) out.push({ kind: 'warning', to: '/pagar?filtro=sem_doc', text: `📎 ${semDocPay.length} conta(s) a pagar com NF pendente — ${fmtMoney(semDocPay.reduce((a, r) => a + r.value, 0))}` })
+    if (semDocRec.length) out.push({ kind: 'warning', to: '/receber?filtro=sem_doc', text: `📎 ${semDocRec.length} recebível(is) com NF pendente — ${fmtMoney(semDocRec.reduce((a, r) => a + r.value, 0))}` })
+    // A escriturar: a porta que trava tudo o resto — sempre visível quando há fila.
+    const aEscriturar = [...receivable, ...payable].filter(r => ehOperacional(r) && r.data?.escriturado !== true && !r.data?.conciliado_em)
+    if (aEscriturar.length) out.push({ kind: 'warning', to: '/classificar', text: `📋 ${aEscriturar.length} lançamento(s) aguardando escrituração — não entram na conciliação até serem revisados` })
     return out
   }, [receivable, payable])
 
   // ── Caixa atual (base pra ICC e Saldo Projetado) ─────────────────────
+  // Ancorado no saldo inicial das contas + tudo que entrou/saiu de fato (inclusive
+  // financiamento — é caixa). Antes era Σ recebido − Σ pago desde sempre, sem o
+  // saldo com que a conta começou — nunca batia com o banco.
   const caixaAtual = useMemo(() => {
+    const saldoInicial = contas.reduce((a, c) => a + (Number(c.data?.saldo_inicial) || 0), 0)
     const totalRecebido = receivable.filter(r => r.status === 'Recebido').reduce((a, r) => a + r.value, 0)
     const totalPago = payable.filter(r => r.status === 'Pago').reduce((a, r) => a + r.value, 0)
-    return totalRecebido - totalPago
-  }, [receivable, payable])
+    return saldoInicial + totalRecebido - totalPago
+  }, [receivable, payable, contas])
 
   // ── KPI 1: ICC ───────────────────────────────────────────────────────
   const icc = useMemo(() => {
@@ -147,7 +161,7 @@ export default function Dashboard() {
     }
     function fatNo(periodo) {
       return receivable.filter(r => {
-        if (r.status === 'Provisão') return false // provisão não é faturamento até a NF ser emitida
+        if (!ehOperacional(r)) return false // provisão não é faturamento; captação de empréstimo não é receita
         const ref = r.data?.data_competencia || r.due
         return ref && ref >= periodo.ini && ref <= periodo.fim
       }).reduce((a, r) => a + r.value, 0)
@@ -171,10 +185,10 @@ export default function Dashboard() {
     const mAtual = new Date().getMonth()
     const noAnoAteHoje = ref => ref && ref.startsWith(String(y)) && (parseInt(ref.substring(5, 7), 10) - 1) <= mAtual
     const fat = receivable
-      .filter(r => r.status !== 'Provisão' && noAnoAteHoje(r.data?.data_competencia || r.due))
+      .filter(r => ehOperacional(r) && noAnoAteHoje(r.data?.data_competencia || r.due))
       .reduce((a, r) => a + r.value, 0)
     const desp = payable
-      .filter(r => r.status !== 'Provisão' && noAnoAteHoje(r.data?.data_competencia || r.due))
+      .filter(r => ehOperacional(r) && noAnoAteHoje(r.data?.data_competencia || r.due))
       .reduce((a, r) => a + r.value, 0)
     return { fat, desp, resultado: fat - desp }
   }, [receivable, payable])
