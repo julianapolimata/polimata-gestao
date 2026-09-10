@@ -7,10 +7,14 @@ import ModalContaBancaria from './components/ModalContaBancaria'
 import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
 
+// Cartão de crédito é uma conta própria (data.tipo === 'cartao', saldo negativo)
+// na mesma tabela contas_bancarias — a tabela antiga `cartoes` é legado.
 const LABEL_TIPO = {
   corrente: 'Corrente', poupanca: 'Poupança',
   pagamento: 'Pagamento', investimento: 'Investimento',
+  cartao: 'Cartão de crédito',
 }
+const isCartao = (row) => row?.data?.tipo === 'cartao'
 
 export default function ContasBancarias() {
   const { user } = useAuth()
@@ -20,6 +24,7 @@ export default function ContasBancarias() {
   const [busca, setBusca] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
+  const [tipoInicial, setTipoInicial] = useState('corrente')
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -27,7 +32,12 @@ export default function ContasBancarias() {
     supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setErro(error); setRows([]) }
-        else { setErro(null); setRows(data || []) }
+        else {
+          setErro(null)
+          // Contas primeiro, cartões depois; dentro de cada grupo mantém a ordem por updated_at
+          const lista = data || []
+          setRows([...lista.filter(r => !isCartao(r)), ...lista.filter(isCartao)])
+        }
         setLoading(false)
       })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -40,19 +50,23 @@ export default function ContasBancarias() {
     if (!q) return rows
     return rows.filter(item => {
       const d = item.data || {}
-      return [d.nome, d.banco, d.agencia, d.conta, d.observacoes].filter(Boolean).join(' ').toLowerCase().includes(q)
+      return [d.nome, d.banco, d.agencia, d.conta, d.bandeira, d.observacoes].filter(Boolean).join(' ').toLowerCase().includes(q)
     })
   }, [rows, busca])
 
-  function abrirNovo() { setEdicao(null); setModalOpen(true) }
+  function abrirNovo(tipo = 'corrente') { setEdicao(null); setTipoInicial(tipo); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
   async function excluir(row, e) {
     e?.stopPropagation()
-    if (!confirm(`Excluir conta "${row.data?.nome || ''}"?`)) return
+    const nome = row.data?.nome || ''
+    const msg = isCartao(row)
+      ? `Excluir o cartão "${nome}"? As compras já lançadas continuam registradas, mas perdem o vínculo com o cartão.`
+      : `Excluir conta "${nome}"?`
+    if (!confirm(msg)) return
     const { error } = await supabase.from('contas_bancarias').delete().eq('id', row.id)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
-    showToast('Conta excluída.', 'info'); recarregar()
+    showToast(isCartao(row) ? 'Cartão excluído.' : 'Conta excluída.', 'info'); recarregar()
   }
 
   const colgroup = (
@@ -71,7 +85,7 @@ export default function ContasBancarias() {
 
   return (
     <AppLayout
-      title="Contas Bancárias"
+      title="Contas e Cartões"
       stickyTop={(
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -80,9 +94,12 @@ export default function ContasBancarias() {
                 style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
-              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar conta..." style={searchInput} />
+              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar conta ou cartão..." style={searchInput} />
             </div>
-            <button onClick={abrirNovo} style={btnNovo}>+ Nova conta</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => abrirNovo('corrente')} style={btnNovo}>+ Nova conta</button>
+              <button onClick={() => abrirNovo('cartao')} style={btnNovo}>+ Novo cartão</button>
+            </div>
           </div>
           {temDados && (
             <div style={{ ...tableWrap, marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}>
@@ -112,20 +129,21 @@ export default function ContasBancarias() {
         ) : erro ? (
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
-          <div style={emptyState}>{rows.length === 0 ? 'Nenhuma conta cadastrada. Clique em "+ Nova conta" pra começar.' : 'Nenhum resultado.'}</div>
+          <div style={emptyState}>{rows.length === 0 ? 'Nenhuma conta ou cartão cadastrado. Clique em "+ Nova conta" ou "+ Novo cartão" pra começar.' : 'Nenhum resultado.'}</div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}
             <tbody>
               {filtrados.map(c => {
                 const d = c.data || {}
+                const cartao = isCartao(c)
                 return (
                   <tr key={c.id} onClick={() => abrirEdicao(c)} style={{ cursor: 'pointer' }} title="Clique para editar">
                     <td style={{ ...td, fontWeight: 600 }}>{d.nome || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.banco || '—'}</td>
                     <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{LABEL_TIPO[d.tipo] || '—'}</td>
-                    <td style={{ ...td, color: 'var(--text-mid)' }}>{d.agencia || '—'}</td>
-                    <td style={{ ...td, color: 'var(--text-mid)' }}>{d.conta || '—'}</td>
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>{cartao ? (d.dia_fechamento ? `Fecha dia ${d.dia_fechamento}` : '—') : (d.agencia || '—')}</td>
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>{cartao ? (d.dia_vencimento ? `Vence dia ${d.dia_vencimento}` : '—') : (d.conta || '—')}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: (d.saldo_inicial || 0) >= 0 ? 'var(--navy)' : 'var(--red)' }}>
                       {d.saldo_inicial != null ? fmtMoney(d.saldo_inicial) : '—'}
                     </td>
@@ -135,7 +153,7 @@ export default function ContasBancarias() {
                         : <span style={{ background: 'rgba(0,0,0,0.05)', color: 'var(--text-mid)', padding: '3px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Inativa</span>}
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
-                      <button onClick={e => excluir(c, e)} title="Excluir" aria-label="Excluir conta" style={btnExcluir}>×</button>
+                      <button onClick={e => excluir(c, e)} title="Excluir" aria-label={cartao ? 'Excluir cartão' : 'Excluir conta'} style={btnExcluir}>×</button>
                     </td>
                   </tr>
                 )
@@ -145,7 +163,7 @@ export default function ContasBancarias() {
         )}
       </div>
 
-      <ModalContaBancaria open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} />
+      <ModalContaBancaria open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} tipoInicial={tipoInicial} />
     </AppLayout>
   )
 }

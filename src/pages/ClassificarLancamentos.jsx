@@ -60,9 +60,11 @@ export default function ClassificarLancamentos() {
       supabase.from('receivable').select('id,codigo,data,anexo_path,conciliado_em'),
       fetchPlanoContas(),
     ]).then(([rP, rR, pl]) => {
-      // Fila = A escriturar (escriturado != true) E ainda não conciliada E não é provisão.
+      // Fila = A escriturar (escriturado != true) E não é provisão. Estar conciliada
+      // não tira da fila: compra criada da fatura do cartão nasce ligada à linha da
+      // fatura (o fato do gasto é certo) e ainda precisa de classificação + situação fiscal.
       const pendentes = arr => (arr || [])
-        .filter(r => !r.conciliado_em && r.data?.escriturado !== true && r.data?.status !== 'Provisão')
+        .filter(r => r.data?.escriturado !== true && r.data?.status !== 'Provisão')
         .map(flatten)
       setPayable(pendentes(rP.data))
       setReceivable(pendentes(rR.data))

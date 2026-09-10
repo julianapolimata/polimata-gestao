@@ -2,26 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
-import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { periodoFatura, rotuloFatura } from '../lib/fatura'
-import { parseOFX, detectarTipoOFX } from '../lib/ofx'
-import { detectarParcelaLivre, removerSufixoParcela, gerarParcelas } from '../lib/parcelas'
-import { proximoCodigoPayable } from '../lib/codigos'
-import ModalConciliarFatura from './components/ModalConciliarFatura'
 
 // =====================================================================
-// CONFERÊNCIA DE FATURA — soma os lançamentos do cartão no período da
-// fatura escolhida e compara com o valor real da fatura (você digita).
+// FATURA DO CARTÃO — tela de LEITURA (visão, não ação).
+// Modelo "cartão como conta própria" (bloco 4):
+//  • o cartão é uma linha de contas_bancarias com data.tipo === 'cartao';
+//  • as compras são payable com cartao_id = id da conta-cartão
+//    (data.due = vencimento da fatura em que a compra cai);
+//  • pagar a fatura = uma transferência (tabela transferencias) da conta
+//    corrente para a conta-cartão.
+// Importar o OFX da fatura e conciliar o pagamento acontecem na
+// Conciliação (/conciliacao), escolhendo a conta-cartão no seletor.
 // Decisão UX 30/05: período = (dia_fechamento+1 mês ant.) → (dia_fech).
 // =====================================================================
-
-// Impressão digital (SHA-256) do conteúdo do arquivo, em hex. Identifica
-// reimportação do MESMO documento independentemente do nome do arquivo.
-async function sha256Hex(buf) {
-  const h = await crypto.subtle.digest('SHA-256', buf)
-  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
 
 function fmtDataBR(s) {
   if (!s) return '—'
@@ -29,32 +24,40 @@ function fmtDataBR(s) {
   return `${d}/${m}/${y}`
 }
 
+// Data local em YYYY-MM-DD (sem o deslocamento de fuso do toISOString).
+function hojeISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function ConferenciaFatura() {
   const { user } = useAuth()
   const [cartoes, setCartoes] = useState([])
   const [cartaoId, setCartaoId] = useState('')
-  const [payable, setPayable] = useState([])
+  const [compras, setCompras] = useState([])
+  const [transferencias, setTransferencias] = useState([])
   const [loading, setLoading] = useState(true)
 
   const hoje = new Date()
   const [ano, setAno] = useState(hoje.getFullYear())
   const [mes, setMes] = useState(hoje.getMonth())
-  const [uploading, setUploading] = useState(false)
-  const [modalConciliar, setModalConciliar] = useState(false)
-  const [extratosDisponiveis, setExtratosDisponiveis] = useState([])
 
   const carregar = useCallback(() => {
     if (!user) return
     setLoading(true)
     Promise.all([
-      supabase.from('cartoes').select('*').order('updated_at', { ascending: false }),
+      supabase.from('contas_bancarias').select('*'),
       supabase.from('payable').select('*'),
-      supabase.from('transacoes_extrato').select('*').eq('status', 'pendente'),
-    ]).then(([rC, rP, rE]) => {
-      const ativos = (rC.data || []).filter(c => c.data?.ativo !== false)
+      supabase.from('transferencias').select('*'),
+    ]).then(([rC, rP, rT]) => {
+      const ativos = (rC.data || [])
+        .filter(c => c.data?.tipo === 'cartao' && c.data?.ativo !== false)
+        .sort((a, b) => (a.data?.nome || '').localeCompare(b.data?.nome || ''))
       setCartoes(ativos)
-      setPayable((rP.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id, parent_id: r.parent_id })))
-      setExtratosDisponiveis((rE.data || []).filter(e => e.data?.tipo === 'saida'))
+      setCompras((rP.data || [])
+        .filter(r => r.cartao_id)
+        .map(r => ({ ...flatten(r), cartao_id: r.cartao_id, parent_id: r.parent_id })))
+      setTransferencias(rT.data || [])
       if (ativos.length > 0 && !cartaoId) setCartaoId(ativos[0].id)
       setLoading(false)
     })
@@ -62,277 +65,78 @@ export default function ConferenciaFatura() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  // ── Import OFX da fatura ─────────────────────────────────────────────
-  async function handleUploadFatura(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!cartaoId) { showToast('Selecione um cartão antes.', 'warning'); return }
-    if (!user) { showToast('Sessão expirada.', 'error'); return }
-    if (!cartao) { showToast('Selecione um cartão antes.', 'warning'); return }
-    setUploading(true)
-    try {
-      const buf = await file.arrayBuffer()
-      let texto
-      try { texto = new TextDecoder('windows-1252').decode(buf) }
-      catch { texto = new TextDecoder('utf-8').decode(buf) }
-      // Guard: impede importar um extrato de conta corrente como fatura de cartão.
-      // (Foi exatamente o que inflou as "faturas" de jul/ago com Pix, empréstimo e IOF.)
-      if (detectarTipoOFX(texto) === 'corrente') {
-        const forcar = window.confirm(
-          'Este arquivo parece um EXTRATO DE CONTA CORRENTE, não uma fatura de cartão ' +
-          '(contém movimentos como Pix, débitos e boletos).\n\n' +
-          'Para conciliar a conta, use "Extrato / Conciliação".\n\n' +
-          'Importar mesmo assim como fatura de cartão?'
-        )
-        if (!forcar) { showToast('Importação cancelada. Use Extrato / Conciliação para a conta corrente.', 'info'); return }
-      }
-      // Duplicidade de DOCUMENTO: impressão digital (SHA-256) do arquivo.
-      // Se o mesmo arquivo já entrou antes, avisa (a dedup por transação ainda protegeria,
-      // mas o aviso é mais claro do que só "todas já importadas").
-      const hashArquivo = await sha256Hex(buf)
-      const { data: jaImp } = await supabase.from('importacoes')
-        .select('created_at, qtd_registros')
-        .eq('user_id', user.id).eq('tipo', 'ofx_fatura_cartao')
-        .eq('metadata->>hash', hashArquivo).limit(1)
-      if (jaImp && jaImp.length) {
-        const quando = new Date(jaImp[0].created_at).toLocaleDateString('pt-BR')
-        const ok = window.confirm(
-          `Este MESMO arquivo já foi importado em ${quando} (${jaImp[0].qtd_registros} lançamento(s)).\n\n` +
-          'Importar de novo? As compras repetidas serão ignoradas automaticamente.'
-        )
-        if (!ok) { showToast('Importação cancelada — este arquivo já foi importado.', 'info'); return }
-      }
-      const { transacoes, dataExtrato } = parseOFX(texto)
-      if (!transacoes.length) { showToast('OFX sem transações.', 'warning'); return }
-      // Separar débitos (compras) de créditos (estornos/pagamentos)
-      const debitosOFX = transacoes.filter(t => t.tipo === 'saida')
-      const creditosOFX = transacoes.filter(t => t.tipo === 'entrada')
-      if (!debitosOFX.length) { showToast('Nenhuma compra encontrada no OFX.', 'warning'); return }
-      const datasDebito = debitosOFX.map(t => t.data).filter(Boolean).sort()
-      const maxData = datasDebito[datasDebito.length - 1]
-      // Identifica a fatura AUTOMATICAMENTE.
-      // 1º) preferimos a data de referência do documento (DTASOF) — na fatura do
-      //     Sicoob é o próprio vencimento, então o mês dela É o mês da fatura.
-      //     (Confiável mesmo quando uma parcela traz data enganosa.)
-      // 2º) sem DTASOF, caímos na heurística antiga: data da última compra +
-      //     dia de fechamento (compra até o fechamento → fatura deste mês; depois → próxima).
-      let usoAno = ano, usoMes = mes
-      if (dataExtrato) {
-        const [ey, em] = dataExtrato.split('-').map(Number)
-        usoAno = ey; usoMes = em - 1
-      } else if (maxData) {
-        const dF = Number(cartao?.data?.dia_fechamento) || 1
-        const [dy, dm, dd] = maxData.split('-').map(Number)
-        usoAno = dy; usoMes = dm - 1
-        if (dd > dF) { usoMes += 1; if (usoMes > 11) { usoMes = 0; usoAno += 1 } }
-      }
-      if (usoAno !== ano || usoMes !== mes) { setAno(usoAno); setMes(usoMes) }
-      const periodoUsado = periodoFatura(cartao, usoAno, usoMes)
-      showToast(`Fatura identificada automaticamente: ${rotuloFatura(usoAno, usoMes)}.`, 'info')
-      // Dedup por (fit_id + descrição). Cuidados aprendidos com o extrato do Sicoob:
-      //  • O banco REUSA o mesmo fit_id em todas as parcelas de uma compra parcelada
-      //    (ex.: ANUIDADE 05/12, 06/12, 07/12 têm o mesmo fit_id). fit_id sozinho apagaria
-      //    parcelas legítimas — por isso a descrição, que traz o "NN/MM", entra na chave.
-      //  • Duas compras iguais no mesmo dia (ex.: 2× Anthropic + 2× IOF) recebem fit_ids
-      //    sequenciais distintos (…001, …002). A chave composta (data+valor+desc) sozinha
-      //    as fundiria por engano — o fit_id as mantém separadas.
-      //  • O fit_id vive em data.fit_id_ofx (payable não tem coluna própria), então lemos
-      //    p.data?.fit_id_ofx (p.fit_id_ofx seria sempre undefined).
-      // Sem fit_id, cai no fallback composto (data+valor+desc).
-      const norm = s => (s || '').trim().toLowerCase()
-      const chaveDe = (fit, desc, dcomp, valor) => fit
-        ? `fit:${fit}|${norm(desc)}`
-        : `cmp:${dcomp || ''}|${Math.abs(Number(valor || 0)).toFixed(2)}|${norm(desc)}`
-      const jaImportados = payable.filter(p => p.cartao_id === cartaoId && p.data?.criado_via_import_fatura)
-      const chavesExistentes = new Set(jaImportados.map(p => chaveDe(p.data?.fit_id_ofx, p.data?.desc, p.data?.data_competencia, p.data?.value)))
-      // Trava de PARCELAS: uma série de parcelamento já vive no sistema como N linhas
-      // ligadas (parcela_atual/total). Uma fatura nova traz uma parcela dessa série com
-      // fit_id e memo diferentes (cidade no fim), então a chave acima não pega. Aqui
-      // pulamos a parcela cuja (série + total + nº) já existe — evita duplicar a série.
-      const chaveParcela = (serie, total, atual) => `parc:${norm(serie)}|${total}|${atual}`
-      const parcelasExistentes = new Set(
-        payable
-          .filter(p => p.cartao_id === cartaoId && p.data?.parcela_total)
-          .map(p => chaveParcela(removerSufixoParcela(p.data.desc), p.data.parcela_total, p.data.parcela_atual))
-      )
-      const debitos = debitosOFX.filter(t => {
-        if (chavesExistentes.has(chaveDe(t.fit_id, t.descricao, t.data, t.valor))) return false
-        const pc = detectarParcelaLivre(t.descricao)
-        if (pc && parcelasExistentes.has(chaveParcela(pc.serie, pc.total, pc.atual))) return false
-        return true
-      })
-      // Créditos da fatura → lançamento de ABATIMENTO (valor negativo, reduz a fatura).
-      //  • ESTORNOS/DESCONTOS (ex.: "Desc anuidade por uso Vis", "Estorno", cashback) viram
-      //    abatimento — na conciliação eles SUBTRAEM da fatura (fecha sem suspense).
-      //  • PAGAMENTOS da fatura anterior ("PAGAMENTO", "PGTO", "débito automático") são a
-      //    QUITAÇÃO da fatura — não são despesa nem crédito, então são ignorados.
-      // Exclui os PAGAMENTOS da fatura (não são estorno): "PAGAMENTO", "PGTO",
-      // "DÉBITO AUTOMÁTICO", "DEB AUT RECORRENT CARTAO" (débito recorrente que quita a
-      // fatura), "DÉB.CONV". Só passam créditos que são estorno/desconto de verdade.
-      const ehPagamentoFatura = d => /pagament|pgto|pag\.|d[ée]bito?\s*autom|deb\s*aut|recorrent|d[ée]b\.?\s*conv|quita/i.test(d || '')
-      // Crédito com cara de PARCELA (NN/MM) é ambíguo (estorno de compra parcelada vs
-      // artefato do OFX) e pode abater um valor alto por engano — não criamos automático.
-      const temCaraDeParcela = d => /\b\d{1,2}\s*\/\s*\d{2}\b/.test(d || '')
-      const creditosAbatimento = creditosOFX.filter(t => !ehPagamentoFatura(t.descricao) && !temCaraDeParcela(t.descricao))
-      // Dedup de crédito NÃO pode usar fit_id: o Sicoob REUSA o mesmo fit_id no
-      // crédito recorrente (ex.: "DESC ANUIDADE POR USO VIS" −12,45 sai TODO mês com
-      // o mesmo fit_id e a mesma descrição). Chave por VENCIMENTO da fatura +
-      // descrição + valor: distingue os meses e ainda pega reimport da mesma fatura.
-      const chaveCredito = (venc, desc, valor) => `${venc || ''}|${norm(desc)}|${Math.abs(Number(valor || 0)).toFixed(2)}`
-      const creditosExistentes = new Set(
-        payable
-          .filter(p => p.cartao_id === cartaoId && p.data?.criado_via_credito_fatura)
-          .map(p => chaveCredito(p.data?.due, p.data?.desc, p.data?.value))
-      )
-      const creditos = creditosAbatimento.filter(t => !creditosExistentes.has(chaveCredito(periodoUsado.vencimento, t.descricao, t.valor)))
-      if (!debitos.length && !creditos.length) {
-        showToast(`Todas as ${debitosOFX.length} compras já estavam importadas.`, 'info')
-        return
-      }
-      // Upload arquivo + registrar import
-      const path = `${user.id}/importacoes/ofx_fatura_cartao/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-      let arquivoPath = null
-      let uploadFalhou = false
-      try {
-        const { error: upErr } = await supabase.storage.from('anexos-fiscais').upload(path, file)
-        if (!upErr) arquivoPath = path
-        else uploadFalhou = true
-      } catch (er) { console.warn('upload OFX fatura falhou:', er.message); uploadFalhou = true }
-      const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
-        user_id: user.id,
-        tipo: 'ofx_fatura_cartao',
-        arquivo_nome: file.name,
-        arquivo_path: arquivoPath,
-        qtd_registros: debitos.length + creditos.length,
-        metadata: { cartao_id: cartaoId, mes: usoMes, ano: usoAno, periodo_ini: periodoUsado.ini, periodo_fim: periodoUsado.fim, vencimento: periodoUsado.vencimento, hash: hashArquivo },
-      }).select('id').single()
-      // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos.
-      if (errImp) throw new Error('Falha ao registrar a importação: ' + errImp.message)
-      const importacaoId = imp.id
-      const hoje = new Date().toISOString().slice(0, 10)
-      // Séries de parcelamento já existentes no cartão → parent_id + competência de origem.
-      // Evita recriar série já reconstruída/importada; parcela nova se anexa à série.
-      const seriesExistentes = new Map()
-      for (const p of payable.filter(p => p.cartao_id === cartaoId && p.data?.parcela_total)) {
-        const key = `${norm(removerSufixoParcela(p.data.desc))}|${p.data.parcela_total}`
-        if (!seriesExistentes.has(key)) seriesExistentes.set(key, { parentId: p.parent_id || p.id, dcomp: p.data.data_competencia })
-      }
-      // Monta as linhas. Parcelamento NOVO → gera a SÉRIE CHEIA (opção A: valor cheio na
-      // competência de origem + N parcelas nos vencimentos; passadas=Pago, futuras=Pendente).
-      // Compra normal → linha única, como antes.
-      const linhasInserir = []
-      for (const t of debitos) {
-        const baseComum = {
-          supplier: (t.descricao || '').substring(0, 80),
-          cat: '', subcat: '', forma_pagamento: 'Cartão Crédito',
-          criado_via_import_fatura: true, created: hoje,
-        }
-        const valor = Math.abs(Number(t.valor || 0))
-        const pc = detectarParcelaLivre(t.descricao)
-        if (!pc) {
-          linhasInserir.push({ data: { ...baseComum, desc: t.descricao, value: valor, data_competencia: t.data, due: periodoUsado.vencimento, status: 'Pendente', fit_id_ofx: t.fit_id || null } })
-          continue
-        }
-        const chaveSerie = `${norm(pc.serie)}|${pc.total}`
-        if (seriesExistentes.has(chaveSerie)) {
-          // série já existe: anexa esta parcela (competência = origem da série)
-          const { parentId, dcomp } = seriesExistentes.get(chaveSerie)
-          const due = periodoUsado.vencimento
-          linhasInserir.push({ parent_id: parentId, data: { ...baseComum, desc: `${pc.serie} ${pc.atual}/${pc.total}`, value: valor, data_competencia: dcomp, due, status: due < hoje ? 'Pago' : 'Pendente', data_pagamento: due < hoje ? due : null, fit_id_ofx: t.fit_id || null, parcela_atual: pc.atual, parcela_total: pc.total } })
-          continue
-        }
-        // parcelamento NOVO: gera a série cheia. Origem = mês desta fatura − (nº−1).
-        const origem = new Date(usoAno, usoMes - (pc.atual - 1), 1)
-        const dataCompra = `${origem.getFullYear()}-${String(origem.getMonth() + 1).padStart(2, '0')}-01`
-        const parcelas = gerarParcelas({
-          baseData: { ...baseComum, desc: pc.serie, data_competencia: dataCompra },
-          valorTotal: valor * pc.total,
-          numParcelas: pc.total, dataCompra, cartao,
-        })
-        const parentId = crypto.randomUUID()
-        parcelas.forEach((p, i) => {
-          const paga = p.due < hoje
-          linhasInserir.push({
-            ...(i === 0 ? { id: parentId } : { parent_id: parentId }),
-            data: { ...p, status: paga ? 'Pago' : 'Pendente', data_pagamento: paga ? p.due : null, fit_id_ofx: p.parcela_atual === pc.atual ? (t.fit_id || null) : null, criado_via_import_fatura: true },
-          })
-        })
-        seriesExistentes.set(chaveSerie, { parentId, dcomp: dataCompra })
-      }
-      // Créditos → abatimentos (valor NEGATIVO). Já classificados e "Pago" (crédito realizado
-      // na fatura). Flag criado_via_credito_fatura os separa da análise de gasto do Contas a Pagar.
-      for (const t of creditos) {
-        linhasInserir.push({ data: {
-          supplier: (t.descricao || '').substring(0, 80),
-          desc: t.descricao,
-          value: -Math.abs(Number(t.valor || 0)),
-          data_competencia: t.data,
-          due: periodoUsado.vencimento,
-          status: 'Pago', data_pagamento: periodoUsado.vencimento,
-          cat: 'Créditos/Estornos de cartão', subcat: '', forma_pagamento: 'Cartão Crédito',
-          criado_via_import_fatura: true, criado_via_credito_fatura: true, created: hoje,
-          fit_id_ofx: t.fit_id || null,
-        } })
-      }
-      let baseCodigo = await proximoCodigoPayable()
-      let baseNum = parseInt(baseCodigo.slice(1), 10)
-      const payloadComCodigo = linhasInserir.map((pl, i) => ({
-        user_id: user.id,
-        cartao_id: cartaoId,
-        importacao_id: importacaoId,
-        ...(pl.id ? { id: pl.id } : {}),
-        parent_id: pl.parent_id ?? null,
-        codigo: `2${String(baseNum + i).padStart(5, '0')}`,
-        data: pl.data,
-      }))
-      const { error } = await supabase.from('payable').insert(payloadComCodigo)
-      if (error) {
-        // Compensa: remove o cabeçalho recém-criado pra não deixar import vazio.
-        await supabase.from('importacoes').delete().eq('id', importacaoId)
-        throw error
-      }
-      const extras = linhasInserir.length - debitos.length - creditos.length
-      let msg = `${debitos.length} lançamento(s) da fatura importado(s).`
-      if (extras > 0) msg += ` ${extras} parcela(s) de séries novas geradas automaticamente.`
-      if (creditos.length > 0) msg += ` ${creditos.length} crédito(s)/estorno(s) lançado(s) como abatimento.`
-      const pagamentosIgnorados = creditosOFX.length - creditosAbatimento.length
-      if (pagamentosIgnorados > 0) msg += ` ${pagamentosIgnorados} pagamento(s) da fatura ignorado(s).`
-      showToast(msg, 'success')
-      if (uploadFalhou) showToast('Compras importadas, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
-      carregar()
-    } catch (err) {
-      console.error(err)
-      showToast('Erro: ' + err.message, 'error')
-    } finally {
-      setUploading(false)
-      e.target.value = ''
-    }
-  }
-
-
   const cartao = useMemo(() => cartoes.find(c => c.id === cartaoId), [cartoes, cartaoId])
 
   const periodo = useMemo(() => cartao ? periodoFatura(cartao, ano, mes) : null, [cartao, ano, mes])
 
-  // Filtro: parcelas que VENCEM no mês selecionado (parcela = mês fatura)
+  // Mês-calendário de vencimento selecionado (parcela = mês da fatura)
   const venceMesIni = useMemo(() => `${ano}-${String(mes + 1).padStart(2, '0')}-01`, [ano, mes])
   const venceMesFim = useMemo(() => {
     const ultimoDia = new Date(ano, mes + 1, 0).getDate()
     return `${ano}-${String(mes + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`
   }, [ano, mes])
 
+  // Todas as compras deste cartão (qualquer fatura)
+  const comprasCartao = useMemo(
+    () => compras.filter(p => p.cartao_id === cartaoId),
+    [compras, cartaoId],
+  )
+
+  // ── Fatura selecionada ───────────────────────────────────────────────
   const lancamentos = useMemo(() => {
     if (!cartao || !periodo) return []
-    return payable
-      .filter(p => p.cartao_id === cartaoId)
+    return comprasCartao
       .filter(p => p.due && p.due >= venceMesIni && p.due <= venceMesFim)
-      .sort((a, b) => (a.data_competencia || a.due).localeCompare(b.data_competencia || b.due))
-  }, [payable, cartao, periodo, cartaoId, venceMesIni, venceMesFim])
+      .sort((a, b) => (a.data?.data_competencia || a.due).localeCompare(b.data?.data_competencia || b.due))
+  }, [comprasCartao, cartao, periodo, venceMesIni, venceMesFim])
 
-  const totalSistema = useMemo(
+  const totalFatura = useMemo(
     () => lancamentos.reduce((s, x) => s + Number(x.value || 0), 0),
     [lancamentos],
   )
+
+  // Pagamentos recebidos = transferências PARA o cartão dentro do mês de vencimento
+  const pagamentos = useMemo(() => {
+    if (!cartaoId) return []
+    return transferencias
+      .filter(t => t.para_conta_id === cartaoId && t.data && t.data >= venceMesIni && t.data <= venceMesFim)
+      .sort((a, b) => (a.data || '').localeCompare(b.data || ''))
+  }, [transferencias, cartaoId, venceMesIni, venceMesFim])
+
+  const totalPagamentos = useMemo(
+    () => pagamentos.reduce((s, t) => s + Number(t.valor || 0), 0),
+    [pagamentos],
+  )
+
+  const emAberto = totalFatura - totalPagamentos
+  const quitada = Math.abs(emAberto) < 0.01
+  const pagoAMais = !quitada && emAberto < 0
+
+  // ── Saldo atual da conta-cartão (dívida acumulada) ───────────────────
+  // saldo_inicial − Σ compras já cobradas (status Pago) + Σ transferências
+  // recebidas (qualquer data) − Σ transferências enviadas pelo cartão.
+  const saldoAtual = useMemo(() => {
+    if (!cartao) return 0
+    const inicial = Number(cartao.data?.saldo_inicial || 0)
+    const cobradas = comprasCartao
+      .filter(p => p.status === 'Pago')
+      .reduce((s, p) => s + Number(p.value || 0), 0)
+    const recebidas = transferencias
+      .filter(t => t.para_conta_id === cartaoId)
+      .reduce((s, t) => s + Number(t.valor || 0), 0)
+    const enviadas = transferencias
+      .filter(t => t.de_conta_id === cartaoId)
+      .reduce((s, t) => s + Number(t.valor || 0), 0)
+    return inicial - cobradas + recebidas - enviadas
+  }, [cartao, cartaoId, comprasCartao, transferencias])
+
+  // Parcelas futuras = compras ainda não cobradas com vencimento após hoje
+  const parcelasFuturas = useMemo(() => {
+    const h = hojeISO()
+    return comprasCartao
+      .filter(p => p.status !== 'Pago' && p.due && p.due > h)
+      .reduce((s, p) => s + Number(p.value || 0), 0)
+  }, [comprasCartao])
 
   // Anos disponíveis pro select — corrente e os 2 últimos
   const anos = [hoje.getFullYear(), hoje.getFullYear() - 1, hoje.getFullYear() - 2]
@@ -343,7 +147,7 @@ export default function ConferenciaFatura() {
       <col />
       <col />
       <col style={{ width: 90 }} />
-      <col style={{ width: 110 }} />
+      <col style={{ width: 120 }} />
       <col style={{ width: 130 }} />
       <col style={{ width: 90 }} />
     </colgroup>
@@ -352,24 +156,31 @@ export default function ConferenciaFatura() {
 
   if (cartoes.length === 0 && !loading) {
     return (
-      <AppLayout title="Conferência de Fatura">
+      <AppLayout title="Fatura do Cartão">
         <div style={emptyState}>
-          Nenhum cartão ativo cadastrado. <a href="/cartoes" style={{ color: 'var(--gold)', textDecoration: 'underline', fontWeight: 600 }}>Cadastrar cartão</a>.
+          Nenhum cartão ativo cadastrado. <a href="/contas-bancarias" style={linkStyle}>Cadastrar cartão</a>.
         </div>
       </AppLayout>
     )
   }
 
+  const corEmAberto = quitada ? 'var(--green)' : pagoAMais ? 'var(--orange)' : 'var(--red)'
+  const nomeCartao = cartao?.data?.nome || 'cartão'
+
   return (
     <AppLayout
-      title="Conferência de Fatura"
+      title="Fatura do Cartão"
       stickyTop={(
         <>
           {/* Seletor */}
           <div style={topo}>
             <Field label="Cartão">
               <select value={cartaoId} onChange={e => setCartaoId(e.target.value)} style={select}>
-                {cartoes.map(c => <option key={c.id} value={c.id}>{c.data?.nome} ({c.data?.bandeira})</option>)}
+                {cartoes.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.data?.nome}{c.data?.bandeira ? ` (${c.data.bandeira})` : ''}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="Mês de Vencimento">
@@ -384,10 +195,6 @@ export default function ConferenciaFatura() {
                 {anos.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </Field>
-            <label style={btnUploadFatura}>
-              <input type="file" onChange={handleUploadFatura} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
-              {uploading ? '⏳ Processando…' : '📥 Importar OFX da fatura'}
-            </label>
           </div>
 
           {periodo && (
@@ -400,15 +207,70 @@ export default function ConferenciaFatura() {
             </div>
           )}
 
-          {/* Total da fatura + botão conciliar */}
+          {/* Números da fatura selecionada */}
+          <div style={cardsRow}>
+            <div style={totalBox}>
+              <div>
+                <div style={cardLabel}>Total da fatura</div>
+                <div style={cardValor}>{fmtMoney(totalFatura)}</div>
+                <div style={cardLegenda}>({lancamentos.length} lançamento{lancamentos.length === 1 ? '' : 's'})</div>
+              </div>
+            </div>
+
+            <div style={totalBox}>
+              <div style={{ minWidth: 0 }}>
+                <div style={cardLabel}>Pagamentos recebidos</div>
+                <div style={cardValor}>{fmtMoney(totalPagamentos)}</div>
+                {pagamentos.length === 0 ? (
+                  <div style={cardLegenda}>nenhuma transferência para este cartão no mês</div>
+                ) : (
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {pagamentos.map(t => (
+                      <div key={t.id} style={cardLinhaPagto}>
+                        <span style={{ fontWeight: 600 }}>{t.codigo || '—'}</span>
+                        <span> · {fmtDataBR(t.data)}</span>
+                        <span> · {fmtMoney(Number(t.valor || 0))}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={totalBox}>
+              <div>
+                <div style={cardLabel}>Em aberto</div>
+                <div style={{ ...cardValor, color: corEmAberto }}>
+                  {quitada ? '✓ ' : ''}{fmtMoney(pagoAMais ? -emAberto : emAberto)}
+                </div>
+                <div style={{ ...cardLegenda, color: corEmAberto }}>
+                  {quitada ? 'fatura quitada' : pagoAMais ? 'pago a mais' : 'falta pagar'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={ajudaStyle}>
+            Para registrar o pagamento da fatura: em <a href="/conciliacao" style={linkStyle}>Conciliação</a>, selecione o débito na conta corrente e use ↔ Transferência para este cartão.
+            {' '}Para importar a fatura: <a href="/conciliacao" style={linkStyle}>Conciliação</a> → conta <strong>{nomeCartao}</strong> → Importar OFX.
+          </div>
+
+          {/* Saldo atual da conta-cartão (dívida acumulada) */}
           <div style={totalBox}>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>Total da fatura ({lancamentos.length} lançamento(s))</div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: 'var(--navy)', marginTop: 4, fontFamily: 'var(--body)' }}>{fmtMoney(totalSistema)}</div>
+              <div style={cardLabel}>Saldo atual da conta-cartão</div>
+              <div style={{ ...cardValor, color: saldoAtual < -0.005 ? 'var(--red)' : 'var(--navy)' }}>{fmtMoney(saldoAtual)}</div>
+              <div style={cardLegenda}>
+                {saldoAtual < -0.005
+                  ? 'o que o cartão ainda vai cobrar da conta'
+                  : saldoAtual > 0.005 ? 'crédito a favor (pago além do cobrado)' : 'nada pendente de cobrança'}
+              </div>
             </div>
-            {totalSistema > 0 && (
-              <button onClick={() => setModalConciliar(true)} style={btnConciliar}>↔ Conciliar com débito da conta</button>
-            )}
+            <div style={{ textAlign: 'right' }}>
+              <div style={cardLabel}>Parcelas futuras</div>
+              <div style={{ ...cardValor, fontSize: 22 }}>{fmtMoney(parcelasFuturas)}</div>
+              <div style={cardLegenda}>ainda não cobradas</div>
+            </div>
           </div>
 
           {/* Header de colunas (sticky) */}
@@ -422,7 +284,7 @@ export default function ConferenciaFatura() {
                     <th style={th}>Fornecedor</th>
                     <th style={th}>Descrição</th>
                     <th style={{ ...th, textAlign: 'center' }}>Parcela</th>
-                    <th style={th}>Vencimento</th>
+                    <th style={th}>Data da compra</th>
                     <th style={{ ...th, textAlign: 'right' }}>Valor</th>
                     <th style={{ ...th, textAlign: 'center' }}>Status</th>
                   </tr>
@@ -438,61 +300,43 @@ export default function ConferenciaFatura() {
         {loading ? (
           <div style={emptyState}>Carregando…</div>
         ) : lancamentos.length === 0 ? (
-          <div style={emptyState}>Nenhum lançamento neste cartão no período {fmtDataBR(periodo?.ini)} → {fmtDataBR(periodo?.fim)}.</div>
+          <div style={emptyState}>Nenhum lançamento neste cartão na fatura {rotuloFatura(ano, mes)} (período {fmtDataBR(periodo?.ini)} → {fmtDataBR(periodo?.fim)}).</div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}
             <tbody>
-                  {lancamentos.map(p => {
-                    const parc = (p.data?.parcela_atual && p.data?.parcela_total) ? `${p.data.parcela_atual}/${p.data.parcela_total}` : '—'
-                    const isPago = p.status === 'Pago'
-                    return (
-                      <tr key={p.id}>
-                        <td style={{ ...td, fontWeight: 600, color: 'var(--text-mid)' }}>{p.codigo || '—'}</td>
-                        <td style={td}>
-                          {p.supplier || '—'}
-                          {p.data?.escriturado !== true && <span style={badgeAEscriturar} title="Não escriturada — escriture antes de conciliar">a escriturar</span>}
-                        </td>
-                        <td style={{ ...td, color: 'var(--text-mid)' }}>{p.desc || '—'}</td>
-                        <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{parc}</td>
-                        <td style={td}>{fmtDataBR(p.due)}</td>
-                        <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoney(p.value)}</td>
-                        <td style={{ ...td, textAlign: 'center' }}>
-                          <span style={{ background: isPago ? 'rgba(39,174,96,0.10)' : 'rgba(230,126,34,0.10)', color: isPago ? 'var(--green)' : 'var(--orange)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            {p.status || 'Pendente'}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  <tr style={{ background: 'var(--cream)' }}>
-                    <td style={{ ...td, fontWeight: 700 }} colSpan={5}>Total</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmtMoney(totalSistema)}</td>
-                    <td style={td}></td>
+              {lancamentos.map(p => {
+                const parc = (p.data?.parcela_atual && p.data?.parcela_total) ? `${p.data.parcela_atual}/${p.data.parcela_total}` : '—'
+                const isPago = p.status === 'Pago'
+                const credito = Number(p.value || 0) < 0
+                return (
+                  <tr key={p.id}>
+                    <td style={{ ...td, fontWeight: 600, color: 'var(--text-mid)' }}>{p.codigo || '—'}</td>
+                    <td style={td}>
+                      {p.supplier || '—'}
+                      {p.data?.escriturado !== true && <span style={badgeAEscriturar} title="Não escriturada — escriture antes de conciliar">a escriturar</span>}
+                    </td>
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>{p.desc || '—'}</td>
+                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{parc}</td>
+                    <td style={td}>{fmtDataBR(p.data?.data_competencia || p.due)}</td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: credito ? 'var(--green)' : 'var(--navy)' }}>{fmtMoney(p.value)}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>
+                      <span style={{ background: isPago ? 'rgba(39,174,96,0.10)' : 'rgba(230,126,34,0.10)', color: isPago ? 'var(--green)' : 'var(--orange)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {p.status || 'Pendente'}
+                      </span>
+                    </td>
                   </tr>
-                </tbody>
-              </table>
-            )}
+                )
+              })}
+              <tr style={{ background: 'var(--cream)' }}>
+                <td style={{ ...td, fontWeight: 700 }} colSpan={5}>Total</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmtMoney(totalFatura)}</td>
+                <td style={td}></td>
+              </tr>
+            </tbody>
+          </table>
+        )}
       </div>
-      {modalConciliar && (() => {
-        const candidato = extratosDisponiveis.find(e => {
-          const d = e.data?.data || ''
-          return periodo?.vencimento && d.startsWith(periodo.vencimento.slice(0, 7))
-        }) || extratosDisponiveis[0]
-        if (!candidato) {
-          // useEffect-like: notifica sem renderizar
-          setTimeout(() => { showToast('Nenhum débito pendente no extrato. Importe OFX da conta primeiro.', 'warning'); setModalConciliar(false) }, 0)
-          return null
-        }
-        return (
-          <ModalConciliarFatura
-            open={true}
-            onClose={() => setModalConciliar(false)}
-            extrato={candidato}
-            onConciliado={() => { setModalConciliar(false); carregar() }}
-          />
-        )
-      })()}
     </AppLayout>
   )
 }
@@ -508,10 +352,15 @@ function Field({ label, children }) {
 
 
 const topo = { display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }
-const btnUploadFatura = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 6, border: '1.5px solid var(--gold)', background: 'var(--gold)', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)', alignSelf: 'flex-end' }
 const badgeAEscriturar = { marginLeft: 8, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }
 const totalBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 14, flexWrap: 'wrap', gap: 14 }
-const btnConciliar = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
+const cardsRow = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }
+const cardLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }
+const cardValor = { fontSize: 30, fontWeight: 700, color: 'var(--navy)', marginTop: 4, fontFamily: 'var(--body)' }
+const cardLegenda = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2, fontFamily: 'var(--body)' }
+const cardLinhaPagto = { fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--body)', whiteSpace: 'nowrap' }
+const ajudaStyle = { fontSize: 12, color: 'var(--text-mid)', fontFamily: 'var(--body)', margin: '0 0 14px 2px', lineHeight: 1.5 }
+const linkStyle = { color: 'var(--gold)', textDecoration: 'underline', fontWeight: 600 }
 const select = { padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 180 }
 const periodoBox = { background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', padding: 14, borderRadius: 6, marginBottom: 18 }
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
