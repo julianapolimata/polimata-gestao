@@ -32,6 +32,11 @@ export default function Dashboard() {
   const [recurringMasters, setRecurringMasters] = useState([])
   const [plano, setPlano] = useState([])
   const [contas, setContas] = useState([]) // saldo inicial das contas ancora o caixa
+  const [extratos, setExtratos] = useState([])        // linhas leves: conta, status, tipo, valor, data
+  const [saldosBanco, setSaldosBanco] = useState({})  // conta_id → { saldo, em } (último OFX importado)
+  const [transferencias, setTransferencias] = useState([])
+  const [fechamentos, setFechamentos] = useState([])
+  const [nfsCaixa, setNfsCaixa] = useState(0)
   const [painelCfg, setPainelCfg] = useState(null)
   const [metaMeses, setMetaMeses] = useState(6)
   const [loading, setLoading] = useState(true)
@@ -46,15 +51,31 @@ export default function Dashboard() {
     setLoading(true)
     Promise.all([
       supabase.from('receivable').select('id,codigo,data,created_at,updated_at,anexo_path'),
-      supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path'),
+      supabase.from('payable').select('id,codigo,data,created_at,updated_at,anexo_path,cartao_id'),
       supabase.from('recurring_masters').select('*'),
       supabase.from('painel_config').select('*').limit(1),
       fetchPlanoContas(),
       supabase.from('contas_bancarias').select('id,data'),
-    ]).then(([rRec, rPay, rRm, rCfg, planoData, rCt]) => {
+      supabase.from('transacoes_extrato').select('conta_id,status,tipo:data->>tipo,valor:data->>valor,dt:data->>data'),
+      supabase.from('importacoes').select('metadata,created_at').eq('tipo', 'ofx_extrato').order('created_at', { ascending: false }),
+      supabase.from('transferencias').select('de_conta_id,para_conta_id,valor,data'),
+      supabase.from('fechamentos').select('competencia,status'),
+      supabase.from('nf_pending').select('id', { count: 'exact', head: true }).eq('status', 'pendente'),
+    ]).then(([rRec, rPay, rRm, rCfg, planoData, rCt, rEx, rImp, rTr, rFe, rNf]) => {
       if (cancelled) return
+      setExtratos(rEx.data || [])
+      // Saldo no banco = BALAMT do último OFX de cada conta (guardado em importacoes.metadata.saldo_final)
+      const sb = {}
+      for (const imp of rImp.data || []) {
+        const cid = imp.metadata?.conta_id
+        if (cid && !sb[cid] && imp.metadata?.saldo_final != null) sb[cid] = { saldo: Number(imp.metadata.saldo_final), em: imp.created_at }
+      }
+      setSaldosBanco(sb)
+      setTransferencias(rTr.data || [])
+      setFechamentos(rFe.data || [])
+      setNfsCaixa(rNf.count || 0)
       setReceivable((rRec.data || []).map(flatten))
-      setPayable((rPay.data || []).map(flatten))
+      setPayable((rPay.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id })))
       setRecurringMasters(rRm.data || [])
       setContas((rCt.data || []).filter(c => c.data?.ativo !== false))
       const cfg = rCfg.data?.[0] || null
@@ -67,6 +88,52 @@ export default function Dashboard() {
   }, [user])
 
   // ── Alertas ──────────────────────────────────────────────────────────
+  // ── Contas hoje: saldo no banco × saldo no sistema, e o que falta fazer ──
+  // (bench: QuickBooks/Xero/Conta Azul mostram por conta "banco × sistema" e a fila.)
+  const painelContas = useMemo(() => {
+    const porConta = {}
+    for (const e of extratos) {
+      const g = porConta[e.conta_id] || (porConta[e.conta_id] = { pend: 0, inConc: 0, outConc: 0, ultimo: '' })
+      if (e.status === 'pendente') g.pend++
+      if (e.status === 'conciliado') { if (e.tipo === 'entrada') g.inConc += Number(e.valor || 0); else g.outConc += Number(e.valor || 0) }
+      if ((e.dt || '') > g.ultimo) g.ultimo = e.dt
+    }
+    return contas.map(c => {
+      const g = porConta[c.id] || { pend: 0, inConc: 0, outConc: 0, ultimo: '' }
+      const sIni = Number(c.data?.saldo_inicial) || 0
+      const cartao = c.data?.tipo === 'cartao'
+      let sistema
+      if (cartao) {
+        const compras = payable.filter(p => p.cartao_id === c.id).filter(p => p.status === 'Pago').reduce((a, p) => a + Number(p.value || 0), 0)
+        const recebidas = transferencias.filter(t => t.para_conta_id === c.id).reduce((a, t) => a + Number(t.valor || 0), 0)
+        const enviadas = transferencias.filter(t => t.de_conta_id === c.id).reduce((a, t) => a + Number(t.valor || 0), 0)
+        sistema = sIni - compras + recebidas - enviadas
+      } else {
+        sistema = sIni + g.inConc - g.outConc
+      }
+      const banco = saldosBanco[c.id] || null
+      return { id: c.id, nome: c.data?.nome || '(sem nome)', cartao, sistema, banco: banco?.saldo ?? null, bancoEm: banco?.em || null, pendentes: g.pend, ultimo: g.ultimo }
+    })
+  }, [contas, extratos, saldosBanco, transferencias, payable])
+
+  const paraFazer = useMemo(() => {
+    const aEscriturar = [...receivable, ...payable].filter(r => r.status !== 'Provisão' && r.data?.escriturado !== true).length
+    const aConciliar = extratos.filter(e => e.status === 'pendente').length
+    const fechados = fechamentos.filter(f => f.status === 'fechado').map(f => f.competencia).sort()
+    const ultimoFechado = fechados[fechados.length - 1] || null
+    const agora = new Date()
+    const mesAnterior = new Date(agora.getFullYear(), agora.getMonth() - 1, 1)
+    const mesAnteriorISO = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, '0')}`
+    let aFechar = null
+    if (ultimoFechado) {
+      const [fy, fm] = ultimoFechado.split('-').map(Number)
+      const prox = new Date(fy, fm, 1) // mês seguinte ao último fechado
+      const proxISO = `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}`
+      if (proxISO <= mesAnteriorISO) aFechar = proxISO
+    } else aFechar = mesAnteriorISO
+    return { aEscriturar, aConciliar, nfsCaixa, ultimoFechado, aFechar }
+  }, [receivable, payable, extratos, fechamentos, nfsCaixa])
+
   const alerts = useMemo(() => {
     const out = []
     // Mesma regra do Receber/Pagar (ehOperacional): sem Provisão, sem empréstimo, sem
@@ -384,6 +451,46 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Contas hoje + o que falta fazer — banco × sistema por conta e a fila do mês */}
+      <div style={painelGrid}>
+        <div style={{ ...indCard, gridColumn: 'span 2' }}>
+          <div style={indLabel}>Contas hoje · banco × sistema</div>
+          {painelContas.length === 0 ? <div style={indSub}>Nenhuma conta cadastrada.</div> : (
+            <table style={painelTbl}>
+              <thead><tr><th style={painelTh}>Conta</th><th style={{ ...painelTh, textAlign: 'right' }}>No banco</th><th style={{ ...painelTh, textAlign: 'right' }}>No sistema</th><th style={{ ...painelTh, textAlign: 'right' }}>Diferença</th><th style={{ ...painelTh, textAlign: 'right' }}>A conciliar</th></tr></thead>
+              <tbody>
+                {painelContas.map(c => {
+                  const dif = c.banco == null ? null : c.banco - c.sistema
+                  return (
+                    <tr key={c.id} onClick={() => navigate('/conciliacao')} style={{ cursor: 'pointer' }} title="Abrir a conciliação">
+                      <td style={painelTd}>{c.cartao ? '💳 ' : '🏦 '}{c.nome}{c.ultimo && <span style={{ color: 'var(--text-mid)', fontSize: 10 }}> · extrato até {c.ultimo.split('-').reverse().join('/')}</span>}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', color: c.banco == null ? 'var(--text-mid)' : 'var(--navy)' }}>{c.banco == null ? (c.cartao ? '—' : 'importe OFX') : fmtMoney(c.banco)}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 700, color: c.sistema < 0 ? 'var(--red)' : 'var(--navy)' }}>{fmtMoney(c.sistema)}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 700, color: dif == null ? 'var(--text-mid)' : (Math.abs(dif) < 0.01 ? 'var(--green)' : 'var(--red)') }}>{dif == null ? '—' : (Math.abs(dif) < 0.01 ? '✓ bate' : fmtMoney(dif))}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', color: c.pendentes ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 600 }}>{c.pendentes ? `${c.pendentes} linha(s)` : '✓'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+          <div style={{ ...indSub, marginTop: 8 }}>“No banco” = saldo do último OFX importado. “No sistema” = saldo inicial + o que já está conciliado (cartão: compras cobradas − pagamentos da fatura). A diferença é exatamente o que falta conciliar.</div>
+        </div>
+        <div style={indCard}>
+          <div style={indLabel}>O que falta fazer</div>
+          <div style={feedList}>
+            <FeedItem n={paraFazer.nfsCaixa} label="NF(s) na caixa de entrada" to="/importar-nfs" navigate={navigate} />
+            <FeedItem n={paraFazer.aEscriturar} label="lançamento(s) a escriturar" to="/classificar" navigate={navigate} />
+            <FeedItem n={paraFazer.aConciliar} label="linha(s) de extrato a conciliar" to="/conciliacao" navigate={navigate} />
+            <div onClick={() => navigate('/fechamento-mensal')} style={feedRow} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') navigate('/fechamento-mensal') }}>
+              <span style={{ ...feedNum, color: paraFazer.aFechar ? 'var(--gold-dark)' : 'var(--green)' }}>{paraFazer.aFechar ? '🔓' : '🔒'}</span>
+              <span style={{ flex: 1 }}>{paraFazer.aFechar ? `mês ${paraFazer.aFechar.split('-').reverse().join('/')} aguardando fechamento` : 'meses em dia'}{paraFazer.ultimoFechado ? ` · último fechado ${paraFazer.ultimoFechado.split('-').reverse().join('/')}` : ' · nenhum mês fechado ainda'}</span>
+              <span style={{ opacity: 0.6 }}>→</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Cockpit de decisão — o que você olha primeiro, todo dia */}
       <div style={indGrid}>
         <IndCard label="Saldo na conta" valor={fmtMoney(caixaAtual)} sub="disponível hoje" />
@@ -570,6 +677,17 @@ function Badge({ bg, color, children }) {
 }
 
 // ─── styles ──────────────────────────────────────────────────────────────────
+function FeedItem({ n, label, to, navigate }) {
+  const ok = !n
+  return (
+    <div onClick={() => navigate(to)} style={feedRow} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') navigate(to) }}>
+      <span style={{ ...feedNum, color: ok ? 'var(--green)' : 'var(--gold-dark)' }}>{ok ? '✓' : n}</span>
+      <span style={{ flex: 1 }}>{ok ? label.replace(/^\w/, c => c.toUpperCase()).replace('(s)', 's') + ': nada pendente' : label}</span>
+      <span style={{ opacity: 0.6 }}>→</span>
+    </div>
+  )
+}
+
 function IndCard({ label, valor, sub, alerta }) {
   return (
     <div style={{ ...indCard, ...(alerta ? { borderTop: '3px solid var(--red)' } : {}) }}>
@@ -582,6 +700,13 @@ function IndCard({ label, valor, sub, alerta }) {
 
 const narrativaCard = { background: 'linear-gradient(135deg, #00203E 0%, #1D3B5C 100%)', borderRadius: 14, padding: '22px 26px', marginBottom: 18, boxShadow: 'var(--shadow)' }
 const narrativaLabel = { fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--gold-light)', marginBottom: 10 }
+const painelGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 18 }
+const painelTbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
+const painelTh = { textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '6px 8px', borderBottom: '1px solid var(--cream-dark)' }
+const painelTd = { padding: '8px 8px', fontSize: 12, color: 'var(--navy)', borderBottom: '1px solid var(--cream-dark)' }
+const feedList = { display: 'flex', flexDirection: 'column', gap: 4 }
+const feedRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', background: 'rgba(0,32,62,0.03)' }
+const feedNum = { minWidth: 26, textAlign: 'center', fontWeight: 700, fontSize: 13 }
 const indGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }
 const indCard = { background: 'var(--white)', borderRadius: 12, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const indLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6 }

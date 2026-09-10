@@ -1,8 +1,29 @@
 import { supabase } from './supabase'
 
-// Cache em módulo (não invalida na mesma sessão). plano_contas é fixo.
+// Cache em módulo. plano_contas muda raramente — só pela tela /plano-contas,
+// que chama invalidarPlanoContas() depois de gravar.
 let _cache = null
 let _carregando = null
+
+/** Grupos da DRE (campo `classificacao`). Ordem = ordem de apresentação. */
+export const CLASSIFICACOES = [
+  'Receita Bruta',
+  'Receita Financeira',
+  'Outras Receitas',
+  'Impostos sobre Vendas',
+  'CSP',
+  'Despesas Operacionais',
+  'Despesas Comerciais',
+  'Despesas de Viagens',
+  'Despesas Financeiras',
+  'Outras Despesas',
+  'Antecipação de Lucro',
+  'Imobilizado/Intangível',
+  'Investimentos',
+  'Transferência Entre Contas',
+  'Empréstimo - Principal',
+  'Parcelamento - Principal',
+]
 
 export async function fetchPlanoContas() {
   if (_cache) return _cache
@@ -17,6 +38,12 @@ export async function fetchPlanoContas() {
       return _cache
     })
   return _carregando
+}
+
+/** Descarta o cache — próxima fetchPlanoContas() volta ao banco. */
+export function invalidarPlanoContas() {
+  _cache = null
+  _carregando = null
 }
 
 /** Lista distinct de categorias para um tipo (Entrada | Saída | Transferência) */

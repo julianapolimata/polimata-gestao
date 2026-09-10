@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { proximoCodigoEmprestimo } from '../../lib/codigos'
+import { fmtMoney } from '../../lib/finance'
 
 
 // ============================================================================
@@ -10,6 +11,10 @@ import { proximoCodigoEmprestimo } from '../../lib/codigos'
 //
 // Fluxo: usuário sobe PDF → Claude extrai cabeçalho + tabela de parcelas →
 // usuário revisa e ajusta → save cria registro + N parcelas em payable.
+//
+// Saldo devedor e parcelas pagas são digitados SÓ no cadastro novo (servem
+// para gerar as parcelas). Na edição viram leitura, calculados pelas parcelas
+// reais em Contas a Pagar (prop `reais`, vinda da tela de Empréstimos).
 // ============================================================================
 
 const TIPOS = [
@@ -25,7 +30,7 @@ const STATUS_OPTS = [
 ]
 
 
-export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
+export default function ModalEmprestimo({ open, onClose, registro, reais = null, onSaved }) {
   const { user } = useAuth()
   const isEdit = !!registro
   const fileInputRef = useRef(null)
@@ -33,7 +38,6 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
   const [extraindo, setExtraindo] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [contas, setContas] = useState([])
-  const [cartoes, setCartoes] = useState([])
 
   // Cabeçalho
   const [nome, setNome] = useState('')
@@ -49,8 +53,6 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
   const [dataVencimentoFinal, setDataVencimentoFinal] = useState('')
   const [taxaJurosMensal, setTaxaJurosMensal] = useState('')
   const [indicadorCalculo, setIndicadorCalculo] = useState('price')
-  const [contaDebitoTipo, setContaDebitoTipo] = useState('') // conta | cartao | ''
-  const [contaDebitoId, setContaDebitoId] = useState('')
   const [status, setStatus] = useState('ativa')
   const [observacoes, setObservacoes] = useState('')
   const [anexoFile, setAnexoFile] = useState(null)
@@ -81,8 +83,6 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
       setDataVencimentoFinal(d.data_vencimento_final || '')
       setTaxaJurosMensal(d.taxa_juros_mensal || '')
       setIndicadorCalculo(d.indicador_calculo || 'price')
-      setContaDebitoTipo(d.conta_debito_tipo || '')
-      setContaDebitoId(d.conta_debito_id || '')
       setStatus(d.status || 'ativa')
       setObservacoes(d.observacoes || '')
       setParcelas(d.parcelas || [])
@@ -92,15 +92,15 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
       setModalidade(''); setValorOriginal(''); setSaldoAtual('')
       setParcelasTotal(''); setParcelasPagas('0'); setDataInicio('')
       setDataVencimentoFinal(''); setTaxaJurosMensal(''); setIndicadorCalculo('price')
-      setContaDebitoTipo(''); setContaDebitoId(''); setStatus('ativa')
+      setStatus('ativa')
       setObservacoes(''); setAnexoFile(null); setParcelas([])
       setRegistrarEntrada(true); setValorLiberado(''); setDataLiberacao(''); setContaCreditoId('')
     }
-    // Contas e cartões vivem na mesma tabela: cartão = conta com data.tipo === 'cartao'
+    // Contas bancárias (pra "Conta que recebeu" da captação). Cartão = conta com
+    // data.tipo === 'cartao' — não entra aqui.
     supabase.from('contas_bancarias').select('*').then(({ data }) => {
       const ativas = (data || []).filter(c => c.data?.ativo !== false)
       setContas(ativas.filter(c => c.data?.tipo !== 'cartao'))
-      setCartoes(ativas.filter(c => c.data?.tipo === 'cartao'))
     })
   }, [open, registro])
 
@@ -242,26 +242,29 @@ Importante:
         numero_contrato: numeroContrato.trim(),
         modalidade: modalidade.trim(),
         valor_original: Number(valorOriginal) || 0,
-        saldo_atual: Number(saldoAtual) || 0,
         parcelas_total: Number(parcelasTotal) || 0,
-        parcelas_pagas: Number(parcelasPagas) || 0,
         data_inicio: dataInicio || null,
         data_vencimento_final: dataVencimentoFinal || null,
         taxa_juros_mensal: taxaJurosMensal ? Number(taxaJurosMensal) : null,
         indicador_calculo: indicadorCalculo,
-        conta_debito_tipo: contaDebitoTipo || null,
-        conta_debito_id: contaDebitoId || null,
         status,
         observacoes: observacoes.trim(),
         parcelas, // congela snapshot da tabela
       }
 
       if (isEdit) {
+        // Merge sobre o data gravado: saldo_atual / parcelas_pagas / conta_debito_*
+        // deixaram de ser editáveis, mas o que já existe no registro é preservado.
+        const merged = { ...(registro.data || {}), ...dataPayload }
         const { error } = await supabase.from('emprestimos_financiamentos').update({
-          data: dataPayload, anexo_path: anexoPath,
+          data: merged, anexo_path: anexoPath,
         }).eq('id', registro.id)
         if (error) throw error
       } else {
+        // No cadastro novo o saldo e as parcelas pagas digitados são o ponto de
+        // partida (viram as parcelas em Contas a Pagar). Depois, a tela calcula.
+        dataPayload.saldo_atual = Number(saldoAtual) || 0
+        dataPayload.parcelas_pagas = Number(parcelasPagas) || 0
         const hoje = new Date().toISOString().slice(0, 10)
         // Entrada (captação): o dinheiro que caiu na conta — recebido, financiamento (fora do DRE).
         const entradaData = registrarEntrada ? {
@@ -385,15 +388,31 @@ Importante:
           <Field label="Valor original (R$)">
             <input type="number" step="0.01" value={valorOriginal} onChange={e => setValorOriginal(e.target.value)} style={input} />
           </Field>
-          <Field label="Saldo atual (R$)">
-            <input type="number" step="0.01" value={saldoAtual} onChange={e => setSaldoAtual(e.target.value)} style={input} />
-          </Field>
+          {isEdit ? (
+            <Field label="Saldo devedor atual (R$)">
+              <div style={leitura} title="calculado pelas parcelas em Contas a Pagar">
+                {reais && reais.linhas > 0 ? fmtMoney(reais.saldo) : <span style={{ color: 'var(--text-mid)' }}>{fmtMoney(registro?.data?.saldo_atual ?? registro?.saldo_atual ?? 0)} <em style={{ fontSize: 10 }}>(informado)</em></span>}
+              </div>
+            </Field>
+          ) : (
+            <Field label="Saldo devedor atual (R$)">
+              <input type="number" step="0.01" value={saldoAtual} onChange={e => setSaldoAtual(e.target.value)} style={input} />
+            </Field>
+          )}
           <Field label="Parcelas total">
             <input type="number" value={parcelasTotal} onChange={e => setParcelasTotal(e.target.value)} style={input} />
           </Field>
-          <Field label="Parcelas pagas">
-            <input type="number" value={parcelasPagas} onChange={e => setParcelasPagas(e.target.value)} style={input} />
-          </Field>
+          {isEdit ? (
+            <Field label="Parcelas pagas">
+              <div style={leitura} title="calculado pelas parcelas em Contas a Pagar">
+                {reais && reais.linhas > 0 ? `${reais.pagas} / ${reais.total}` : <span style={{ color: 'var(--text-mid)' }}>{Number(registro?.data?.parcelas_pagas ?? registro?.parcelas_pagas ?? 0)} <em style={{ fontSize: 10 }}>(informado)</em></span>}
+              </div>
+            </Field>
+          ) : (
+            <Field label="Parcelas pagas">
+              <input type="number" value={parcelasPagas} onChange={e => setParcelasPagas(e.target.value)} style={input} />
+            </Field>
+          )}
           <Field label="Data início">
             <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={input} />
           </Field>
@@ -410,28 +429,14 @@ Importante:
               <option value="fixo">Parcelas fixas (parcelamento fiscal)</option>
             </select>
           </Field>
-          <Field label="Débito automático em">
-            <div style={{ display: 'flex', gap: 6 }}>
-              <select value={contaDebitoTipo} onChange={e => { setContaDebitoTipo(e.target.value); setContaDebitoId('') }} style={{ ...input, flex: 1 }}>
-                <option value="">— escolher —</option>
-                <option value="conta">Conta bancária</option>
-                <option value="cartao">Cartão de crédito</option>
-              </select>
-              {contaDebitoTipo === 'conta' && (
-                <select value={contaDebitoId} onChange={e => setContaDebitoId(e.target.value)} style={{ ...input, flex: 2 }}>
-                  <option value="">— qual conta —</option>
-                  {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome}</option>)}
-                </select>
-              )}
-              {contaDebitoTipo === 'cartao' && (
-                <select value={contaDebitoId} onChange={e => setContaDebitoId(e.target.value)} style={{ ...input, flex: 2 }}>
-                  <option value="">— qual cartão —</option>
-                  {cartoes.map(c => <option key={c.id} value={c.id}>{c.data?.nome}</option>)}
-                </select>
-              )}
-            </div>
-          </Field>
         </div>
+
+        {isEdit && (
+          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 12, lineHeight: 1.5 }}>
+            Saldo devedor e parcelas pagas são <strong>calculados pelas parcelas em Contas a Pagar</strong> — pra mudar, pague/edite as parcelas lá.
+            {!(reais && reais.linhas > 0) && ' Este registro não tem parcelas geradas, então os números acima são os digitados no cadastro.'}
+          </div>
+        )}
 
         {/* Entrada (captação) — só no cadastro novo */}
         {!isEdit && (
@@ -547,6 +552,7 @@ const entradaBox = { padding: 14, background: 'var(--cream)', border: '1px solid
 const btnUpload = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }
 const input = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const leitura = { ...input, background: 'var(--cream)', fontWeight: 600, cursor: 'help', minHeight: 17 }
 const btnPrimary = { padding: '10px 18px', background: 'var(--gold)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'var(--body)' }
 const btnSecondary = { padding: '10px 18px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--cream-dark)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--body)' }
 const thMini = { textAlign: 'left', padding: '6px 8px', fontSize: 9, fontWeight: 700, letterSpacing: 1, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', position: 'sticky', top: 0, zIndex: 5 }

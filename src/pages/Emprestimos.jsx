@@ -19,9 +19,48 @@ const TIPO_LABEL = {
   parcelamento_fiscal: 'Parcelamento Fiscal',
 }
 
+// =============================================================================
+// Saldo e parcelas VIVOS: a verdade das parcelas está em Contas a Pagar
+// (payable.emprestimo_id). O que foi digitado no cadastro (saldo_atual,
+// parcelas_pagas) é só o ponto de partida pra gerar as parcelas — depois
+// disso congela. Aqui consolidamos as parcelas reais por empréstimo.
+//
+// Uma parcela pode virar 2 linhas em payable (amortização + juros) — por isso
+// contagem é por número de parcela (parcela_atual), não por linha. Saldo e
+// próximo vencimento somam/olham todas as linhas não pagas.
+// =============================================================================
+function consolidarParcelas(linhas) {
+  const porEmp = new Map()
+  for (const l of linhas || []) {
+    if (!l.emprestimo_id) continue
+    if (!porEmp.has(l.emprestimo_id)) porEmp.set(l.emprestimo_id, { linhas: 0, saldo: 0, proxima: null, nums: new Map() })
+    const e = porEmp.get(l.emprestimo_id)
+    const pago = l.st === 'Pago'
+    const val = Number(l.val || 0)
+    e.linhas += 1
+    if (!pago) {
+      e.saldo += val
+      if (l.due && (!e.proxima || l.due < e.proxima)) e.proxima = l.due
+    }
+    // Número da parcela (fallback: a própria linha, quando não veio numerada)
+    const num = l.num != null && l.num !== '' ? String(l.num) : `linha:${l.id}`
+    const cur = e.nums.get(num) || { pago: true }
+    cur.pago = cur.pago && pago
+    e.nums.set(num, cur)
+  }
+  const out = {}
+  for (const [id, e] of porEmp) {
+    let pagas = 0
+    for (const n of e.nums.values()) if (n.pago) pagas += 1
+    out[id] = { total: e.nums.size, pagas, saldo: e.saldo, proxima: e.proxima, linhas: e.linhas }
+  }
+  return out
+}
+
 export default function Emprestimos() {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
+  const [reais, setReais] = useState({}) // emprestimo_id → { total, pagas, saldo, proxima }
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
@@ -31,12 +70,21 @@ export default function Emprestimos() {
   const recarregar = useCallback(() => {
     if (!user) return
     setLoading(true)
-    supabase.from('emprestimos_financiamentos').select('*').order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) { setErro(error); setRows([]) }
+    Promise.all([
+      supabase.from('emprestimos_financiamentos').select('*').order('created_at', { ascending: false }),
+      // Parcelas reais em Contas a Pagar (só o que precisamos — nada de data inteiro).
+      supabase.from('payable')
+        .select('id, emprestimo_id, due:data->>due, st:data->>status, val:data->>value, num:data->>parcela_atual')
+        .not('emprestimo_id', 'is', null),
+    ])
+      .then(([rE, rP]) => {
+        if (rE.error) { setErro(rE.error); setRows([]) }
         // Os campos do empréstimo (nome, tipo, saldo_atual, parcelas…) vivem em
         // data — o flatten genérico não os expõe. Levantamos data pro topo aqui.
-        else { setErro(null); setRows((data || []).map(r => ({ ...r, ...r.data }))) }
+        else { setErro(null); setRows((rE.data || []).map(r => ({ ...r, ...r.data }))) }
+        // Parcelas: erro aqui não derruba a tela — cai no valor digitado (com selo).
+        if (rP.error) { console.warn('parcelas de empréstimo:', rP.error.message); setReais({}) }
+        else setReais(consolidarParcelas(rP.data))
         setLoading(false)
       })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -53,14 +101,28 @@ export default function Emprestimos() {
     })
   }, [rows, busca])
 
+  // Números que a tela mostra: reais (Contas a Pagar) quando existem parcelas
+  // geradas; senão o digitado no cadastro, marcado como "informado".
+  const visao = useCallback((r) => {
+    const real = reais[r.id]
+    if (real && real.linhas > 0) {
+      return { real: true, saldo: real.saldo, pagas: real.pagas, total: real.total, proxima: real.proxima }
+    }
+    const proxSnapshot = (r.parcelas || []).find(p => !p.pago)?.vencimento || null
+    return { real: false, saldo: Number(r.saldo_atual || 0), pagas: Number(r.parcelas_pagas || 0), total: Number(r.parcelas_total || 0), proxima: proxSnapshot }
+  }, [reais])
+
   const totais = useMemo(() => {
     const ativos = filtrados.filter(r => r.status !== 'quitada')
-    return {
-      saldo: ativos.reduce((s, r) => s + Number(r.saldo_atual || 0), 0),
-      parcelas: ativos.reduce((s, r) => s + Number(r.parcelas_total || 0) - Number(r.parcelas_pagas || 0), 0),
-      count: ativos.length,
+    let saldo = 0, parcelas = 0, informados = 0
+    for (const r of ativos) {
+      const v = visao(r)
+      saldo += v.saldo
+      parcelas += Math.max(0, v.total - v.pagas)
+      if (!v.real) informados += 1
     }
-  }, [filtrados])
+    return { saldo, parcelas, count: ativos.length, informados }
+  }, [filtrados, visao])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
@@ -102,10 +164,15 @@ export default function Emprestimos() {
               <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar..." style={searchInput} />
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={resumo}>
+              <div style={resumo} title="Saldo devedor e parcelas calculados pelas parcelas reais em Contas a Pagar">
                 <span style={{ color: 'var(--text-mid)' }}>{totais.count} ativo(s) · {totais.parcelas} parc. em aberto</span>
                 <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
                 <span style={{ fontWeight: 600, color: 'var(--red)' }}>{fmtMoney(totais.saldo)}</span>
+                {totais.informados > 0 && (
+                  <span style={seloInformado} title={`${totais.informados} sem parcelas geradas — valor digitado no cadastro`}>
+                    {totais.informados} informado(s)
+                  </span>
+                )}
               </div>
               <button onClick={abrirNovo} style={btnNovo}>+ Novo</button>
             </div>
@@ -147,8 +214,9 @@ export default function Emprestimos() {
             <tbody>
               {filtrados.map(r => {
                 const status = r.status || 'ativa'
-                // Próximo vencimento = 1ª parcela ainda não paga do cronograma.
-                const proxParcela = (r.parcelas || []).find(p => !p.pago)?.vencimento || '—'
+                // Reais (Contas a Pagar) ou digitados no cadastro (selo "informado").
+                const v = visao(r)
+                const selo = v.real ? null : <span style={seloInformado} title="sem parcelas geradas — valor digitado no cadastro">informado</span>
                 return (
                   <tr key={r.id} onClick={() => abrirEdicao(r)} style={{ cursor: 'pointer' }} title="Clique para ver/editar">
                     <td style={tdMono}>{r.codigo || '—'}</td>
@@ -157,11 +225,15 @@ export default function Emprestimos() {
                       {r.numero_contrato && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>{r.numero_contrato}</div>}
                     </td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{TIPO_LABEL[r.tipo] || '—'}</td>
-                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>
-                      {Number(r.parcelas_pagas || 0)}/{Number(r.parcelas_total || 0)}
+                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }} title={v.real ? 'Contagem real das parcelas em Contas a Pagar' : 'sem parcelas geradas — valor digitado no cadastro'}>
+                      {v.pagas}/{v.total}{selo}
                     </td>
-                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>{fmtDataBR(proxParcela)}</td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: 'var(--red)' }}>{fmtMoney(r.saldo_atual)}</td>
+                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }} title={v.real ? 'Menor vencimento ainda não pago em Contas a Pagar' : 'cronograma digitado no cadastro'}>
+                      {v.proxima ? fmtDataBR(v.proxima) : (status === 'quitada' ? '—' : (v.real ? 'tudo pago' : '—'))}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: 'var(--red)' }} title={v.real ? 'Soma das parcelas não pagas em Contas a Pagar' : 'sem parcelas geradas — valor digitado no cadastro'}>
+                      {fmtMoney(v.saldo)}{selo}
+                    </td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       {status === 'quitada'
                         ? <span style={{ background: 'rgba(39,174,96,0.10)', color: 'var(--green)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Quitada</span>
@@ -180,7 +252,7 @@ export default function Emprestimos() {
         )}
       </div>
 
-      <ModalEmprestimo open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} />
+      <ModalEmprestimo open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} reais={edicao ? (reais[edicao.id] || null) : null} onSaved={recarregar} />
     </AppLayout>
   )
 }
@@ -189,6 +261,7 @@ const searchInput = { width: '100%', padding: '9px 12px 9px 32px', border: '1.5p
 const resumo = { display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12 }
 const btnNovo = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', textTransform: 'uppercase' }
 const btnExcluir = { background: 'none', border: 'none', color: 'var(--text-mid)', fontSize: 22, lineHeight: 1, cursor: 'pointer', padding: 0 }
+const seloInformado = { display: 'inline-block', marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold-dark)', border: '1px solid var(--gold-dark)', borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle', cursor: 'help' }
 const tableWrap = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const tbl = { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
