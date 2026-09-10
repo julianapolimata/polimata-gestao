@@ -9,9 +9,13 @@ import { preencherModelo, EXEMPLO_MODELO } from '../lib/nfseModelos'
 
 // =====================================================================
 // NFS-e — Bloco 1: Configuração do emitente + modelos de texto.
-// Padrão Nacional obrigatório p/ optantes do Simples a partir de 01/09/2026
+// Padrão Nacional obrigatório p/ optantes do Simples desde 01/09/2026
 // (CGSN 189/2026). Aqui ficam só os parâmetros fiscais NÃO-secretos; o
 // certificado A1 é segredo de servidor (configurado no Bloco 2, na Vercel).
+//
+// EM PREPARAÇÃO: a emissão pela API ainda não existe — nada aqui tem
+// efeito hoje, exceto "Município de incidência", lido pelo Simples Nacional.
+// O banner no topo diz isso ao usuário (configuração morta é sinalizada).
 // =====================================================================
 
 const REGIMES = ['Simples Nacional - ME/EPP', 'MEI', 'Regime Normal']
@@ -122,15 +126,27 @@ export default function NfseConfig() {
 
   return (
     <AppLayout title="Configurar NFS-e">
-      {/* Banner de contexto / prazo legal */}
+      {/* Em preparação — nada aqui tem efeito ainda (configuração morta é sinalizada) */}
+      <div style={bannerPreparacao}>
+        <div style={{ fontSize: 20 }}>⚠️</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)' }}>Em preparação — nada nesta tela tem efeito ainda.</div>
+          <div style={{ fontSize: 12, color: 'var(--navy)', marginTop: 3, lineHeight: 1.5 }}>
+            A emissão de NFS-e pelo Padrão Nacional será ligada aqui; até lá, o único campo usado por outras telas é
+            <strong> Município de incidência</strong> (o Simples Nacional lê daqui). O que você salvar fica guardado para quando a emissão entrar.
+          </div>
+        </div>
+      </div>
+
+      {/* Banner de contexto legal */}
       <div style={bannerBox}>
         <div style={{ fontSize: 20 }}>🧾</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)' }}>NFS-e Padrão Nacional</div>
           <div style={{ fontSize: 12, color: 'var(--text-mid)', marginTop: 3, lineHeight: 1.5 }}>
-            Obrigatória para optantes do Simples Nacional a partir de <strong>01/09/2026</strong> (CGSN 189/2026),
-            exclusivamente pelo Emissor Nacional. Configure aqui os parâmetros fiscais e os modelos de texto —
-            a emissão pela API entra no próximo bloco.
+            Obrigatória para optantes do Simples Nacional desde <strong>01/09/2026</strong> (CGSN 189/2026),
+            exclusivamente pelo Emissor Nacional. Enquanto a emissão pela API não entra no sistema, as notas continuam
+            sendo emitidas no portal do Emissor Nacional — esta tela só guarda os parâmetros fiscais e os modelos de texto.
           </div>
         </div>
         <span style={{ ...pill, ...(f.ambiente === 'producao' ? pillProd : pillHomolog) }}>
@@ -335,6 +351,7 @@ function Check({ label, checked, onChange }) {
 
 const card = { background: 'var(--white)', borderRadius: 12, padding: 24, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 18 }
 const bannerBox = { background: 'var(--white)', borderRadius: 10, padding: 16, border: '1px solid var(--cream-dark)', borderLeft: '3px solid var(--gold)', boxShadow: 'var(--shadow)', marginBottom: 18, display: 'flex', gap: 14, alignItems: 'flex-start' }
+const bannerPreparacao = { ...bannerBox, background: 'rgba(204,145,94,0.10)', border: '1px solid var(--gold)', borderLeft: '4px solid var(--gold-dark)' }
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const divider = { height: 1, background: 'var(--cream-dark)', margin: '20px 0' }

@@ -8,12 +8,15 @@ import { proximoCodigoContrato } from '../../lib/codigos'
 // =============================================================================
 // MODAL CONTRATO — replica saveContract() do legado (linha 3760).
 // Suporta principal e aditivo (vincula a contrato pai).
-// Inclui bloco de recorrência mensal de NF (dia, valor, LC116, descrição, modo).
+//
+// O bloco de "emissão recorrente mensal de NF" (rec_ativa, rec_dia, rec_valor_mensal,
+// rec_lc116, rec_descricao, rec_modo) foi retirado do formulário: configurava algo
+// que não existe (a emissão de NFS-e não foi construída). Os valores já gravados
+// em data são preservados no merge da edição — só não se editam nem se gravam mais.
 // =============================================================================
 
 const TIPOS = ['Prestação de Serviços', 'Consultoria', 'Fornecimento', 'Parceria', 'Outro']
 const STATUSES = ['Ativo', 'Em negociação', 'Encerrado']
-const DIAS_MES = Array.from({ length: 28 }, (_, i) => i + 1)
 
 export default function ModalContrato({ open, onClose, registro, onSaved }) {
   const { user } = useAuth()
@@ -30,13 +33,6 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
   const [tipoC, setTipoC] = useState('Prestação de Serviços')
   const [statusV, setStatusV] = useState('Ativo')
   const [notes, setNotes] = useState('')
-
-  const [recAtiva, setRecAtiva] = useState(false)
-  const [recDia, setRecDia] = useState(5)
-  const [recValor, setRecValor] = useState('')
-  const [recLc116, setRecLc116] = useState('')
-  const [recDesc, setRecDesc] = useState('')
-  const [recModo, setRecModo] = useState('consolidado')
 
   const [pessoas, setPessoas] = useState([])
   const [contratos, setContratos] = useState([])
@@ -71,18 +67,10 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
       setTipoC(d.type || 'Prestação de Serviços')
       setStatusV(d.status || 'Ativo')
       setNotes(d.notes || '')
-      setRecAtiva(!!d.rec_ativa)
-      setRecDia(d.rec_dia || 5)
-      setRecValor(d.rec_valor_mensal != null ? String(d.rec_valor_mensal) : '')
-      setRecLc116(d.rec_lc116 || '')
-      setRecDesc(d.rec_descricao || '')
-      setRecModo(d.rec_modo || 'consolidado')
     } else {
       setNatureza('principal'); setPaiId(''); setNumero('')
       setParte(''); setObjeto(''); setValor('')
       setInicio(''); setFim(''); setTipoC('Prestação de Serviços'); setStatusV('Ativo'); setNotes('')
-      setRecAtiva(false); setRecDia(5); setRecValor(''); setRecLc116(''); setRecDesc('')
-      setRecModo('consolidado')
     }
   }, [open, isEdit, registro])
 
@@ -128,14 +116,10 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
         type: tipoC,
         status: statusV,
         notes: notes.trim() || null,
-        rec_ativa: recAtiva,
-        rec_dia: recAtiva ? Number(recDia) : null,
-        rec_valor_mensal: recAtiva ? Number(recValor || 0) : null,
-        rec_lc116: recAtiva ? recLc116.trim() : null,
-        rec_descricao: recAtiva ? recDesc.trim() : null,
-        rec_modo: recAtiva ? recModo : null,
+        // rec_* (recorrência de NF) não é mais gravado — ver cabeçalho do arquivo.
       }
       if (isEdit) {
+        // Merge preserva o que já existe em data (inclusive rec_* antigos).
         const merged = { ...(registro.data || {}), ...data }
         const { error } = await supabase.from('contracts').update({ data: merged }).eq('id', registro.id)
         if (error) throw error
@@ -244,39 +228,8 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
         </Field>
       </Row>
 
-      <div style={recBox}>
-        <label style={checkboxLabel}>
-          <input type="checkbox" checked={recAtiva} onChange={e => setRecAtiva(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--gold)' }} />
-          🔄 Emissão recorrente mensal de NF
-        </label>
-        {recAtiva && (
-          <>
-            <Row cols={3} gap={10} mt={12}>
-              <Field label="Dia da Emissão">
-                <select value={recDia} onChange={e => setRecDia(Number(e.target.value))} style={input}>
-                  {DIAS_MES.map(d => <option key={d} value={d}>Dia {d}</option>)}
-                </select>
-              </Field>
-              <Field label="Valor Mensal (R$)">
-                <input type="number" step="0.01" value={recValor} onChange={e => setRecValor(e.target.value)} placeholder="0,00" style={input} />
-              </Field>
-              <Field label="Item LC116 (código)">
-                <input value={recLc116} onChange={e => setRecLc116(e.target.value)} placeholder="Ex: 17.20" style={input} />
-              </Field>
-            </Row>
-            <Row cols={2} gap={10}>
-              <Field label="Descrição do serviço (vai pra NF)">
-                <input value={recDesc} onChange={e => setRecDesc(e.target.value)} placeholder="Ex: Consultoria em GRC — mensalidade" style={input} />
-              </Field>
-              <Field label="Modo de emissão">
-                <select value={recModo} onChange={e => setRecModo(e.target.value)} style={input}>
-                  <option value="consolidado">Consolidado (1 NF total = principal + aditivos)</option>
-                  <option value="separado">Separado (1 NF por contrato/aditivo)</option>
-                </select>
-              </Field>
-            </Row>
-          </>
-        )}
+      <div style={notaPreparacao}>
+        Emissão automática de NF por contrato: disponível quando a emissão de NFS-e entrar no sistema <em>(em preparação)</em>.
       </div>
 
       <Row>
@@ -304,7 +257,6 @@ function Row({ children, cols = 1, gap = 14, mt }) {
 
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
-const recBox = { padding: 14, background: 'rgba(204,145,94,0.06)', borderLeft: '3px solid var(--gold)', borderRadius: 6, marginBottom: 14 }
-const checkboxLabel = { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, color: 'var(--navy)', fontSize: 13, fontFamily: 'var(--body)' }
+const notaPreparacao = { fontSize: 11, color: 'var(--text-mid)', padding: '8px 12px', background: 'var(--cream)', border: '1px dashed var(--cream-dark)', borderRadius: 6, marginBottom: 14, lineHeight: 1.5, fontFamily: 'var(--body)' }
 const btnGhost = { padding: '10px 18px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5 }
 const btnPrimary = { padding: '10px 18px', border: 'none', borderRadius: 6, background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5 }

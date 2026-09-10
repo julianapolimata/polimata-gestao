@@ -11,6 +11,7 @@ import {
   SITUACOES_FISCAIS, semDocumentoDe,
 } from '../lib/escrituracao'
 import SeletorNF from './components/SeletorNF'
+import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento } from '../lib/fechamento'
 
 // =====================================================================
 // ESCRITURAÇÃO — 1ª camada da conciliação. Mostra tudo que está
@@ -51,6 +52,14 @@ export default function ClassificarLancamentos() {
   const [expandido, setExpandido] = useState(new Set())   // grupos abertos p/ ver os itens
   const [desmarcados, setDesmarcados] = useState(new Set()) // itens DESmarcados dentro de um grupo aberto
   const [seletorNF, setSeletorNF] = useState(null)          // { compra, tabela, classificacao } p/ vincular NF
+  const [fechamentos, setFechamentos] = useState([])        // meses fechados (portão)
+
+  // Lançamento em mês fechado não pode ser escriturado/movido (o banco recusa a
+  // mudança de categoria). Fica de fora com aviso de quantos foram pulados.
+  const emMesFechado = it => mesFechado(fechamentos, competenciaDe(it?.data))
+  const avisarPulados = n => {
+    if (n > 0) showToast(`${n} lançamento(s) em mês fechado ficaram de fora — reabra o mês em Fechamento Mensal pra mexer neles.`, 'warning')
+  }
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -59,7 +68,9 @@ export default function ClassificarLancamentos() {
       supabase.from('payable').select('id,codigo,data,anexo_path,conciliado_em'),
       supabase.from('receivable').select('id,codigo,data,anexo_path,conciliado_em'),
       fetchPlanoContas(),
-    ]).then(([rP, rR, pl]) => {
+      fetchFechamentos().catch(() => []),
+    ]).then(([rP, rR, pl, fech]) => {
+      setFechamentos(fech || [])
       // Fila = A escriturar (escriturado != true) E não é provisão. Estar conciliada
       // não tira da fila: compra criada da fatura do cartão nasce ligada à linha da
       // fatura (o fato do gasto é certo) e ainda precisa de classificação + situação fiscal.
@@ -139,8 +150,12 @@ export default function ClassificarLancamentos() {
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
     // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
-    const itensAlvo = grupo.itens.filter(it => !desmarcados.has(it.id))
-    if (!itensAlvo.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
+    const marcados = grupo.itens.filter(it => !desmarcados.has(it.id))
+    if (!marcados.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
+    const itensAlvo = marcados.filter(it => !emMesFechado(it))
+    const pulados = marcados.length - itensAlvo.length
+    if (!itensAlvo.length) { avisarPulados(pulados); return }
+    avisarPulados(pulados)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
 
@@ -168,7 +183,7 @@ export default function ClassificarLancamentos() {
         if (semNota.length) msg += ` ${semNota.length} sem nota — vincule ou mude a situação fiscal.`
         showToast(msg, 'success')
         carregar()
-      } catch (e) { showToast('Erro ao escriturar: ' + e.message, 'error') }
+      } catch (e) { showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error') }
       finally { setSalvando(null) }
       return
     }
@@ -189,7 +204,7 @@ export default function ClassificarLancamentos() {
       showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
       carregar()
     } catch (e) {
-      showToast('Erro ao escriturar: ' + e.message, 'error')
+      showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error')
     } finally {
       setSalvando(null)
     }
@@ -208,17 +223,20 @@ export default function ClassificarLancamentos() {
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
     try {
-      let n = 0
+      let n = 0, pulados = 0
       for (const g of alvo) {
-        await Promise.all(g.itens.map(it =>
+        const itens = g.itens.filter(it => !emMesFechado(it))
+        pulados += g.itens.length - itens.length
+        await Promise.all(itens.map(it =>
           supabase.from(table).update({ data: escriturarAuto(it.data, g.regra, agora) }).eq('id', it.id),
         ))
-        n += g.itens.length
+        n += itens.length
       }
       showToast(`${n} lançamento(s) escriturado(s) automaticamente por regra recorrente.`, 'success')
+      avisarPulados(pulados)
       carregar()
     } catch (e) {
-      showToast('Erro na escrituração automática: ' + e.message, 'error')
+      showToast(traduzErroFechamento(e) || 'Erro na escrituração automática: ' + e.message, 'error')
     } finally {
       setAutoRodando(false)
     }
@@ -228,10 +246,11 @@ export default function ClassificarLancamentos() {
   const gruposProntos = grupos.filter(g => !validar(selDe(g)))
   const itensProntosDe = g => {
     const s = selDe(g)
-    const base = g.itens.filter(it => !desmarcados.has(it.id))
+    const base = g.itens.filter(it => !desmarcados.has(it.id) && !emMesFechado(it)) // mês fechado fica de fora
     return s.situacao_fiscal === 'vinculado' ? base.filter(temNF) : base // Com NF só com prova
   }
   const totalProntos = gruposProntos.reduce((a, g) => a + itensProntosDe(g).length, 0)
+  const prontosEmMesFechado = gruposProntos.reduce((a, g) => a + g.itens.filter(it => !desmarcados.has(it.id) && emMesFechado(it)).length, 0)
 
   // Escritura de uma vez tudo que está pronto — transforma a fila numa sessão de minutos.
   async function escriturarProntos() {
@@ -255,8 +274,9 @@ export default function ClassificarLancamentos() {
         n += itens.length
       }
       showToast(`${n} lançamento(s) escriturado(s) — já disponíveis pra conciliação.`, 'success')
+      avisarPulados(prontosEmMesFechado)
       setSel({}); carregar()
-    } catch (e) { showToast('Erro ao escriturar: ' + e.message, 'error') }
+    } catch (e) { showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error') }
     finally { setAutoRodando(false) }
   }
 
@@ -265,13 +285,18 @@ export default function ClassificarLancamentos() {
     const destino = aba === 'Saída' ? 'receivable' : 'payable'
     const origem = aba === 'Saída' ? 'payable' : 'receivable'
     const nomeDest = aba === 'Saída' ? 'Receitas' : 'Despesas'
-    if (!window.confirm(`"${grupo.nome}" (${grupo.itens.length} lançamento(s)) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a escrituração continua pendente lá.`)) return
+    // Mover = insert + delete: recusado em mês fechado — esses ficam de fora.
+    const itens = grupo.itens.filter(it => !emMesFechado(it))
+    const pulados = grupo.itens.length - itens.length
+    if (!itens.length) { avisarPulados(pulados); return }
+    if (!window.confirm(`"${grupo.nome}" (${itens.length} lançamento(s)${pulados ? `, ${pulados} em mês fechado ficam de fora` : ''}) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a escrituração continua pendente lá.`)) return
+    avisarPulados(pulados)
     setSalvando(grupo.key)
     try {
       const base = destino === 'payable' ? await proximoCodigoPayable() : await proximoCodigoReceivable()
       const prefixo = base[0]
       let num = parseInt(base.slice(1), 10)
-      const rows = grupo.itens.map((it, i) => {
+      const rows = itens.map((it, i) => {
         const d = { ...it.data }
         if (destino === 'receivable') { d.client = d.supplier || d.client; delete d.supplier }
         else { d.supplier = d.client || d.supplier; delete d.client }
@@ -282,12 +307,12 @@ export default function ClassificarLancamentos() {
       })
       const { error: e1 } = await supabase.from(destino).insert(rows)
       if (e1) throw e1
-      const { error: e2 } = await supabase.from(origem).delete().in('id', grupo.itens.map(x => x.id))
+      const { error: e2 } = await supabase.from(origem).delete().in('id', itens.map(x => x.id))
       if (e2) { showToast('Copiado, mas falhou remover o original — apague manualmente.', 'warning') }
-      else showToast(`${grupo.itens.length} movido(s) para ${nomeDest}.`, 'success')
+      else showToast(`${itens.length} movido(s) para ${nomeDest}.`, 'success')
       carregar()
     } catch (e) {
-      showToast('Erro ao mover: ' + e.message, 'error')
+      showToast(traduzErroFechamento(e) || 'Erro ao mover: ' + e.message, 'error')
     } finally {
       setSalvando(null)
     }

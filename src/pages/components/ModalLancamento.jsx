@@ -7,6 +7,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable }
 import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '../../lib/anexos'
 import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/parcelas'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
+import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../../lib/fechamento'
 import SeletorNF from './SeletorNF'
 
 // =============================================================================
@@ -73,6 +74,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
 
   const [pessoas, setPessoas] = useState([])
   const [plano, setPlano] = useState([])
+  const [fechamentos, setFechamentos] = useState([]) // meses fechados (portão)
   const [saving, setSaving] = useState(false)
 
   // ── Carregar listas auxiliares (pessoas para autocomplete + plano de contas) ──
@@ -83,10 +85,12 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       supabase.from('pessoas').select('id,codigo,data'),
       fetchPlanoContas(),
       isRec ? Promise.resolve({ data: [] }) : supabase.from('contas_bancarias').select('id,data').order('updated_at', { ascending: false }),
-    ]).then(([rPess, plano, rCart]) => {
+      fetchFechamentos().catch(() => []),
+    ]).then(([rPess, plano, rCart, fech]) => {
       if (cancelled) return
       setPessoas(rPess.data || [])
       setPlano(plano || [])
+      setFechamentos(fech || [])
       // Cartão = conta com data.tipo === 'cartao' (mesma tabela das contas bancárias)
       setCartoes((rCart?.data || []).filter(c => c.data?.tipo === 'cartao' && c.data?.ativo !== false))
     })
@@ -170,6 +174,30 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       showToast(`Status "${statusV}" exige a data de ${isRec ? 'recebimento' : 'pagamento'}.`, 'warning')
       return
     }
+    // ── Portão do mês fechado (mensagem amigável ANTES do erro do banco) ──
+    // Novo lançamento em mês fechado: não salva. Edição em mês fechado: só passa
+    // se mudou APENAS baixa (status/data_pagamento), observações ou prova fiscal
+    // (doc_status/motivo/sem_documento/anexo) — o trigger do banco recusa o resto.
+    const compNova = competenciaDe({ data_competencia: dataCompetencia || null, due: venc })
+    const compAntiga = isEdit ? competenciaDe(registro?.data) : null
+    let soBaixa = false
+    if (mesFechado(fechamentos, compNova) || mesFechado(fechamentos, compAntiga)) {
+      if (!isEdit) { showToast(msgMesFechado(compNova), 'warning'); return }
+      const d0 = registro.data || {}
+      const mudouEstrutura =
+        (d0.client || d0.supplier || '') !== parte.trim() ||
+        Number(d0.value) !== Number(valor) ||
+        (d0.desc || '') !== descricao.trim() ||
+        (d0.due || '') !== venc ||
+        (d0.data_competencia || '') !== (dataCompetencia || '') ||
+        (d0.forma || '') !== (forma || '') ||
+        (d0.cat || '') !== cat ||
+        (d0.subcat || '') !== subcat ||
+        !!d0.recorrente !== recorrente ||
+        (!isRec && (registro.cartao_id || '') !== (cartaoId || ''))
+      if (mudouEstrutura) { showToast(msgMesFechado(compAntiga || compNova), 'warning'); return }
+      soBaixa = true
+    }
     setSaving(true)
     try {
       const data = {
@@ -197,7 +225,10 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         rec_ate: recorrente ? (recAte || null) : null,
       }
       if (isEdit) {
-        const merged = { ...(registro.data || {}), ...data }
+        // Mês fechado: manda só os campos de caixa/prova (o resto o banco recusaria).
+        const merged = soBaixa
+          ? { ...(registro.data || {}), status: data.status, data_pagamento: data.data_pagamento, notes: data.notes, doc_status: data.doc_status, doc_motivo_dispensa: data.doc_motivo_dispensa, sem_documento: data.sem_documento }
+          : { ...(registro.data || {}), ...data }
         const updates = { data: merged }
         // Anexo: 3 casos — substituir (novo file), remover (anexoPath=null mas tinha), manter
         if (anexoFile) {
@@ -219,8 +250,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           try { await deleteAnexo(registro.anexo_path) } catch (e) { console.warn(e) }
           updates.anexo_path = null
         }
-        // Cartão (Pagar) — gravar/limpar cartao_id
-        if (!isRec) updates.cartao_id = cartaoId || null
+        // Cartão (Pagar) — gravar/limpar cartao_id (não em mês fechado: coluna travada)
+        if (!isRec && !soBaixa) updates.cartao_id = cartaoId || null
         const { error } = await supabase.from(tabela).update(updates).eq('id', registro.id)
         if (error) throw error
         showToast('Lançamento atualizado.', 'success')
@@ -284,7 +315,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       onClose()
     } catch (e) {
       console.error(e)
-      showToast(e?.message || 'Erro ao salvar.', 'error')
+      showToast(traduzErroFechamento(e) || e?.message || 'Erro ao salvar.', 'error')
     } finally {
       setSaving(false)
     }
@@ -298,6 +329,9 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     if (!isEdit || !registro) return
     const destino = isRec ? 'payable' : 'receivable'
     const nomeDestino = isRec ? 'Contas a Pagar' : 'Contas a Receber'
+    // Mover = insert + delete: ambos recusados em mês fechado.
+    const compMov = competenciaDe(registro.data)
+    if (mesFechado(fechamentos, compMov)) { showToast(msgMesFechado(compMov), 'warning'); return }
     if (!window.confirm(`Mover este lançamento para ${nomeDestino}?\n\nA categoria será limpa (as categorias de receita e despesa são diferentes) — você reclassifica depois. O anexo e os valores são preservados.`)) return
     setSaving(true)
     try {
@@ -319,7 +353,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       onSaved?.()
       onClose()
     } catch (e) {
-      showToast('Erro ao mover: ' + e.message, 'error')
+      showToast(traduzErroFechamento(e) || 'Erro ao mover: ' + e.message, 'error')
     } finally {
       setSaving(false)
     }

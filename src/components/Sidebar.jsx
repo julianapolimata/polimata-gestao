@@ -134,45 +134,47 @@ export default function Sidebar() {
         <Section collapsed={collapsed}>Visão Geral</Section>
         <NavItem to="/dashboard" collapsed={collapsed} label="Início" icon={ico(<><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></>)} />
 
+        {/* Fluxo do mês — na ordem em que o trabalho acontece */}
+        <Section collapsed={collapsed}>Fluxo do mês</Section>
+        <NavItem to="/importar-nfs" collapsed={collapsed} label="1 · Caixa de entrada" icon={ico(<><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></>)} />
+        <NavItem to="/classificar" collapsed={collapsed} label="2 · Escrituração" icon={ico(<><path d="M3 7h18"/><path d="M6 12h12"/><path d="M9 17h6"/></>)} />
+        <NavItem to="/conciliacao" collapsed={collapsed} label="3 · Conciliação" icon={ico(<><circle cx="12" cy="12" r="9"/><polyline points="9 12 11 14 15 10"/></>)} />
+        <NavItem to="/fechamento-mensal" collapsed={collapsed} label="4 · Fechamento" icon={ico(<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></>)} />
+
         <Section collapsed={collapsed}>No dia a dia</Section>
         <NavItem to="/receber" collapsed={collapsed} label="Contas a Receber" icon={ico(<><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>)} />
         <NavItem to="/pagar" collapsed={collapsed} label="Contas a Pagar" icon={ico(<><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></>)} />
-        <NavItem to="/conciliacao" collapsed={collapsed} label="Conciliação" icon={ico(<><circle cx="12" cy="12" r="9"/><polyline points="9 12 11 14 15 10"/></>)} />
         <NavItem to="/conferencia-fatura" collapsed={collapsed} label="Fatura do Cartão" icon={ico(<><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="9" x2="22" y2="9"/><circle cx="7" cy="14" r="1"/></>)} />
         <NavItem to="/recorrencias" collapsed={collapsed} label="Recorrências" icon={ico(<><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></>)} />
 
         <Section collapsed={collapsed}>Análise &amp; Decisão</Section>
         <NavItem to="/fluxo-caixa" collapsed={collapsed} label="Fluxo de Caixa" icon={ico(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>)} />
         <NavItem to="/dre" collapsed={collapsed} label="DRE Gerencial" icon={ico(<><line x1="3" y1="3" x2="3" y2="21"/><line x1="3" y1="21" x2="21" y2="21"/><polyline points="7 14 11 10 14 13 19 7"/></>)} />
-        <NavItem to="/classificar" collapsed={collapsed} label="Escrituração" icon={ico(<><path d="M3 7h18"/><path d="M6 12h12"/><path d="M9 17h6"/></>)} />
-        <NavItem to="/fechamento-mensal" collapsed={collapsed} label="Fechamento Mensal" icon={ico(<><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></>)} />
+        <NavItem to="/simples-nacional" collapsed={collapsed} label="Simples Nacional" icon={ico(<><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></>)} />
         <NavItem to="/relatorios" collapsed={collapsed} label="Exportar Relatório" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>)} />
 
-        <Section collapsed={collapsed}>Fiscal</Section>
-        <NavItem to="/importar-nfs" collapsed={collapsed} label="Importar NFs" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
-        <NavItem to="/emitir-nf" collapsed={collapsed} label="Emitir NF" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
-        <NavItem to="/simples-nacional" collapsed={collapsed} label="Simples Nacional" icon={ico(<><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></>)} />
-
+        {/* Configurações — tudo que é cadastro/parâmetro num lugar só */}
         {collapsed
-          ? <Section collapsed={collapsed}>Cadastros</Section>
+          ? <Section collapsed={collapsed}>Configurações</Section>
           : (
             <button type="button" onClick={() => setCadAberto(o => !o)} style={cadHeader} aria-expanded={cadAberto}>
-              Cadastros
+              Configurações
               <span style={{ marginLeft: 'auto', fontSize: 11, opacity: .8 }}>{cadAberto ? '▾' : '▸'}</span>
             </button>
           )}
         {(collapsed || cadAberto) && (
           <>
+            <NavItem to="/contas-bancarias" collapsed={collapsed} label="Contas e Cartões" icon={ico(<><path d="M3 21h18"/><polyline points="5 21 5 10 12 4 19 10 19 21"/></>)} />
+            <NavItem to="/plano-contas" collapsed={collapsed} label="Plano de Contas" icon={ico(<><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h6"/></>)} />
             <NavItem to="/clientes" collapsed={collapsed} label="Clientes" icon={ico(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>)} />
             <NavItem to="/fornecedores" collapsed={collapsed} label="Fornecedores" icon={ico(<><path d="M16 11V7a4 4 0 0 0-8 0v4"/><rect x="3" y="11" width="18" height="11" rx="2"/></>)} />
             <NavItem to="/funcionarios" collapsed={collapsed} label="Funcionários" icon={ico(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>)} />
             <NavItem to="/orgaos-publicos" collapsed={collapsed} label="Órgãos Públicos" icon={ico(<><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 21V10l7-7 7 7v11"/></>)} />
             <NavItem to="/projetos" collapsed={collapsed} label="Projetos" icon={ico(<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></>)} />
             <NavItem to="/contratos" collapsed={collapsed} label="Contratos" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
-            <NavItem to="/contas-bancarias" collapsed={collapsed} label="Contas e Cartões" icon={ico(<><path d="M3 21h18"/><polyline points="5 21 5 10 12 4 19 10 19 21"/></>)} />
             <NavItem to="/emprestimos" collapsed={collapsed} label="Empréstimos" icon={ico(<><path d="M12 2v6"/><path d="M9 19l3 3 3-3"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></>)} />
-            <NavItem to="/importacoes" collapsed={collapsed} label="Importações" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
-            <NavItem to="/nfse-config" collapsed={collapsed} label="Configurar NFS-e" icon={ico(<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>)} />
+            <NavItem to="/importacoes" collapsed={collapsed} label="Histórico de Importações" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
+            <NavItem to="/nfse-config" collapsed={collapsed} label="NFS-e (em preparação)" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
           </>
         )}
       </div>

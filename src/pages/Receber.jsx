@@ -13,6 +13,7 @@ import { getDocStatus, isOverdue } from '../lib/finance'
 import { calcMRR } from '../lib/indicadores'
 import { proximoCodigoReceivable } from '../lib/codigos'
 import { promoverProvisao } from '../lib/gerarRecorrencias'
+import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../lib/fechamento'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -57,6 +58,19 @@ export default function Receber() {
     if (!user) return
     supabase.from('recurring_masters').select('*').then(({ data }) => setRecorrencias(data || []))
   }, [user])
+
+  // Meses fechados (portão): pré-checagem amigável antes do erro do banco.
+  const [fechamentos, setFechamentos] = useState([])
+  useEffect(() => {
+    if (!user) return
+    fetchFechamentos().then(setFechamentos).catch(() => setFechamentos([]))
+  }, [user])
+  const bloqueadoPorFechamento = row => {
+    const comp = competenciaDe(row?.data)
+    if (!mesFechado(fechamentos, comp)) return false
+    showToast(msgMesFechado(comp), 'warning')
+    return true
+  }
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -300,22 +314,24 @@ export default function Receber() {
     const updates = { data: merged }
     if (!row.codigo) updates.codigo = await proximoCodigoReceivable() // provisão realizada direto ganha código
     const { error } = await supabase.from('receivable').update(updates).eq('id', row.id)
-    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    if (error) { showToast(traduzErroFechamento(error) || 'Erro: ' + error.message, 'error'); return }
     showToast(`Marcado como recebido.`, 'success')
     recarregar()
   }
 
   async function confirmarProvisao(row, e) {
     e?.stopPropagation()
+    if (bloqueadoPorFechamento(row)) return // muda status + código: travado em mês fechado
     try {
       const codigo = await promoverProvisao(row, 'receivable')
       showToast(`Provisão confirmada (${codigo}) — agora é Pendente.`, 'success')
       recarregar()
-    } catch (err) { showToast('Erro: ' + (err?.message || err), 'error') }
+    } catch (err) { showToast(traduzErroFechamento(err) || 'Erro: ' + (err?.message || err), 'error') }
   }
 
   async function excluir(row, e) {
     e?.stopPropagation()
+    if (bloqueadoPorFechamento(row)) return // DELETE recusado em mês fechado
     const desc = row.data?.desc || row.codigo || 'este lançamento'
     // Proteções (bloco 1): conciliado não se apaga (quebraria a conciliação do extrato);
     // provisão de recorrência avisa (o gerador a recriaria no mês).
@@ -324,7 +340,7 @@ export default function Receber() {
     if (atual?.recurring_id && !confirm(`"${desc}" é uma provisão de recorrência — se você excluir, ela pode ser gerada de novo no mês. Excluir mesmo assim?`)) return
     if (!confirm(`Excluir "${desc}"?`)) return
     const { error } = await supabase.from('receivable').delete().eq('id', row.id)
-    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
+    if (error) { showToast(traduzErroFechamento(error) || 'Erro ao excluir: ' + error.message, 'error'); return }
     showToast('Lançamento excluído.', 'info')
     recarregar()
   }

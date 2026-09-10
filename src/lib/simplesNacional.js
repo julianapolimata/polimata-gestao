@@ -66,9 +66,16 @@ export function compor(dasLiquido, faixaNum) {
   )
 }
 
-/** Dia 20 do mês seguinte ao período de apuração */
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/** Dia 20 do mês seguinte ao período de apuração (YYYY-MM-DD, sem deslocamento de fuso) */
 export function vencimentoDAS(periodoYM) {
   const [y, m] = String(periodoYM).split('-').map(Number)
-  const venc = new Date(y, m, 20) // m=0-11 já é mês seguinte (mês atual no JS é m-1)
-  return venc.toISOString().slice(0, 10)
+  return isoLocal(new Date(y, m, 20)) // m=1-12 do período → índice m no JS já é o mês seguinte
+}
+
+/** Último dia do período de apuração (YYYY-MM-DD) — data de competência da guia DAS */
+export function ultimoDiaDoMes(periodoYM) {
+  const [y, m] = String(periodoYM).split('-').map(Number)
+  return isoLocal(new Date(y, m, 0)) // dia 0 do mês seguinte = último dia do período
 }

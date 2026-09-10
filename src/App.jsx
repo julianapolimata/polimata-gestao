@@ -27,6 +27,7 @@ import Recorrencias from './pages/Recorrencias'
 import Relatorios from './pages/Relatorios'
 import FechamentoMensal from './pages/FechamentoMensal'
 import ClassificarLancamentos from './pages/ClassificarLancamentos'
+import PlanoContas from './pages/PlanoContas'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/recorrencias" element={<ProtectedRoute><Recorrencias /></ProtectedRoute>} />
           <Route path="/cartoes" element={<ProtectedRoute><Cartoes /></ProtectedRoute>} />
           <Route path="/contas-bancarias" element={<ProtectedRoute><ContasBancarias /></ProtectedRoute>} />
+          <Route path="/plano-contas" element={<ProtectedRoute><PlanoContas /></ProtectedRoute>} />
           <Route path="/emprestimos" element={<ProtectedRoute><Emprestimos /></ProtectedRoute>} />
           <Route path="/importacoes" element={<ProtectedRoute><Importacoes /></ProtectedRoute>} />
           <Route path="/conferencia-fatura" element={<ProtectedRoute><ConferenciaFatura /></ProtectedRoute>} />

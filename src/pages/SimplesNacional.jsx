@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 
 import { fmtMoney, flatten } from '../lib/finance'
 import { showToast } from '../components/Toast'
+import { proximoCodigoPayable } from '../lib/codigos'
 import {
   descobrirFaixa, calcularAliquotaEfetiva,
-  projetarDAS, compor, vencimentoDAS,
+  projetarDAS, compor, vencimentoDAS, ultimoDiaDoMes,
 } from '../lib/simplesNacional'
 
 // =====================================================================
@@ -30,10 +32,12 @@ export default function SimplesNacional() {
   const [config, setConfig] = useState(null)
   const [dasHist, setDasHist] = useState([])
   const [receivable, setReceivable] = useState([])
+  const [payable, setPayable] = useState([])       // linhas cruas {id, codigo, data}
+  const [nfseCfg, setNfseCfg] = useState(null)     // nfse_config.data — fonte única do município do ISS
+  const [gerandoDAS, setGerandoDAS] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(false)
   const [formRbt12, setFormRbt12] = useState('')
-  const [formMunicipio, setFormMunicipio] = useState('')
   const [salvando, setSalvando] = useState(false)
 
   const carregar = useCallback(() => {
@@ -43,10 +47,14 @@ export default function SimplesNacional() {
       supabase.from('simples_nacional_config').select('*').limit(1),
       supabase.from('simples_nacional_das').select('*').order('periodo_apuracao', { ascending: false }).limit(13),
       supabase.from('receivable').select('*'),
-    ]).then(([rC, rD, rR]) => {
+      supabase.from('payable').select('id,codigo,data'),
+      supabase.from('nfse_config').select('*').limit(1),
+    ]).then(([rC, rD, rR, rP, rN]) => {
       setConfig(rC.data?.[0] || null)
       setDasHist(rD.data || [])
       setReceivable((rR.data || []).map(flatten))
+      setPayable(rP.data || [])
+      setNfseCfg(rN.data?.[0]?.data || null)
       setLoading(false)
     })
   }, [user])
@@ -54,10 +62,12 @@ export default function SimplesNacional() {
   useEffect(() => { carregar() }, [carregar])
 
   const cfg = config?.data || {}
+  // Município do ISS: fonte única = Configurações › NFS-e (nfse_config.data.municipio_incidencia).
+  // O antigo cfg.municipio_iss era um segundo cadastro do mesmo dado — não é mais lido nem gravado.
+  const municipioIss = (nfseCfg?.municipio_incidencia || '').trim()
 
   function abrirEditor() {
     setFormRbt12(cfg.rbt12_estimada != null ? String(cfg.rbt12_estimada) : '')
-    setFormMunicipio(cfg.municipio_iss || '')
     setEditando(true)
   }
   // Prévia ao vivo enquanto digita a RBT12: faixa + alíquota efetiva calculadas.
@@ -67,12 +77,13 @@ export default function SimplesNacional() {
 
   async function salvarConfig() {
     if (rbt12Form <= 0) { showToast('Informe a RBT12 estimada (receita dos últimos 12 meses).', 'warning'); return }
+    // municipio_iss sai do jsonb: o dado vive só em nfse_config (evita cadastro duplicado).
+    const { municipio_iss: _descartado, ...cfgSem } = cfg || {}
     const novo = {
-      ...(cfg || {}),
+      ...cfgSem,
       anexo: 'III',
       rbt12_estimada: rbt12Form,
       aliquota_efetiva: aliquotaForm,
-      municipio_iss: formMunicipio.trim() || null,
       atualizado_em: new Date().toISOString().slice(0, 10),
     }
     setSalvando(true)
@@ -137,9 +148,69 @@ export default function SimplesNacional() {
     const calc = calcularAliquotaEfetiva(rbt12, faixaInfo)
     return Number.isFinite(calc) && calc > 0 ? calc : Number(cfg.aliquota_efetiva || 0)
   }, [rbt12, faixaInfo, cfg.aliquota_efetiva])
-  const projecao = useMemo(() => projetarDAS({ faturamentoMes, aliquotaEfetiva: aliquotaEf }), [faturamentoMes, aliquotaEf])
+  // ISS retido na fonte no mês: ajustes "ISS retido" que a Conciliação cria em payable
+  // (criado_via_conciliacao_ajuste + ajuste_tipo 'iss'). Abate o DAS de verdade.
+  const ehIssRetidoEm = (p, mesISO) => {
+    const d = p.data || {}
+    if (d.criado_via_conciliacao_ajuste !== true || d.ajuste_tipo !== 'iss') return false
+    const ref = d.data_competencia || d.due
+    return !!ref && ref.startsWith(mesISO)
+  }
+  const retencaoIssMes = useMemo(() => payable.filter(p => ehIssRetidoEm(p, mesSelecionado)).reduce((s, p) => s + Number(p.data?.value || 0), 0), [payable, mesSelecionado])
+  const projecao = useMemo(() => projetarDAS({ faturamentoMes, aliquotaEfetiva: aliquotaEf, retencaoIssTotal: retencaoIssMes }), [faturamentoMes, aliquotaEf, retencaoIssMes])
   const composicao = useMemo(() => compor(projecao.dasLiquido, faixaInfo.faixa), [projecao.dasLiquido, faixaInfo.faixa])
   const vencimento = vencimentoDAS(mesSelecionado)
+  const labelMes = `${MESES[parseInt(mesSelecionado.split('-')[1], 10) - 1]}/${mesSelecionado.split('-')[0]}`
+  const competenciaMMAAAA = `${mesSelecionado.split('-')[1]}/${mesSelecionado.split('-')[0]}`
+  // Conta a pagar do DAS já gerada para este período? (uma por período: periodo_apuracao + criado_via_simples)
+  const dasLancado = useMemo(() => payable.find(p => p.data?.criado_via_simples === true && p.data?.periodo_apuracao === mesSelecionado) || null, [payable, mesSelecionado])
+
+  async function gerarContaDAS() {
+    if (!user || dasLancado || gerandoDAS) return
+    const valor = Math.round(projecao.dasLiquido * 100) / 100
+    if (valor <= 0) return
+    const ok = window.confirm(
+      `Gerar conta a pagar do DAS de ${labelMes}?\n\n`
+      + `Valor: ${fmtMoney(valor)}${retencaoIssMes > 0 ? ` (já descontado ${fmtMoney(retencaoIssMes)} de ISS retido)` : ''}\n`
+      + `Vencimento: ${fmtDataBR(vencimento)}\n\n`
+      + 'Entra em Contas a Pagar como Pendente, já escriturada (guia DAS, sem NF). Se o PGDAS-D fechar outro valor, ajuste a conta lá.'
+    )
+    if (!ok) return
+    setGerandoDAS(true)
+    try {
+      // Reconfere no banco antes de criar (outra aba pode ter gerado).
+      const { data: existentes, error: errChk } = await supabase.from('payable').select('id,codigo,data')
+        .eq('data->>criado_via_simples', 'true').eq('data->>periodo_apuracao', mesSelecionado).limit(1)
+      if (errChk) throw errChk
+      if (existentes?.length) { showToast(`O DAS de ${labelMes} já está lançado (código ${existentes[0].codigo}).`, 'warning'); carregar(); return }
+      const codigo = await proximoCodigoPayable()
+      const data = {
+        supplier: 'Receita Federal — DAS Simples Nacional',
+        desc: `DAS Simples Nacional · competência ${competenciaMMAAAA}`,
+        value: valor,
+        due: vencimento,
+        data_competencia: ultimoDiaDoMes(mesSelecionado),
+        status: 'Pendente',
+        cat: 'Impostos sobre Receita',
+        subcat: 'Simples Nacional / DAS',
+        forma_pagamento: '',
+        doc_status: 'dispensado',
+        doc_motivo_dispensa: 'Guia DAS (PGDAS-D)',
+        sem_documento: false,
+        escriturado: true,
+        escriturado_em: new Date().toISOString(),
+        escriturado_por: 'sistema',
+        criado_via_simples: true,
+        periodo_apuracao: mesSelecionado,
+        created: new Date().toISOString().slice(0, 10),
+      }
+      const { error } = await supabase.from('payable').insert({ user_id: user.id, codigo, data })
+      if (error) throw error
+      showToast(`DAS de ${labelMes} lançado em Contas a Pagar (código ${codigo}).`, 'success')
+      carregar()
+    } catch (e) { showToast('Erro ao gerar a conta a pagar: ' + e.message, 'error') }
+    finally { setGerandoDAS(false) }
+  }
 
   // Tendência: comparar com último DAS pago
   const dasUltimo = dasHist[0]
@@ -170,10 +241,13 @@ export default function SimplesNacional() {
             <span style={campoLabel}>RBT12 estimada (receita bruta dos últimos 12 meses)</span>
             <input value={formRbt12} onChange={e => setFormRbt12(e.target.value)} placeholder="ex.: 240000" inputMode="decimal" style={input} />
           </label>
-          <label style={campo}>
+          <div style={{ ...campo, justifyContent: 'flex-end' }}>
             <span style={campoLabel}>Município do ISS</span>
-            <input value={formMunicipio} onChange={e => setFormMunicipio(e.target.value)} placeholder="ex.: Rio Claro/SP" style={input} />
-          </label>
+            <div style={{ fontSize: 12, color: 'var(--navy)', padding: '9px 0' }}>
+              <strong>{municipioIss || 'não definido'}</strong>{' '}
+              <span style={{ color: 'var(--text-mid)' }}>(definido em <Link to="/nfse-config" style={{ color: 'var(--gold-dark)' }}>Configurações › NFS-e</Link>)</span>
+            </div>
+          </div>
         </div>
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-mid)' }}>
           Anexo <strong>III</strong> (consultoria, Fator R ≥ 28%) · Faixa <strong>{faixaForm.faixa}</strong> (até {fmtMoney(faixaForm.ate)}) · Alíquota efetiva calculada: <strong style={{ color: 'var(--gold-dark)' }}>{fmtPct(aliquotaForm)}</strong>
@@ -216,7 +290,7 @@ export default function SimplesNacional() {
             <Param label="Faixa" valor={`Faixa ${faixaInfo.faixa}`} sub={`até ${fmtMoney(faixaInfo.ate)}`} />
             <Param label="RBT12 estimada" valor={fmtMoney(cfg.rbt12_estimada)} />
             <Param label="Alíquota efetiva" valor={fmtPct(aliquotaEf)} />
-            <Param label="Município ISS" valor={cfg.municipio_iss || '—'} />
+            <Param label="Município do ISS" valor={municipioIss || 'não definido'} sub={<>definido em <Link to="/nfse-config" style={{ color: 'var(--gold-dark)' }}>Configurações › NFS-e</Link></>} />
           </div>
         </div>
       </div>
@@ -247,14 +321,38 @@ export default function SimplesNacional() {
         {/* Fórmula */}
         <div style={formulaBox}>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            Faturamento de {MESES[parseInt(mesSelecionado.split('-')[1], 10) - 1]}/{mesSelecionado.split('-')[0]}: <strong>{fmtMoney(faturamentoMes)}</strong>
+            Faturamento de {labelMes}: <strong>{fmtMoney(faturamentoMes)}</strong>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
             × Alíquota efetiva: <strong>{fmtPct(aliquotaEf)}</strong>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            = <strong style={{ color: 'var(--gold-dark)' }}>{fmtMoney(projecao.dasNominal)}</strong>
+            = DAS nominal: <strong>{fmtMoney(projecao.dasNominal)}</strong>
           </div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
+            (−) ISS retido na fonte no mês: <strong>{retencaoIssMes > 0 ? fmtMoney(retencaoIssMes) : 'nenhum ISS retido registrado neste mês'}</strong>
+            <span style={{ display: 'block', fontSize: 10, fontStyle: 'italic' }}>vem dos ajustes "ISS retido" feitos na Conciliação</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
+            = DAS a pagar: <strong style={{ color: 'var(--gold-dark)' }}>{fmtMoney(projecao.dasLiquido)}</strong>
+          </div>
+        </div>
+
+        {/* DAS vira conta a pagar */}
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {dasLancado ? (
+            <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>
+              ✓ DAS lançado (código {dasLancado.codigo || '—'} · {fmtMoney(dasLancado.data?.value)}){' '}
+              <Link to="/pagar" style={{ color: 'var(--gold-dark)', fontWeight: 600 }}>ver em Contas a Pagar →</Link>
+            </div>
+          ) : (
+            <button onClick={gerarContaDAS} disabled={gerandoDAS || projecao.dasLiquido <= 0}
+              style={{ ...btnPrimary, opacity: projecao.dasLiquido <= 0 ? 0.5 : 1, cursor: projecao.dasLiquido <= 0 ? 'not-allowed' : 'pointer' }}
+              title={projecao.dasLiquido <= 0 ? 'DAS projetado é zero: não há o que lançar neste período.' : `Cria a conta a pagar de ${fmtMoney(projecao.dasLiquido)} com vencimento ${fmtDataBR(vencimento)}`}>
+              {gerandoDAS ? 'Gerando…' : `＋ Gerar conta a pagar do DAS de ${labelMes}`}
+            </button>
+          )}
+          <span style={{ fontSize: 10, color: 'var(--text-mid)' }}>Uma conta por período de apuração · Impostos sobre Receita › Simples Nacional / DAS</span>
         </div>
 
         {/* Composição por tributo */}
@@ -266,7 +364,7 @@ export default function SimplesNacional() {
             <Tributo label="COFINS" valor={composicao.cofins} cor="var(--navy)" />
             <Tributo label="PIS" valor={composicao.pis} cor="var(--navy)" />
             <Tributo label="CPP (INSS)" valor={composicao.cpp} cor="var(--gold)" sub="o maior" />
-            <Tributo label="ISS Valinhos" valor={composicao.iss} cor="var(--gold)" />
+            <Tributo label={`ISS${municipioIss ? ` ${municipioIss}` : ''}`} valor={composicao.iss} cor="var(--gold)" />
           </div>
         </div>
       </div>

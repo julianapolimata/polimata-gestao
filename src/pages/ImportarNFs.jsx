@@ -6,14 +6,19 @@ import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximoCodigoPessoa } from '../lib/codigos'
 import { anexoDaNF } from '../lib/vincularNF'
+import SeletorLancamento from './components/SeletorLancamento'
 
 // =====================================================================
-// IMPORTAR NFs v2 — tela de governança das NFs processadas pelo cron
-// (api/email-cron.js) + upload manual.
+// CAIXA DE ENTRADA · NFs — tela de governança das NFs processadas pelo
+// cron (api/email-cron.js) + upload manual.
+//
+// Princípio (bloco 5): a nota só sai da caixa por DECISÃO humana —
+// Aprovar (vira lançamento novo), Anexar (prova de lançamento que já
+// existe) ou Rejeitar. Nada some sozinho.
 //
 // 3 abas:
-//  - Aguardando: nf_pending status=pendente — revisão humana antes de
-//    virar lançamento oficial.
+//  - Na caixa de entrada: nf_pending status=pendente — revisão humana
+//    antes de virar lançamento oficial ou ser anexada a um existente.
 //  - Histórico: nf_history — auditoria do que já passou pelo cron.
 //  - Upload Manual: dropzone pra documentos que não vieram pelo email.
 // =====================================================================
@@ -37,6 +42,7 @@ export default function ImportarNFs() {
   const [backfillMsg, setBackfillMsg] = useState(null)
   const [rodandoReproc, setRodandoReproc] = useState(false)
   const [reprocMsg, setReprocMsg] = useState(null)
+  const [anexando, setAnexando] = useState(null) // nf_pending sendo anexada a lançamento existente
 
   async function rodarCron() {
     setRodandoCron(true)
@@ -272,11 +278,11 @@ export default function ImportarNFs() {
 
   return (
     <AppLayout
-      title="Importar NFs"
+      title="Caixa de entrada · NFs"
       stickyTop={(
         <div style={tabsBar}>
           <button onClick={() => setAba('aguardando')} style={aba === 'aguardando' ? tabActive : tabInactive}>
-            Aguardando <span style={chip}>{pendentes.length}</span>
+            Na caixa de entrada <span style={chip}>{pendentes.length}</span>
           </button>
           <button onClick={() => setAba('historico')} style={aba === 'historico' ? tabActive : tabInactive}>
             Histórico <span style={chip}>{historico.length}</span>
@@ -292,6 +298,11 @@ export default function ImportarNFs() {
         <div style={emptyState}>Carregando…</div>
       ) : aba === 'aguardando' ? (
         <>
+        <div style={ajudaBox}>
+          Toda nota que chega por e-mail ou upload fica aqui até você decidir: <strong>Aprovar</strong> (vira lançamento novo)
+          ou <strong>Anexar</strong> a um lançamento que já existe (ex.: compra do cartão já importada, conta já lançada).
+          Nada sai da caixa sem decisão.
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
             Cron processa emails em <strong>financeiro@polimatagrc.com.br</strong> automaticamente.
@@ -326,15 +337,22 @@ export default function ImportarNFs() {
         )}
         {pendentes.length === 0 ? (
           <div style={emptyState}>
-            ✨ Nada na fila! O cron (rodando em <code>api/email-cron.js</code>) processa emails em <strong>financeiro@polimatagrc.com.br</strong> e coloca aqui as NFs detectadas pra você aprovar antes de virarem lançamentos.
+            ✨ Caixa de entrada vazia! O robô (rodando em <code>api/email-cron.js</code>) lê os e-mails de <strong>financeiro@polimatagrc.com.br</strong> e coloca aqui as NFs detectadas pra você decidir — aprovar, anexar ou rejeitar — antes de qualquer efeito nos lançamentos.
           </div>
         ) : (
           <div style={lista}>
             {pendentes.map(p => (
-              <PendingCard key={p.id} pending={p} processando={confirmando === p.id} onAprovar={() => aprovar(p)} onRejeitar={() => rejeitar(p)} />
+              <PendingCard key={p.id} pending={p} processando={confirmando === p.id} onAprovar={() => aprovar(p)} onRejeitar={() => rejeitar(p)} onAnexar={() => setAnexando(p)} />
             ))}
           </div>
         )}
+        <SeletorLancamento
+          open={!!anexando}
+          nf={anexando}
+          user={user}
+          onClose={() => setAnexando(null)}
+          onVinculado={() => { setAnexando(null); carregar() }}
+        />
         </>
       ) : aba === 'historico' ? (
         historico.length === 0 ? (
@@ -349,7 +367,7 @@ export default function ImportarNFs() {
   )
 }
 
-function PendingCard({ pending, processando, onAprovar, onRejeitar }) {
+function PendingCard({ pending, processando, onAprovar, onRejeitar, onAnexar }) {
   const d = pending.data || {}
   const isSaida = d.is_saida || d.tipo === 'saida'
   const corLeft = isSaida ? 'var(--green)' : 'var(--red)'
@@ -383,6 +401,9 @@ function PendingCard({ pending, processando, onAprovar, onRejeitar }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--cream-dark)' }}>
         <button onClick={onRejeitar} disabled={processando} style={btnGhost}>Rejeitar</button>
+        <button onClick={onAnexar} disabled={processando} style={btnAnexar} title="A nota vira a prova de um lançamento que já existe — o valor não é lançado de novo">
+          🔗 Anexar a lançamento existente
+        </button>
         <button onClick={onAprovar} disabled={processando} style={btnPrimary}>
           {processando ? 'Processando…' : '✓ Aprovar e lançar'}
         </button>
@@ -466,6 +487,8 @@ const lista = { display: 'flex', flexDirection: 'column', gap: 10 }
 const card = { background: 'var(--white)', borderRadius: 10, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
 const btnGhost = { padding: '7px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase' }
 const btnPrimary = { padding: '7px 14px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase' }
+const btnAnexar = { ...btnGhost, border: '1.5px solid var(--navy)', color: 'var(--navy)', fontWeight: 700 }
+const ajudaBox = { marginBottom: 14, padding: '10px 14px', borderRadius: 6, fontSize: 12, lineHeight: 1.55, background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)' }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
