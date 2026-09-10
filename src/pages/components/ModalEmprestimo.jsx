@@ -96,12 +96,11 @@ export default function ModalEmprestimo({ open, onClose, registro, onSaved }) {
       setObservacoes(''); setAnexoFile(null); setParcelas([])
       setRegistrarEntrada(true); setValorLiberado(''); setDataLiberacao(''); setContaCreditoId('')
     }
-    Promise.all([
-      supabase.from('contas_bancarias').select('*'),
-      supabase.from('cartoes').select('*'),
-    ]).then(([rC, rCart]) => {
-      setContas((rC.data || []).filter(c => c.data?.ativo !== false))
-      setCartoes((rCart.data || []).filter(c => c.data?.ativo !== false))
+    // Contas e cartões vivem na mesma tabela: cartão = conta com data.tipo === 'cartao'
+    supabase.from('contas_bancarias').select('*').then(({ data }) => {
+      const ativas = (data || []).filter(c => c.data?.ativo !== false)
+      setContas(ativas.filter(c => c.data?.tipo !== 'cartao'))
+      setCartoes(ativas.filter(c => c.data?.tipo === 'cartao'))
     })
   }, [open, registro])
 

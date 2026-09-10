@@ -46,6 +46,14 @@ export function sugerirMatches(extrato, candidatos) {
         motivos.push('CNPJ confere')
       }
     }
+    // Mesmo identificador do banco (fit_id da linha = fit_id_ofx gravado na compra):
+    // é a MESMA transação — vale mais que data.
+    if (extrato.fit_id && c.data?.fit_id_ofx && String(c.data.fit_id_ofx) === String(extrato.fit_id)) {
+      score += 2
+      motivos.push('mesmo id no banco')
+      resultados.push({ lancamento: c, score, motivo: motivos.join(' · '), dentroTol: true })
+      continue
+    }
     resultados.push({ lancamento: c, score, motivo: motivos.join(' · '), dentroTol })
   }
   return resultados.sort((a, b) => b.score - a.score)

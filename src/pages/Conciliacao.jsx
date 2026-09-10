@@ -4,11 +4,12 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
-import ModalConciliarFatura from './components/ModalConciliarFatura'
 import { fmtMoney, flatten } from '../lib/finance'
-import { parseOFX } from '../lib/ofx'
+import { parseOFX, detectarTipoOFX } from '../lib/ofx'
 import { sugerirMatches } from '../lib/matchExtrato'
-import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
+import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable } from '../lib/codigos'
+import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } from '../lib/faturaCartao'
+import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
@@ -31,6 +32,15 @@ const AJUSTES_SAIDA = [
   { key: 'desc', label: 'Desconto obtido', natureza: 'reduz', tabela: 'receivable', cat: 'Descontos obtidos' },
 ]
 
+// =====================================================================
+// CONCILIAÇÃO — UMA MESA SÓ (bloco 4, set/26)
+//   • O cartão de crédito é uma CONTA (contas_bancarias.tipo = 'cartao'): a
+//     fatura (OFX) entra como extrato dessa conta; as linhas viram compras
+//     (payable com cartao_id) por "＋ Criar compras" — casa com o que já existe.
+//   • Pagar a fatura = TRANSFERÊNCIA conta → cartão (tabela transferencias),
+//     conciliada pelo botão "↔ Transferência" nos dois extratos.
+//   • Sem auto-match silencioso: só pelo botão, com confirmação.
+//   • "Arquivar" (linha que não é lançamento) em vez de "ignorar".
 // =====================================================================
 // CONCILIAÇÃO BANCÁRIA v1.6
 // Mudanças vs v1.5 (Juliana 31/05):
@@ -69,7 +79,11 @@ export default function Conciliacao() {
   const [periodoInicializado, setPeriodoInicializado] = useState(false)
   const [notasNoPeriodo, setNotasNoPeriodo] = useState(true) // escopar notas ao período do extrato
   const [buscaNota, setBuscaNota] = useState('')
-  const [autoPendente, setAutoPendente] = useState(false) // dispara conciliação automática após carregar
+  const [transferencias, setTransferencias] = useState([])
+  const [transfAberto, setTransfAberto] = useState(false) // form "↔ Transferência"
+  const [tOutraConta, setTOutraConta] = useState('')      // a outra ponta da transferência
+  const [tLigar, setTLigar] = useState('')                // id de transferência já registrada pra ligar
+  const [criandoCompras, setCriandoCompras] = useState(false)
 
 
 
@@ -84,11 +98,10 @@ export default function Conciliacao() {
   const [nSubcat, setNSubcat] = useState('')
 
   useEffect(() => { fetchPlanoContas().then(p => setPlano(p || [])) }, [])
-  const [modalFaturaExtrato, setModalFaturaExtrato] = useState(null)
   const [erro, setErro] = useState(null)
 
   // Zera a seleção/ajustes/form ao trocar a linha do extrato
-  useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat('') }, [selecionado])
+  useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat(''); setTransfAberto(false); setTOutraConta(''); setTLigar('') }, [selecionado])
 
   // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
   useEffect(() => {
@@ -97,7 +110,9 @@ export default function Conciliacao() {
       .then(({ data, error }) => {
         if (error) { setErro(error); return }
         setErro(null)
+        // Contas e cartões na mesma lista: o cartão é uma conta de saldo negativo.
         const ativos = (data || []).filter(c => c.data?.ativo !== false)
+          .sort((a, b) => ((a.data?.tipo === 'cartao') - (b.data?.tipo === 'cartao')))
         setContas(ativos)
         if (ativos.length > 0 && !contaId) setContaId(ativos[0].id)
       })
@@ -118,7 +133,8 @@ export default function Conciliacao() {
       supabase.from('receivable').select('*').is('conciliado_em', null),
       supabase.from('payable').select('*').is('conciliado_em', null),
       supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
-    ]).then(([rE, rR, rP, rPer]) => {
+      supabase.from('transferencias').select('*'),
+    ]).then(([rE, rR, rP, rPer, rT]) => {
       const err = rE.error || rR.error || rP.error
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
@@ -128,8 +144,10 @@ export default function Conciliacao() {
       // metodologia (escrituração contábil antes do cruzamento financeiro).
       const soEscriturada = arr => (arr || []).filter(r => r.data?.escriturado === true)
       setReceivable(soEscriturada(rR.data).map(flatten))
-      setPayable(soEscriturada(rP.data).map(flatten))
+      // cartao_id diz em que conta a compra vive (cartão) — o pool filtra por ele.
+      setPayable(soEscriturada(rP.data).map(r => ({ ...flatten(r), cartao_id: r.cartao_id, parent_id: r.parent_id, extrato_id: r.extrato_id })))
       setPeriodosFechados(new Set((rPer.data || []).map(r => r.competencia)))
+      setTransferencias(rT.data || [])
       setLoading(false)
     })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -138,6 +156,13 @@ export default function Conciliacao() {
   useEffect(() => { carregar() }, [carregar])
 
   const conta = useMemo(() => contas.find(c => c.id === contaId), [contas, contaId])
+  const ehCartao = conta?.data?.tipo === 'cartao'
+  const outrasContas = useMemo(() => contas.filter(c => c.id !== contaId), [contas, contaId])
+  // Compras que vivem NESTA conta (cartão) ou fora de qualquer cartão (banco).
+  const payableDaConta = useMemo(
+    () => payable.filter(p => ehCartao ? p.cartao_id === contaId : !p.cartao_id),
+    [payable, ehCartao, contaId],
+  )
 
   // Range de datas das transações da conta atual — define o período padrão
   const rangeImportado = useMemo(() => {
@@ -154,17 +179,9 @@ export default function Conciliacao() {
       setPeriodoInicializado(true)
     }
   }, [rangeImportado, periodoInicializado])
-  useEffect(() => { setPeriodoInicializado(false); setAutoPendente(true) }, [contaId])
-
-  // Concilia automaticamente os casos óbvios (valor + data + candidato único)
-  // logo após carregar — ao abrir a conta e após importar OFX. Silencioso e
-  // conservador; o que sobra ambíguo fica pra decisão manual.
-  useEffect(() => {
-    if (autoPendente && !loading && !autoConc && extratos.length) {
-      setAutoPendente(false)
-      conciliarAutomatico({ silencioso: true })
-    }
-  }, [autoPendente, loading, autoConc, extratos])
+  useEffect(() => { setPeriodoInicializado(false) }, [contaId])
+  // Sem auto-match silencioso (bench 08): a conciliação automática só roda pelo
+  // botão "⚡ Conciliar automáticos", com confirmação e contagem antes.
 
   // ── Aplica filtros ───────────────────────────────────────────────────
   // Base = todos os filtros MENOS o status. As contagens do dropdown são feitas
@@ -238,17 +255,40 @@ export default function Conciliacao() {
       let texto
       try { texto = new TextDecoder('windows-1252').decode(buf) }
       catch { texto = new TextDecoder('utf-8').decode(buf) }
-      const { transacoes, saldoFinal } = parseOFX(texto)
+      // Guarda de tipo: fatura de cartão só na conta-cartão; extrato de conta só
+      // na conta corrente. (Misturar foi o que inflou as "faturas" com Pix e boleto.)
+      const tipoOFX = detectarTipoOFX(texto)
+      if (ehCartao && tipoOFX === 'corrente') {
+        if (!window.confirm('Este arquivo parece um EXTRATO DE CONTA CORRENTE (Pix, boletos, débitos), não uma fatura de cartão.\n\nImportar mesmo assim na conta-cartão?')) { showToast('Importação cancelada. Selecione a conta corrente no seletor e importe lá.', 'info'); return }
+      }
+      if (!ehCartao && tipoOFX === 'cartao') {
+        if (!window.confirm('Este arquivo parece uma FATURA DE CARTÃO. O lugar dela é a conta-cartão (escolha o cartão no seletor de conta).\n\nImportar mesmo assim como extrato desta conta?')) { showToast('Importação cancelada. Selecione o cartão no seletor de conta e importe lá.', 'info'); return }
+      }
+      const { transacoes, saldoFinal, dataExtrato } = parseOFX(texto)
       if (!transacoes.length) { showToast('Nenhuma transação no OFX.', 'warning'); return }
-      const fitIds = new Set(extratos.filter(e => e.conta_id === contaId && e.fit_id).map(e => e.fit_id))
-      const novos = transacoes.filter(t => !t.fit_id || !fitIds.has(t.fit_id))
+      // Dedup. Banco: fit_id. Cartão: fit_id + descrição + data — o Sicoob REUSA o
+      // fit_id nas parcelas de uma mesma compra (ANUIDADE 05/12, 06/12…), então o
+      // fit_id sozinho apagaria parcelas legítimas.
+      const norm = x => (x || '').trim().toLowerCase()
+      const chave = t => ehCartao ? `${t.fit_id || ''}|${norm(t.descricao)}|${t.data || ''}` : (t.fit_id || '')
+      const jaTem = new Set(extratos.filter(e => e.conta_id === contaId && e.fit_id).map(e => chave({ fit_id: e.fit_id, descricao: e.data?.descricao, data: e.data?.data })))
+      const novos = transacoes.filter(t => !t.fit_id || !jaTem.has(chave(t)))
       if (!novos.length) {
         showToast(`Todas as ${transacoes.length} transações já estavam importadas.`, 'info')
         if (saldoFinal != null) setSaldoBanco(saldoFinal)
         return
       }
+      // Fatura: cada linha guarda o vencimento da fatura em que cai (DTASOF do
+      // Sicoob = vencimento; sem ele, data + dia de fechamento).
+      let vencFatura = null, rotulo = null
+      if (ehCartao) {
+        const datas = novos.map(t => t.data).filter(Boolean).sort()
+        vencFatura = vencimentoDaLinha(conta, datas[datas.length - 1], dataExtrato)
+        if (vencFatura) { const [vy, vm] = vencFatura.split('-').map(Number); rotulo = rotuloFatura(vy, vm - 1) }
+      }
+      const tipoImp = ehCartao ? 'ofx_fatura_cartao' : 'ofx_extrato'
       // 1) Upload arquivo + registrar import
-      const path = `${user.id}/importacoes/ofx_extrato/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+      const path = `${user.id}/importacoes/${tipoImp}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
       let arquivoPath = null
       let uploadFalhou = false
       try {
@@ -258,11 +298,11 @@ export default function Conciliacao() {
       } catch (e) { console.warn('upload arquivo OFX falhou:', e.message); uploadFalhou = true }
       const { data: imp, error: errImp } = await supabase.from('importacoes').insert({
         user_id: user.id,
-        tipo: 'ofx_extrato',
+        tipo: tipoImp,
         arquivo_nome: file.name,
         arquivo_path: arquivoPath,
         qtd_registros: novos.length,
-        metadata: { conta_id: contaId, saldo_final: saldoFinal },
+        metadata: { conta_id: contaId, saldo_final: saldoFinal, ...(ehCartao ? { cartao_id: contaId, vencimento: vencFatura, fatura: rotulo, data_extrato: dataExtrato } : {}) },
       }).select('id').single()
       // Aborta se o cabeçalho falhar: sem ele, os lançamentos ficariam órfãos
       // (importacao_id nulo) e impossíveis de reverter pela tela de Importações.
@@ -270,7 +310,8 @@ export default function Conciliacao() {
       // 2) Inserir transações com importacao_id
       const payload = novos.map(t => ({
         user_id: user.id, conta_id: contaId, status: 'pendente', fit_id: t.fit_id,
-        importacao_id: imp.id, data: t,
+        importacao_id: imp.id,
+        data: ehCartao ? { ...t, fatura_vencimento: vencimentoDaLinha(conta, t.data, dataExtrato) || vencFatura, fatura_rotulo: rotulo } : t,
       }))
       const { error } = await supabase.from('transacoes_extrato').insert(payload)
       if (error) {
@@ -278,11 +319,11 @@ export default function Conciliacao() {
         await supabase.from('importacoes').delete().eq('id', imp.id)
         throw error
       }
-      showToast(`${novos.length} transações importadas.`, 'success')
+      if (ehCartao) showToast(`${novos.length} linha(s) da fatura ${rotulo || ''} importada(s). Use "＋ Criar compras" para transformá-las em compras do cartão.`, 'success')
+      else showToast(`${novos.length} transações importadas.`, 'success')
       if (uploadFalhou) showToast('Lançamentos importados, mas o arquivo OFX de origem não foi arquivado (falha no upload).', 'warning')
       if (saldoFinal != null) setSaldoBanco(saldoFinal)
       setPeriodoInicializado(false) // re-aplica range com o que foi importado
-      setAutoPendente(true)         // concilia os óbvios sozinho após importar
       carregar()
     } catch (err) {
       console.error(err)
@@ -303,11 +344,12 @@ export default function Conciliacao() {
     const pares = []
     for (const ext of pendentes) {
       const tipo = ext.data?.tipo
-      // Compras de fatura de cartão NÃO entram no auto-match: elas são pagas
-      // juntas (na fatura), não por débito avulso. Casar 1 a 1 gera falso
-      // positivo (ex.: Mirante R$30 casando com um DÉB.PARCELAS R$30 qualquer).
-      const pool = (tipo === 'entrada' ? receivable : payable)
-        .filter(c => c.status !== 'Provisão' && !c.data?.criado_via_import_fatura && !usadosLanc.has(c.id))
+      // Cada conta casa só com o que vive nela: no banco, compras sem cartão;
+      // no cartão, compras daquele cartão. Entrada no cartão = pagamento/estorno,
+      // não tem "nota" pra casar.
+      if (ehCartao && tipo === 'entrada') continue
+      const pool = (tipo === 'entrada' ? receivable : payableDaConta)
+        .filter(c => c.status !== 'Provisão' && !usadosLanc.has(c.id))
       const fortes = sugerirMatches(ext.data || {}, pool).filter(s => s.dentroTol)
       if (fortes.length === 1) {
         pares.push({ ext, lanc: fortes[0].lancamento, target: tipo === 'entrada' ? 'receivable' : 'payable' })
@@ -441,26 +483,96 @@ export default function Conciliacao() {
     } catch (e) { showToast('Erro: ' + e.message, 'error') }
   }
 
-  async function marcarTransferencia(extrato) {
-    if (!confirm('Marcar como transferência entre contas próprias?')) return
-    await supabase.from('transacoes_extrato').update({
-      status: 'ignorado',
-      data: { ...(extrato.data || {}), motivo: 'transferencia_propria' },
-    }).eq('id', extrato.id)
-    showToast('Marcado como transferência interna.', 'info')
-    setSelecionado(null); carregar()
+  // ── Transferência entre contas próprias (pagar fatura = transferência) ──
+  // Abre o form já com a outra ponta sugerida: descrição com cara de cartão +
+  // um único cartão cadastrado → pré-seleciona o cartão.
+  function abrirTransferencia(extrato) {
+    const cartoes = outrasContas.filter(c => c.data?.tipo === 'cartao')
+    const desc = extrato?.data?.descricao || ''
+    let sugerida = ''
+    if (!ehCartao && extrato?.data?.tipo === 'saida' && cartoes.length === 1 && /cart|fatura|d[ée]b\.?\s*conv\.?\s*demais/i.test(desc)) sugerida = cartoes[0].id
+    if (ehCartao && extrato?.data?.tipo === 'entrada' && outrasContas.length === 1) sugerida = outrasContas[0].id
+    if (!sugerida && outrasContas.length === 1) sugerida = outrasContas[0].id
+    setTOutraConta(sugerida); setTLigar(''); setCriarAberto(false); setTransfAberto(v => !v)
+  }
+  // Transferências já registradas (pela outra conta) que batem com esta linha:
+  // mesmo valor, ±7 dias, a ponta desta conta ainda solta.
+  const transfCompativeis = useMemo(() => {
+    const ext = extratosFiltrados.find(e => e.id === selecionado)
+    if (!ext || !transfAberto) return []
+    const v = Math.abs(Number(ext.data?.valor || 0))
+    const dt = new Date((ext.data?.data || '') + 'T12:00:00')
+    const saida = ext.data?.tipo === 'saida'
+    return transferencias.filter(t => {
+      if (Math.abs(Number(t.valor) - v) > 0.01) return false
+      if (saida ? (t.de_conta_id !== contaId || t.extrato_origem_id) : (t.para_conta_id !== contaId || t.extrato_destino_id)) return false
+      const dd = Math.abs(dt - new Date(t.data + 'T12:00:00')) / 86400000
+      return dd <= 7
+    })
+  }, [transferencias, extratosFiltrados, selecionado, transfAberto, contaId])
+
+  async function conciliarTransferencia(extrato) {
+    if (!tLigar && !tOutraConta) { showToast('Escolha a outra conta da transferência.', 'warning'); return }
+    setConciliando(true)
+    try {
+      const { error } = await supabase.rpc('conciliar_transferencia', {
+        p_extrato_id: extrato.id,
+        p_outra_conta_id: tLigar ? (transferencias.find(t => t.id === tLigar)?.[extrato.data?.tipo === 'saida' ? 'para_conta_id' : 'de_conta_id'] || tOutraConta || null) : tOutraConta,
+        p_transf_id: tLigar || null,
+        p_descricao: extrato.data?.descricao || null,
+      })
+      if (error) throw error
+      showToast(tLigar ? 'Ligado à transferência já registrada.' : 'Transferência registrada e conciliada.', 'success')
+      setSelecionado(null); carregar()
+    } catch (e) { showToast('Erro: ' + (e.message || e), 'error') }
+    finally { setConciliando(false) }
   }
 
-  async function ignorar(extrato) {
-    if (!confirm('Ignorar essa transação?')) return
+  // ── Fatura do cartão: linhas pendentes → compras (casa com o que já existe) ──
+  async function criarComprasDaFatura(linhasAlvo) {
+    if (!ehCartao || !user) return
+    const linhas = (linhasAlvo || extratos.filter(e => e.conta_id === contaId && e.status === 'pendente'))
+      .filter(e => !periodosFechados.has(String(e.data?.data || '').slice(0, 7)))
+    if (!linhas.length) { showToast('Nenhuma linha pendente da fatura.', 'info'); return }
+    setCriandoCompras(true)
+    try {
+      // Compras do cartão INCLUINDO as não escrituradas: casar uma parcela com a
+      // linha da própria fatura é identidade (mesma série, mesma parcela), não
+      // decisão — duplicar seria pior.
+      const { data: todas, error: e1 } = await supabase.from('payable').select('id,parent_id,extrato_id,data').eq('cartao_id', contaId)
+      if (e1) throw e1
+      const plano = planejarCompras({ conta, linhas, compras: todas || [] })
+      if (!plano.criar.length && !plano.casar.length) {
+        showToast(plano.pagamentos.length ? 'Só sobraram pagamentos da fatura: concilie-os como ↔ Transferência.' : 'Nada a criar.', 'info')
+        return
+      }
+      if (!window.confirm(`Transformar as linhas da fatura em compras do cartão?\n\n${resumoPlano(plano)}\n\nAs compras nascem conciliadas com a fatura e vão para a Escrituração (classificar + situação fiscal).`)) return
+      const codigos = await proximosCodigosPayable(plano.criar.length)
+      const p_criar = plano.criar.map((c, i) => ({ ...c, codigo: codigos[i] }))
+      const { data: n, error } = await supabase.rpc('conciliar_fatura_cartao', { p_conta_id: contaId, p_criar, p_casar: plano.casar })
+      if (error) throw error
+      showToast(`${n} linha(s) da fatura conciliada(s) (${p_criar.filter(c => c.extrato_id).length} compra(s) nova(s), ${plano.casar.length} casada(s)). Próximo passo: Escrituração.`, 'success')
+      setSelecionado(null); carregar()
+    } catch (e) { showToast('Erro ao criar compras: ' + (e.message || e), 'error') }
+    finally { setCriandoCompras(false) }
+  }
+
+  async function arquivar(extrato) {
+    if (!confirm('Arquivar esta linha? Ela não vira lançamento (ex.: movimento que não é da empresa). Dá pra restaurar depois.')) return
     await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
-    showToast('Ignorada.', 'info'); setSelecionado(null); carregar()
+    showToast('Arquivada.', 'info'); setSelecionado(null); carregar()
   }
   async function restaurar(extrato) {
     await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
     showToast('Voltou pra pendentes.', 'info'); setSelecionado(null); carregar()
   }
   async function desconciliar(extrato) {
+    if (extrato.lancamento_tipo === 'transferencia') {
+      if (!confirm('Desfazer a conciliação desta transferência? A linha volta pra pendente. Se a outra conta ainda estiver ligada a esta transferência, ela continua registrada; se não, a transferência é removida.')) return
+      const { error } = await supabase.rpc('desconciliar_transferencia', { p_extrato_id: extrato.id })
+      if (error) { showToast('Erro: ' + error.message, 'error'); return }
+      showToast('Desconciliado.', 'info'); setSelecionado(null); carregar(); return
+    }
     if (!confirm('Desconciliar? Os lançamentos vinculados voltam pra pendente e os ajustes (retenções/tarifas/juros) criados nesta conciliação são removidos.')) return
     try {
       const d = extrato.data || {}
@@ -482,7 +594,8 @@ export default function Conciliacao() {
         await supabase.from('receivable').delete().eq('extrato_id', extrato.id).eq('data->>criado_via_conciliacao_ajuste', 'true')
         await supabase.from('payable').delete().eq('extrato_id', extrato.id).eq('data->>criado_via_conciliacao_ajuste', 'true')
       } else {
-        // Caminho antigo (link único) — mantém compatibilidade.
+        // Link único (banco ou linha da fatura). No cartão a compra continua
+        // "Pago" (a fatura cobrou) — só perde o vínculo com a linha.
         const tipo = extrato.lancamento_tipo, lid = extrato.lancamento_id
         if (tipo && lid) await supabase.from(tipo).update({ conciliado_em: null, extrato_id: null }).eq('id', lid)
       }
@@ -522,8 +635,10 @@ export default function Conciliacao() {
     const tipo = selecionadoExt.data?.tipo
     // Candidatas = notas não conciliadas (já vêm assim do banco), menos Provisão.
     // Inclui as já Recebido/Pago — o que importa é não estarem amarradas ao extrato.
-    const pool = (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== 'Provisão')
-    const todas = sugerirMatches(selecionadoExt.data || {}, pool)
+    // No cartão, entrada = pagamento/estorno: não há nota pra casar.
+    if (ehCartao && tipo === 'entrada') return { sugeridos: [], mesmoValor: [], resto: [] }
+    const pool = (tipo === 'entrada' ? receivable : payableDaConta).filter(c => c.status !== 'Provisão')
+    const todas = sugerirMatches({ ...(selecionadoExt.data || {}), fit_id: selecionadoExt.fit_id }, pool)
     const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
     const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
     const usados = new Set(todas.map(s => s.lancamento.id))
@@ -541,14 +656,15 @@ export default function Conciliacao() {
     }
     resto.sort((a, b) => (b.due || '').localeCompare(a.due || ''))
     return { sugeridos, mesmoValor, resto }
-  }, [selecionadoExt, receivable, payable, notasNoPeriodo, dataDe, dataAte, buscaNota])
+  }, [selecionadoExt, receivable, payableDaConta, ehCartao, notasNoPeriodo, dataDe, dataAte, buscaNota])
 
   // ── Mesa: pool de lançamentos, tipos de ajuste e a matemática do fechamento ──
   const poolLanc = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return []
     const tipo = selecionadoExt.data?.tipo
-    return (tipo === 'entrada' ? receivable : payable).filter(c => c.status !== 'Provisão')
-  }, [selecionadoExt, receivable, payable])
+    if (ehCartao && tipo === 'entrada') return []
+    return (tipo === 'entrada' ? receivable : payableDaConta).filter(c => c.status !== 'Provisão')
+  }, [selecionadoExt, receivable, payableDaConta, ehCartao])
 
   const tiposAjuste = selecionadoExt?.data?.tipo === 'entrada' ? AJUSTES_ENTRADA : AJUSTES_SAIDA
 
@@ -588,23 +704,28 @@ export default function Conciliacao() {
           <div style={topo}>
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={labelTopo}>Conta Bancária</label>
-                <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null); setPeriodoInicializado(false) }} style={select}>
-                  {contas.map(c => <option key={c.id} value={c.id}>{c.data?.nome || '(sem nome)'}</option>)}
+                <label style={labelTopo}>Conta</label>
+                <select value={contaId} onChange={e => { setContaId(e.target.value); setSaldoBanco(null); setPeriodoInicializado(false); setSelecionado(null) }} style={select}>
+                  {contas.map(c => <option key={c.id} value={c.id}>{c.data?.tipo === 'cartao' ? '💳 ' : '🏦 '}{c.data?.nome || '(sem nome)'}</option>)}
                 </select>
               </div>
-              <label style={btnUpload}>
+              <label style={btnUpload} title={ehCartao ? 'OFX da fatura do cartão' : 'OFX do extrato da conta'}>
                 <input type="file" onChange={handleUpload} accept=".ofx,.OFX" style={{ display: 'none' }} disabled={uploading} />
-                {uploading ? '⏳ Processando…' : '📥 Importar OFX'}
+                {uploading ? '⏳ Processando…' : (ehCartao ? '📥 Importar OFX da fatura' : '📥 Importar OFX')}
               </label>
-              {counts.pendente > 0 && (
-                <button onClick={conciliarAutomatico} disabled={autoConc} style={btnAuto} title="Concilia os que batem exato (valor + data), sem ambiguidade">
+              {ehCartao && counts.pendente > 0 && (
+                <button onClick={() => criarComprasDaFatura()} disabled={criandoCompras} style={btnAuto} title="Transforma as linhas pendentes da fatura em compras do cartão (casa com parcelas já registradas; pagamentos ficam pra transferência)">
+                  {criandoCompras ? '⏳ Criando…' : `＋ Criar compras (${counts.pendente} linha(s))`}
+                </button>
+              )}
+              {!ehCartao && counts.pendente > 0 && (
+                <button onClick={conciliarAutomatico} disabled={autoConc} style={btnAuto} title="Concilia os que batem exato (valor + data), sem ambiguidade — pede confirmação">
                   {autoConc ? '⏳ Conciliando…' : '⚡ Conciliar automáticos'}
                 </button>
               )}
             </div>
             <div style={saldosBox}>
-              <Saldo label="Saldo no Banco" sub="da conta no banco" valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
+              <Saldo label={ehCartao ? 'Saldo na fatura' : 'Saldo no Banco'} sub={ehCartao ? 'pelo OFX do cartão' : 'da conta no banco'} valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
               <Saldo label="Saldo no Sistema" sub="conciliado nesta conta" valor={saldoSistema} />
               <Saldo
                 label="Divergência"
@@ -629,7 +750,7 @@ export default function Conciliacao() {
               <option value="todos">Todos ({counts.pendente + counts.conciliado + counts.ignorado})</option>
               <option value="pendente">⏳ Pendentes ({counts.pendente})</option>
               <option value="conciliado">✓ Conciliados ({counts.conciliado})</option>
-              <option value="ignorado">⨯ Ignorados ({counts.ignorado})</option>
+              <option value="ignorado">🗄 Arquivados ({counts.ignorado})</option>
             </select>
             <div style={divisor} />
             <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)} placeholder="🔍 Buscar..." style={{ ...inputFiltro, flex: 1, minWidth: 140 }} />
@@ -664,8 +785,8 @@ export default function Conciliacao() {
                       </div>
                       <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
                         {fmtDataBR(ext.data?.data)}
-                        {ext.status === 'conciliado' && ' · ✓ conciliado'}
-                        {ext.status === 'ignorado' && ' · ignorado'}
+                        {ext.status === 'conciliado' && (ext.lancamento_tipo === 'transferencia' ? ' · ↔ transferência' : ' · ✓ conciliado')}
+                        {ext.status === 'ignorado' && ' · arquivada'}
                       </div>
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: t === 'entrada' ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap' }}>
@@ -682,7 +803,9 @@ export default function Conciliacao() {
             <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length}</span>}</div>
             <div style={painelBody}>
               {!selecionadoExt ? (
-                <div style={dicaVazia}>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha.</div>
+                <div style={dicaVazia}>{ehCartao
+                  ? <>👈 Clique numa linha da fatura. Compra → casa com uma já registrada ou <strong>＋ Criar compra</strong>. Pagamento da fatura → <strong>↔ Transferência</strong> da conta corrente.</>
+                  : <>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha. Pagamento de fatura de cartão → <strong>↔ Transferência</strong>.</>}</div>
               ) : periodoFechadoSelec ? (
                 <div style={dicaVazia}>🔒 O período <strong>{compSelec}</strong> está <strong>fechado</strong> — a conciliação deste mês está travada. <button onClick={() => reabrirPeriodo(compSelec)} style={btnLink}>↻ Reabrir período</button></div>
               ) : selecionadoExt.status !== 'pendente' ? (
@@ -695,12 +818,59 @@ export default function Conciliacao() {
               ) : (
                 <>
                   <div style={acoesBar}>
-                    <button onClick={() => setCriarAberto(v => !v)} style={criarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>+ Criar lançamento</button>
-                    {selecionadoExt.data?.tipo === 'saida' && <button onClick={() => setModalFaturaExtrato(selecionadoExt)} style={btnAcao}>🪪 Fatura de cartão</button>}
-                    <button onClick={() => marcarTransferencia(selecionadoExt)} style={btnAcao}>↔ Transferência</button>
-                    <button onClick={() => ignorar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>⨯ Ignorar</button>
+                    {ehCartao
+                      ? (selecionadoExt.data?.tipo === 'saida' || !ehPagamentoFatura(selecionadoExt.data?.descricao)) && (
+                        <button onClick={() => criarComprasDaFatura([selecionadoExt])} disabled={criandoCompras} style={btnAcao}>
+                          {selecionadoExt.data?.tipo === 'saida' ? '＋ Criar compra' : '＋ Estorno / crédito no cartão'}
+                        </button>
+                      )
+                      : <button onClick={() => { setCriarAberto(v => !v); setTransfAberto(false) }} style={criarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>+ Criar lançamento</button>}
+                    <button onClick={() => abrirTransferencia(selecionadoExt)} style={transfAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>↔ Transferência{ehCartao && selecionadoExt.data?.tipo === 'entrada' ? ' (pagamento da fatura)' : ''}</button>
+                    <button onClick={() => arquivar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>🗄 Arquivar</button>
                   </div>
-                  {criarAberto && (
+                  {transfAberto && (
+                    <div style={criarBox}>
+                      <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.5 }}>
+                        {selecionadoExt.data?.tipo === 'saida'
+                          ? <>Este débito de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> é dinheiro que <strong>saiu desta conta para outra conta sua</strong> (ex.: pagamento da fatura do cartão). Não é despesa: é transferência.</>
+                          : <>Este crédito de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> é dinheiro que <strong>veio de outra conta sua</strong>{ehCartao ? ' (o pagamento da fatura, saído da conta corrente)' : ''}. Não é receita: é transferência.</>}
+                      </div>
+                      {transfCompativeis.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 4 }}>Já registrada pela outra conta — ligar a esta:</div>
+                          {transfCompativeis.map(t => (
+                            <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--navy)', padding: '4px 0', cursor: 'pointer' }}>
+                              <input type="radio" name="tligar" checked={tLigar === t.id} onChange={() => setTLigar(t.id)} />
+                              <span><strong>{t.codigo}</strong> · {fmtDataBR(t.data)} · {fmtMoney(t.valor)} · {contas.find(c => c.id === t.de_conta_id)?.data?.nome || '?'} → {contas.find(c => c.id === t.para_conta_id)?.data?.nome || '?'}</span>
+                            </label>
+                          ))}
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--navy)', padding: '4px 0', cursor: 'pointer' }}>
+                            <input type="radio" name="tligar" checked={!tLigar} onChange={() => setTLigar('')} />
+                            <span>Registrar uma transferência nova</span>
+                          </label>
+                        </div>
+                      )}
+                      {!tLigar && (
+                        <select value={tOutraConta} onChange={e => setTOutraConta(e.target.value)} style={ajSelect}>
+                          <option value="">— {selecionadoExt.data?.tipo === 'saida' ? 'para qual conta foi?' : 'de qual conta veio?'} —</option>
+                          {outrasContas.map(c => <option key={c.id} value={c.id}>{c.data?.tipo === 'cartao' ? '💳 ' : '🏦 '}{c.data?.nome}</option>)}
+                        </select>
+                      )}
+                      {outrasContas.length === 0 && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>Cadastre a outra conta (ou o cartão) em Contas e Cartões antes.</div>}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <button onClick={() => conciliarTransferencia(selecionadoExt)} disabled={conciliando || (!tLigar && !tOutraConta)} style={{ ...btnConciliar, width: 'auto', marginTop: 0, padding: '8px 16px', opacity: (tLigar || tOutraConta) && !conciliando ? 1 : 0.5, cursor: (tLigar || tOutraConta) && !conciliando ? 'pointer' : 'not-allowed' }}>✓ Conciliar como transferência</button>
+                        <button onClick={() => setTransfAberto(false)} style={btnAcao}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
+                  {ehCartao && selecionadoExt.data?.tipo === 'entrada' && !transfAberto && (
+                    <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
+                      {ehPagamentoFatura(selecionadoExt.data?.descricao)
+                        ? <>Esta linha tem cara de <strong>pagamento da fatura</strong>: concilie como <strong>↔ Transferência</strong> vinda da conta corrente.</>
+                        : <>Crédito na fatura: se for estorno/desconto, use <strong>＋ Estorno / crédito</strong>; se for o pagamento da fatura, <strong>↔ Transferência</strong>.</>}
+                    </div>
+                  )}
+                  {criarAberto && !ehCartao && (
                     <div style={criarBox}>
                       <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.5 }}>
                         Cria uma {selecionadoExt.data?.tipo === 'entrada' ? 'receita' : 'despesa'} nova de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> e concilia. <strong>Classifique</strong>:
@@ -726,9 +896,13 @@ export default function Conciliacao() {
                       </div>
                     </div>
                   )}
+                  {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && (
                   <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
-                    Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.
+                    {ehCartao
+                      ? <>Se esta compra <strong>já está registrada</strong> (ex.: parcela de série ou lançamento manual), marque-a abaixo e concilie. Senão, <strong>＋ Criar compra</strong>.</>
+                      : <>Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.</>}
                   </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 4px 8px', flexWrap: 'wrap' }}>
                     <input value={buscaNota} onChange={e => setBuscaNota(e.target.value)} placeholder="🔍 Buscar nota..." style={{ ...inputFiltro, flex: 1, minWidth: 120 }} />
                     <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-mid)', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Mostrar só as notas com vencimento no período filtrado do extrato">
@@ -747,10 +921,11 @@ export default function Conciliacao() {
                   {lancsRank.resto.map(l => (
                     <LancCard key={l.id} lanc={l} marcado={marcados.has(l.id)} onToggle={() => toggleMarcado(l.id)} />
                   ))}
-                  {lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
-                    <div style={dicaVazia}>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</div>
+                  {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
+                    <div style={dicaVazia}>{ehCartao ? <>Nenhuma compra registrada pra casar. Use <strong>＋ Criar compra</strong> acima.</> : <>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</>}</div>
                   )}
 
+                  {!ehCartao && <>
                   <div style={grupoLabel}>Ajustes — formação do valor</div>
                   {ajustes.map(a => (
                     <div key={a.id} style={ajusteRow}>
@@ -766,7 +941,9 @@ export default function Conciliacao() {
                     </div>
                   ))}
                   <button onClick={addAjuste} style={{ ...btnLink, display: 'block', padding: '6px 4px' }}>+ Adicionar ajuste (retenção, tarifa, juros, desconto…)</button>
+                  </>}
 
+                  {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && (
                   <div style={diffPanel}>
                     <div style={diffRow}><span>Extrato</span><strong>{fmtMoney(mesa.B)}</strong></div>
                     <div style={diffRow}><span>Selecionado ({mesa.nSel})</span><strong>{fmtMoney(mesa.S)}</strong></div>
@@ -780,10 +957,11 @@ export default function Conciliacao() {
                     {!mesa.ok && mesa.nSel > 0 && (
                       <>
                         <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>
-                        <button onClick={jogarSuspense} style={btnSuspense}>⚠️ Não sei agora — jogar {fmtMoney(Math.abs(mesa.diff))} em suspense</button>
+                        {!ehCartao && <button onClick={jogarSuspense} style={btnSuspense}>⚠️ Não sei agora — jogar {fmtMoney(Math.abs(mesa.diff))} em suspense</button>}
                       </>
                     )}
                   </div>
+                  )}
                   {compSelec && (
                     <button onClick={() => fecharPeriodo(compSelec)} style={{ ...btnLink, display: 'block', marginTop: 12, color: 'var(--text-mid)', textAlign: 'center', width: '100%' }}>🔒 Fechar período {compSelec} (trava a conciliação deste mês)</button>
                   )}
@@ -793,12 +971,6 @@ export default function Conciliacao() {
           </div>
         </div>
       )}
-      <ModalConciliarFatura
-        open={modalFaturaExtrato != null}
-        onClose={() => setModalFaturaExtrato(null)}
-        extrato={modalFaturaExtrato}
-        onConciliado={() => { setModalFaturaExtrato(null); carregar() }}
-      />
     </AppLayout>
   )
 }
@@ -816,7 +988,7 @@ function LancCard({ lanc, motivo, destaque, marcado, onToggle }) {
           {jaLiquidado && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: 'var(--green)', background: 'rgba(39,174,96,0.12)', padding: '1px 6px', borderRadius: 999, textTransform: 'uppercase' }}>{lanc.status}</span>}
         </div>
         <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
-          {lanc.codigo || '—'} · vence {lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}
+          {lanc.codigo || '—'} · {lanc.cartao_id ? `compra ${(lanc.data?.data_competencia || lanc.due || '').split('-').reverse().join('/')}` : `vence ${lanc.due ? lanc.due.split('-').reverse().join('/') : '—'}`}
           {motivo ? ` · ${motivo}` : ''}
         </div>
       </div>

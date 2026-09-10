@@ -5,15 +5,26 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { maskAgencia, maskConta, validarAgencia, validarConta } from '../../lib/mascaras'
 
+// =============================================================================
+// MODAL CONTA BANCÁRIA — cadastro de contas e de cartões de crédito.
+// O cartão é uma conta própria (tipo 'cartao', saldo negativo) na mesma tabela
+// contas_bancarias. Campos específicos do cartão: bandeira, dia_fechamento e
+// dia_vencimento (1-28) — o mesmo formato que lib/fatura.js e lib/parcelas.js
+// leem em cartao.data.
+// =============================================================================
+
 const BANCOS_BR = ['Itaú', 'Bradesco', 'Banco do Brasil', 'Santander', 'Caixa', 'Nubank', 'Inter', 'BTG Pactual', 'C6 Bank', 'Sicredi', 'Sicoob', 'XP Investimentos', 'Outro']
 const TIPOS = [
   { v: 'corrente', l: 'Corrente' },
   { v: 'poupanca', l: 'Poupança' },
   { v: 'pagamento', l: 'Conta de Pagamento (digital)' },
   { v: 'investimento', l: 'Investimento' },
+  { v: 'cartao', l: 'Cartão de crédito' },
 ]
+const BANDEIRAS = ['Visa', 'Mastercard', 'Elo', 'American Express', 'Hipercard', 'Outra']
+const DIAS = Array.from({ length: 28 }, (_, i) => i + 1)
 
-export default function ModalContaBancaria({ open, onClose, registro, onSaved }) {
+export default function ModalContaBancaria({ open, onClose, registro, onSaved, tipoInicial = 'corrente' }) {
   const { user } = useAuth()
   const isEdit = !!registro
 
@@ -25,7 +36,12 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
   const [saldoInicial, setSaldoInicial] = useState('')
   const [ativo, setAtivo] = useState(true)
   const [observacoes, setObservacoes] = useState('')
+  const [bandeira, setBandeira] = useState('Visa')
+  const [diaFechamento, setDiaFechamento] = useState(1)
+  const [diaVencimento, setDiaVencimento] = useState(10)
   const [saving, setSaving] = useState(false)
+
+  const isCartao = tipo === 'cartao'
 
   useEffect(() => {
     if (!open) return
@@ -39,26 +55,35 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
       setSaldoInicial(d.saldo_inicial != null ? String(d.saldo_inicial) : '')
       setAtivo(d.ativo !== false)
       setObservacoes(d.observacoes || '')
+      setBandeira(d.bandeira || 'Visa')
+      setDiaFechamento(d.dia_fechamento || 1)
+      setDiaVencimento(d.dia_vencimento || 10)
     } else {
       setNome(''); setBanco('Itaú'); setAgencia(''); setConta('')
-      setTipo('corrente'); setSaldoInicial(''); setAtivo(true); setObservacoes('')
+      setTipo(tipoInicial || 'corrente'); setSaldoInicial(''); setAtivo(true); setObservacoes('')
+      setBandeira('Visa'); setDiaFechamento(1); setDiaVencimento(10)
     }
-  }, [open, isEdit, registro])
+  }, [open, isEdit, registro, tipoInicial])
 
   async function handleSave() {
-    if (!nome.trim()) { showToast('Informe o nome da conta.', 'warning'); return }
+    if (!nome.trim()) { showToast(isCartao ? 'Informe o nome do cartão.' : 'Informe o nome da conta.', 'warning'); return }
     setSaving(true)
     try {
       const data = {
-        nome: nome.trim(), banco, agencia: agencia.trim(), conta: conta.trim(),
+        nome: nome.trim(), banco,
+        agencia: isCartao ? null : agencia.trim(),
+        conta: isCartao ? null : conta.trim(),
         tipo, saldo_inicial: saldoInicial === '' ? null : Number(saldoInicial),
         ativo, observacoes: observacoes.trim() || null,
+        bandeira: isCartao ? bandeira : null,
+        dia_fechamento: isCartao ? Number(diaFechamento) : null,
+        dia_vencimento: isCartao ? Number(diaVencimento) : null,
       }
       if (isEdit) {
         const merged = { ...(registro.data || {}), ...data }
         const { error } = await supabase.from('contas_bancarias').update({ data: merged }).eq('id', registro.id)
         if (error) throw error
-        showToast('Conta atualizada.', 'success')
+        showToast(isCartao ? 'Cartão atualizado.' : 'Conta atualizada.', 'success')
       } else {
         if (!user) { showToast('Sessão expirada.', 'error'); return }
         const { error } = await supabase.from('contas_bancarias').insert({
@@ -66,7 +91,7 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
           data: { ...data, created: new Date().toISOString().slice(0, 10) },
         })
         if (error) throw error
-        showToast(`Conta ${nome.trim()} cadastrada.`, 'success')
+        showToast(isCartao ? `Cartão ${nome.trim()} cadastrado.` : `Conta ${nome.trim()} cadastrada.`, 'success')
       }
       onSaved?.()
       onClose()
@@ -78,11 +103,15 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
     }
   }
 
+  const title = isEdit
+    ? (isCartao ? `Editar Cartão · ${registro.data?.nome || ''}` : `Editar Conta · ${registro.data?.nome || ''}`)
+    : (isCartao ? 'Novo Cartão de Crédito' : 'Nova Conta Bancária')
+
   return (
     <Modal
       open={open}
       onClose={saving ? () => {} : onClose}
-      title={isEdit ? `Editar Conta · ${registro.data?.nome || ''}` : 'Nova Conta Bancária'}
+      title={title}
       width={580}
       footer={
         <>
@@ -92,8 +121,8 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
       }
     >
       <Row cols={2}>
-        <Field label="Nome da Conta *">
-          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Itaú Empresarial" style={input} />
+        <Field label={isCartao ? 'Nome do Cartão *' : 'Nome da Conta *'}>
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder={isCartao ? 'Ex: Nubank Empresarial' : 'Ex: Itaú Empresarial'} style={input} />
         </Field>
         <Field label="Banco">
           <select value={banco} onChange={e => setBanco(e.target.value)} style={input}>
@@ -109,29 +138,62 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved })
           </select>
         </Field>
         <Field label="Saldo Inicial (R$)">
-          <input type="number" step="0.01" value={saldoInicial} onChange={e => setSaldoInicial(e.target.value)} placeholder="0,00" style={input} title="Saldo da conta na data em que você começou a usar o sistema" />
+          <input
+            type="number" step="0.01" value={saldoInicial} onChange={e => setSaldoInicial(e.target.value)}
+            placeholder="0,00" style={input}
+            title={isCartao
+              ? 'Fatura em aberto quando você começou a usar o sistema, com sinal negativo (ex.: -1500). Normalmente 0.'
+              : 'Saldo da conta na data em que você começou a usar o sistema'}
+          />
         </Field>
       </Row>
 
-      <Row cols={2}>
-        <Field label="Agência">
-          <input value={agencia} onChange={e => setAgencia(maskAgencia(e.target.value))} placeholder="0000-0" maxLength={6} style={{...input, ...(agencia && !validarAgencia(agencia) ? {borderColor:'var(--red)'}:{})}} />
-        </Field>
-        <Field label="Conta">
-          <input value={conta} onChange={e => setConta(maskConta(e.target.value))} placeholder="00000-0" maxLength={11} style={{...input, ...(conta && !validarConta(conta) ? {borderColor:'var(--red)'}:{})}} />
-        </Field>
-      </Row>
+      {isCartao ? (
+        <>
+          <Row cols={3}>
+            <Field label="Bandeira">
+              <select value={bandeira} onChange={e => setBandeira(e.target.value)} style={input}>
+                {BANDEIRAS.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </Field>
+            <Field label="Dia do fechamento">
+              <select value={diaFechamento} onChange={e => setDiaFechamento(Number(e.target.value))} style={input}>
+                {DIAS.map(d => <option key={d} value={d}>Dia {d}</option>)}
+              </select>
+            </Field>
+            <Field label="Dia do vencimento">
+              <select value={diaVencimento} onChange={e => setDiaVencimento(Number(e.target.value))} style={input}>
+                {DIAS.map(d => <option key={d} value={d}>Dia {d}</option>)}
+              </select>
+            </Field>
+          </Row>
+
+          <div style={infoBox}>
+            💡 Exemplo: fechamento dia {diaFechamento}, vencimento dia {diaVencimento}. Uma compra feita dia 15 deste mês entra na fatura
+            que fecha dia {diaFechamento} {diaFechamento >= 15 ? 'deste mês' : 'do mês que vem'} e vence dia {diaVencimento} {diaFechamento >= 15 ? 'deste mês' : 'do mês que vem'}.
+          </div>
+        </>
+      ) : (
+        <Row cols={2}>
+          <Field label="Agência">
+            <input value={agencia} onChange={e => setAgencia(maskAgencia(e.target.value))} placeholder="0000-0" maxLength={6} style={{...input, ...(agencia && !validarAgencia(agencia) ? {borderColor:'var(--red)'}:{})}} />
+          </Field>
+          <Field label="Conta">
+            <input value={conta} onChange={e => setConta(maskConta(e.target.value))} placeholder="00000-0" maxLength={11} style={{...input, ...(conta && !validarConta(conta) ? {borderColor:'var(--red)'}:{})}} />
+          </Field>
+        </Row>
+      )}
 
       <Row>
         <Field label="Observações">
-          <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder="Tarifa mensal, gerente, etc." style={{ ...input, minHeight: 60, resize: 'vertical' }} />
+          <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder={isCartao ? 'Anuidade, limite, etc.' : 'Tarifa mensal, gerente, etc.'} style={{ ...input, minHeight: 60, resize: 'vertical' }} />
         </Field>
       </Row>
 
       <div style={{ marginTop: 12 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600 }}>
           <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
-          Conta ativa
+          {isCartao ? 'Cartão ativo' : 'Conta ativa'}
         </label>
       </div>
     </Modal>
@@ -150,5 +212,6 @@ function Row({ children, cols = 1, gap = 14 }) {
 
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
+const infoBox = { background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', padding: 12, borderRadius: 6, fontSize: 11, color: 'var(--text-mid)', marginBottom: 14, lineHeight: 1.5 }
 const btnGhost = { padding: '10px 18px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5 }
 const btnPrimary = { padding: '10px 18px', border: 'none', borderRadius: 6, background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5 }

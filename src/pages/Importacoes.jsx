@@ -69,6 +69,9 @@ export default function Importacoes() {
     if (imp.tipo === 'ofx_extrato') {
       queries.push(supabase.from('transacoes_extrato').select('*').eq('importacao_id', imp.id))
     } else if (imp.tipo === 'ofx_fatura_cartao') {
+      // Fatura nova (bloco 4): linhas de extrato da conta-cartão + compras criadas delas.
+      // Fatura antiga: só compras.
+      queries.push(supabase.from('transacoes_extrato').select('*').eq('importacao_id', imp.id))
       queries.push(supabase.from('payable').select('*').eq('importacao_id', imp.id))
     } else if (imp.tipo === 'email_nfse' || imp.tipo === 'upload_manual_nf') {
       queries.push(supabase.from('receivable').select('*').eq('importacao_id', imp.id))

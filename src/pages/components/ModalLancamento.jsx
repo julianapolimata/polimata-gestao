@@ -82,12 +82,13 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     Promise.all([
       supabase.from('pessoas').select('id,codigo,data'),
       fetchPlanoContas(),
-      isRec ? Promise.resolve({ data: [] }) : supabase.from('cartoes').select('id,data').order('updated_at', { ascending: false }),
+      isRec ? Promise.resolve({ data: [] }) : supabase.from('contas_bancarias').select('id,data').order('updated_at', { ascending: false }),
     ]).then(([rPess, plano, rCart]) => {
       if (cancelled) return
       setPessoas(rPess.data || [])
       setPlano(plano || [])
-      setCartoes((rCart?.data || []).filter(c => c.data?.ativo !== false))
+      // Cartão = conta com data.tipo === 'cartao' (mesma tabela das contas bancárias)
+      setCartoes((rCart?.data || []).filter(c => c.data?.tipo === 'cartao' && c.data?.ativo !== false))
     })
     return () => { cancelled = true }
   }, [open])
@@ -225,7 +226,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         showToast('Lançamento atualizado.', 'success')
       } else {
         if (!user) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
-        // Cartão (Pagar): integra com a tabela cartoes via cartao_id
+        // Cartão (Pagar): integra com a conta-cartão (contas_bancarias, tipo 'cartao') via cartao_id
         const cartaoSelecionado = cartoes.find(c => c.id === cartaoId)
         // Caso PARCELADO + Cartão: gera N lançamentos com vencimento progressivo
         if (!isRec && parcelado && cartaoSelecionado && numParcelas > 1) {
@@ -505,7 +506,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
             <Field label="Cartão">
               {cartoes.length === 0 ? (
                 <div style={{ fontSize: 11, color: 'var(--text-mid)', fontStyle: 'italic' }}>
-                  Nenhum cartão cadastrado. Cadastre em <a href="/cartoes" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold)', textDecoration: 'underline' }}>Cartões</a>.
+                  Nenhum cartão cadastrado. Cadastre em <a href="/contas-bancarias" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold)', textDecoration: 'underline' }}>Contas e Cartões</a>.
                 </div>
               ) : (
                 <select value={cartaoId} onChange={e => setCartaoId(e.target.value)} style={input}>
