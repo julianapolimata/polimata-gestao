@@ -7,7 +7,24 @@ import crypto from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 const POLIMATA_CNPJ = '48948776000164';
-const GMAIL_TARGET_ALIAS = process.env.GMAIL_TARGET_ALIAS || 'financeiro@polimatagrc.com.br';
+// Endereço que recebe as notas. A verdade é a configuração DA EMPRESA
+// (config_empresa.data.email_entrada) — cada empresa tem o seu. A variável de
+// ambiente fica só como valor inicial/emergência.
+const GMAIL_TARGET_ALIAS_ENV = process.env.GMAIL_TARGET_ALIAS || '';
+let _aliasCache = null;
+async function emailDeEntrada() {
+  if (_aliasCache !== null) return _aliasCache;
+  try {
+    const { data } = await getSupabase()
+      .from('config_empresa').select('data')
+      .eq('user_id', process.env.POLIMATA_USER_ID).maybeSingle();
+    _aliasCache = (data?.data?.email_entrada || GMAIL_TARGET_ALIAS_ENV || '').trim();
+  } catch (e) {
+    console.warn('Não consegui ler o e-mail de entrada da configuração:', e.message);
+    _aliasCache = GMAIL_TARGET_ALIAS_ENV;
+  }
+  return _aliasCache;
+}
 
 // Limita por execução para não estourar timeout (Vercel Hobby = 60s)
 const MAX_MESSAGES_PER_RUN = 3;
@@ -42,7 +59,7 @@ const EMAIL_REMETENTES_CONFIAVEIS = listaDoEnv('EMAIL_REMETENTES_CONFIAVEIS', 'j
 // (nota fiscal e guia chegam em qualquer endereço, não só no alias financeiro).
 // GMAIL_SO_ALIAS=true volta a estreitar para GMAIL_TARGET_ALIAS.
 const GMAIL_SO_ALIAS = String(process.env.GMAIL_SO_ALIAS || 'false').toLowerCase() === 'true';
-const escopoDestino = () => (GMAIL_SO_ALIAS && GMAIL_TARGET_ALIAS ? `to:${GMAIL_TARGET_ALIAS} ` : '');
+const escopoDestino = alias => (GMAIL_SO_ALIAS && alias ? `to:${alias} ` : '');
 // Varrer tudo sem filtro encheria a fila de apresentação, contrato e foto. O
 // documento fiscal é PDF ou XML — o resto nem é lido (economiza leitura de IA).
 const EMAIL_TIPOS_ARQUIVO = listaDoEnv('EMAIL_TIPOS_ARQUIVO', 'pdf,xml');
@@ -291,7 +308,8 @@ async function processEmails(opts) {
       .map(([mid]) => mid)
       .slice(0, maxMsgs);
   } else {
-    const query = `${escopoDestino()}has:attachment ${filtroArquivo()}-label:polimata-processado newer_than:${days}d`;
+    const alias = await emailDeEntrada();
+    const query = `${escopoDestino(alias)}has:attachment ${filtroArquivo()}-label:polimata-processado newer_than:${days}d`;
     const messages = await listMessages(accessToken, query, maxMsgs);
     messageIds = messages.map(m => m.id);
 
@@ -303,7 +321,7 @@ async function processEmails(opts) {
     if (restante > 0 && EMAIL_REMETENTES_LINK.length) {
       try {
         const fromExpr = EMAIL_REMETENTES_LINK.map(d => `from:${d}`).join(' OR ');
-        const queryLink = `${escopoDestino()}(${fromExpr}) -label:polimata-processado newer_than:${days}d`;
+        const queryLink = `${escopoDestino(alias)}(${fromExpr}) -label:polimata-processado newer_than:${days}d`;
         const msgsLink = await listMessages(accessToken, queryLink, restante);
         const vistos = new Set(messageIds);
         for (const m of msgsLink) {

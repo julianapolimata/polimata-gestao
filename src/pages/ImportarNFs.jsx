@@ -8,10 +8,13 @@ import { proximoCodigoReceivable, proximoCodigoPayable, proximoCodigoPessoa } fr
 import { anexoDaNF } from '../lib/vincularNF'
 import { fetchPlanoContas, categoriasDe } from '../lib/planoContas'
 import SeletorLancamento from './components/SeletorLancamento'
+import { useConfirm } from '../components/ConfirmDialog'
+import { msgErro } from '../lib/erros'
 
-// Caixa de e-mail que recebe as notas. Vem do ambiente para não prender o
-// sistema a uma empresa só.
-const EMAIL_NOTAS = import.meta.env.VITE_EMAIL_NOTAS || ''
+// O endereço que recebe as notas é configuração DA EMPRESA (tabela
+// config_empresa), não do build: num sistema usado por várias empresas, cada
+// uma tem o seu. A variável de ambiente só serve de sugestão inicial.
+const EMAIL_SUGERIDO = import.meta.env.VITE_EMAIL_NOTAS || ''
 
 // =====================================================================
 // CAIXA DE ENTRADA · NFs — tela de governança das NFs processadas pelo
@@ -48,6 +51,12 @@ export default function ImportarNFs() {
   // Quanto a leitura automática custou neste mês. Custo variável invisível é
   // como margem que some sem ninguém ver.
   const [consumo, setConsumo] = useState(null)
+  const [decisoes, setDecisoes] = useState([])
+  const [emailEntrada, setEmailEntrada] = useState('')
+  const [editandoEmail, setEditandoEmail] = useState(false)
+  const [emailForm, setEmailForm] = useState('')
+  const [salvandoEmail, setSalvandoEmail] = useState(false)
+  const [confirmar, dialogoConfirmacao] = useConfirm()
   // Quanto tempo para trás procurar no e-mail. 7 dias é o dia a dia; janelas
   // maiores servem para trazer o histórico (ex.: guias de imposto de meses
   // anteriores que nunca entraram).
@@ -116,10 +125,15 @@ export default function ImportarNFs() {
       supabase.from('nf_pending').select('*').eq('status', 'pendente').order('created_at', { ascending: false }),
       supabase.from('nf_history').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.rpc('custo_ia_do_mes'),
-    ]).then(([rP, rH, rC]) => {
+      // Decisões já tomadas: é onde vive o motivo de uma rejeição.
+      supabase.from('nf_pending').select('*').neq('status', 'pendente').order('created_at', { ascending: false }).limit(200),
+      supabase.from('config_empresa').select('data').limit(1),
+    ]).then(([rP, rH, rC, rD, rE]) => {
       setPendentes(rP.data || [])
       setHistorico(rH.data || [])
       setConsumo(Array.isArray(rC?.data) ? rC.data[0] : rC?.data || null)
+      setDecisoes(rD.data || [])
+      setEmailEntrada(rE.data?.[0]?.data?.email_entrada || '')
       setLoading(false)
     })
   }, [user])
@@ -235,13 +249,62 @@ export default function ImportarNFs() {
     }
   }
 
+  async function salvarEmailEntrada() {
+    const valor = emailForm.trim()
+    if (valor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) {
+      showToast('Esse endereço não parece um e-mail válido.', 'warning'); return
+    }
+    setSalvandoEmail(true)
+    try {
+      const { data: atual } = await supabase.from('config_empresa').select('id, data').limit(1)
+      const linha = atual?.[0]
+      const novo = { ...(linha?.data || {}), email_entrada: valor || null }
+      const { error } = linha
+        ? await supabase.from('config_empresa').update({ data: novo }).eq('id', linha.id)
+        : await supabase.from('config_empresa').insert({ user_id: user.id, data: novo })
+      if (error) throw error
+      setEmailEntrada(valor)
+      setEditandoEmail(false)
+      showToast('Endereço salvo.', 'success')
+    } catch (e) {
+      showToast(msgErro(e, 'Não consegui salvar o endereço.'), 'error')
+    } finally { setSalvandoEmail(false) }
+  }
+
   async function rejeitar(pending) {
-    if (!confirm('Rejeitar essa NF? Ela vai pro histórico marcada como descartada.')) return
-    await supabase.from('nf_pending').update({
-      status: 'rejeitado', rejected_at: new Date().toISOString(),
-    }).eq('id', pending.id)
-    showToast('NF rejeitada.', 'info')
-    carregar()
+    const d = pending.data || {}
+    const quem = d.parte || d.emitente_nome || 'documento sem nome'
+    // Rejeitar é uma decisão: fica registrada com o motivo, que é o que explica
+    // a escolha meses depois (e para quem audita).
+    const motivo = await confirmar({
+      titulo: 'Rejeitar este documento?',
+      texto: `${quem}${d.valor ? ' · ' + fmtMoney(d.valor) : ''}`,
+      consequencias: [
+        'O documento sai da caixa de entrada e vai para o histórico.',
+        'Nenhum lançamento é criado nas suas contas.',
+        'O motivo abaixo fica registrado junto com a decisão.',
+      ],
+      exigeTexto: {
+        label: 'Por que está rejeitando?',
+        minimo: 3,
+        placeholder: 'Ex.: não é documento fiscal · nota de outra empresa · já foi lançada',
+      },
+      confirmarLabel: 'Rejeitar documento',
+      variante: 'perigo',
+    })
+    if (!motivo) return
+    try {
+      const { error } = await supabase.from('nf_pending').update({
+        status: 'rejeitado',
+        rejected_at: new Date().toISOString(),
+        data: { ...d, motivo_rejeicao: motivo },
+      }).eq('id', pending.id)
+      if (error) throw error
+      showToast('Documento rejeitado. O motivo ficou no histórico.', 'info')
+      carregar()
+    } catch (e) {
+      showToast(msgErro(e, 'Não consegui rejeitar o documento.'), 'error')
+    }
   }
 
   return (
@@ -273,10 +336,32 @@ export default function ImportarNFs() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
-            {EMAIL_NOTAS
-              ? <>As notas enviadas para <strong>{EMAIL_NOTAS}</strong> chegam aqui sozinhas.</>
-              : <>As notas enviadas para a caixa de e-mail configurada chegam aqui sozinhas.</>}
-            {' '}Use o botão para verificar agora.
+            {editandoEmail ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span>Endereço que recebe as notas:</span>
+                <input
+                  value={emailForm}
+                  onChange={e => setEmailForm(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') salvarEmailEntrada(); if (e.key === 'Escape') setEditandoEmail(false) }}
+                  placeholder={EMAIL_SUGERIDO || 'financeiro@suaempresa.com.br'}
+                  autoFocus
+                  style={inputEmail}
+                />
+                <button onClick={salvarEmailEntrada} disabled={salvandoEmail} style={btnMini}>{salvandoEmail ? 'Salvando…' : 'Salvar'}</button>
+                <button onClick={() => setEditandoEmail(false)} style={btnMiniGhost}>Cancelar</button>
+              </span>
+            ) : (
+              <>
+                {emailEntrada
+                  ? <>As notas enviadas para <strong>{emailEntrada}</strong> chegam aqui sozinhas.</>
+                  : <>Ainda não há um endereço configurado para receber as notas.</>}
+                {' '}
+                <button onClick={() => { setEmailForm(emailEntrada || EMAIL_SUGERIDO); setEditandoEmail(true) }} style={btnLinkMini}>
+                  {emailEntrada ? 'alterar' : 'configurar'}
+                </button>
+                {emailEntrada && ' · Use o botão para procurar agora.'}
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <select value={diasBusca} onChange={e => setDiasBusca(Number(e.target.value))} disabled={rodandoCron} style={selectPeriodo} title="Quanto tempo para trás procurar no e-mail">
@@ -290,16 +375,22 @@ export default function ImportarNFs() {
             </button>
           </div>
         </div>
-        {consumo && Number(consumo.documentos) > 0 && (
+        {consumo && (
           <div style={consumoBox}>
             <span>
-              <strong>{consumo.documentos}</strong> documento(s) lido(s) pelo robô neste mês ·{' '}
-              <strong>{fmtMoney(Number(consumo.custo_brl) || 0)}</strong> de leitura automática
+              {Number(consumo.documentos) > 0 ? (
+                <>
+                  <strong>{consumo.documentos}</strong> documento(s) lido(s) pelo robô neste mês ·{' '}
+                  <strong>{fmtMoney(Number(consumo.custo_brl) || 0)}</strong> de leitura automática
+                </>
+              ) : (
+                <>Nenhum documento lido pelo robô neste mês — <strong>{fmtMoney(0)}</strong> de leitura automática.</>
+              )}
             </span>
             <span style={{ color: 'var(--text-mid)' }}>
-              {(Number(consumo.custo_brl) || 0) > 0
+              {Number(consumo.documentos) > 0 && (Number(consumo.custo_brl) || 0) > 0
                 ? `média de ${fmtMoney((Number(consumo.custo_brl) || 0) / Number(consumo.documentos))} por documento`
-                : 'custo ainda sendo apurado'}
+                : 'a contagem começou agora: leituras anteriores não foram medidas'}
             </span>
           </div>
         )}
@@ -319,7 +410,8 @@ export default function ImportarNFs() {
             ))}
           </div>
         )}
-        <SeletorLancamento
+        {dialogoConfirmacao}
+      <SeletorLancamento
           open={!!anexando}
           nf={anexando}
           user={user}
@@ -331,10 +423,10 @@ export default function ImportarNFs() {
         historico.length === 0 ? (
           <div style={emptyState}>Nenhuma NF processada ainda.</div>
         ) : (
-          <HistoricoTable historico={historico} />
+          <HistoricoTable historico={historico} decisoes={decisoes} />
         )
       ) : (
-        <UploadManualCard />
+        <UploadManualCard emailEntrada={emailEntrada} />
       )}
     </AppLayout>
   )
@@ -385,11 +477,46 @@ function PendingCard({ pending, processando, onAprovar, onRejeitar, onAnexar }) 
   )
 }
 
-function HistoricoTable({ historico }) {
+// O que apareceu no lugar do status cru do robô ('ok', 'sem_anexo'...).
+const TEXTO_STATUS = {
+  ok: 'Lido e colocado na caixa de entrada',
+  sem_anexo: 'E-mail sem documento anexado',
+  sem_lancamento: 'Lido, mas não virou lançamento',
+  descartado: 'Descartado: não era documento fiscal',
+  duplicado: 'Já existia no sistema',
+  error: 'Erro ao ler',
+  rejeitado: 'Rejeitado por você',
+  aprovado: 'Aprovado e lançado',
+}
+
+function HistoricoTable({ historico, decisoes = [] }) {
   const [dataDe, setDataDe] = useState('')
   const [dataAte, setDataAte] = useState('')
-  const filtrado = historico.filter(h => {
-    const v = h.created_at ? h.created_at.slice(0, 10) : ''
+  // Duas origens, uma linha do tempo só: o que o robô leu e o que você decidiu.
+  const linhas = [
+    ...historico.map(h => ({
+      id: 'h_' + h.id,
+      quando: h.created_at,
+      tipo: h.data?.tipo_documento,
+      numero: h.data?.numero,
+      parte: h.data?.parte,
+      valor: h.data?.valor,
+      status: h.data?.status,
+      motivo: h.data?.motivo || h.data?.erro || '',
+    })),
+    ...decisoes.map(p => ({
+      id: 'd_' + p.id,
+      quando: p.rejected_at || p.approved_at || p.updated_at || p.created_at,
+      tipo: p.data?.tipo_documento,
+      numero: p.data?.numero,
+      parte: p.data?.parte,
+      valor: p.data?.valor,
+      status: p.status,
+      motivo: p.data?.motivo_rejeicao || '',
+    })),
+  ].sort((a, b) => String(b.quando || '').localeCompare(String(a.quando || '')))
+  const filtrado = linhas.filter(h => {
+    const v = h.quando ? String(h.quando).slice(0, 10) : ''
     if (!v) return true
     if (dataDe && v < dataDe) return false
     if (dataAte && v > dataAte) return false
@@ -405,7 +532,7 @@ function HistoricoTable({ historico }) {
         {(dataDe || dataAte) && (
           <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar">×</button>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-mid)' }}>{filtrado.length} de {historico.length}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-mid)' }}>{filtrado.length} de {linhas.length}</span>
       </div>
       <div style={tableWrap}>
         <table style={tbl}>
@@ -416,18 +543,23 @@ function HistoricoTable({ historico }) {
               <th style={{ ...th, width: 110 }}>Nº NF</th>
               <th style={th}>Parte</th>
               <th style={{ ...th, width: 130, textAlign: 'right' }}>Valor</th>
-              <th style={{ ...th, width: 200 }}>Status</th>
+              <th style={{ ...th, width: 230 }}>O que aconteceu</th>
             </tr>
           </thead>
           <tbody>
             {filtrado.map(h => (
             <tr key={h.id}>
-              <td style={{ ...td, color: 'var(--text-mid)' }}>{new Date(h.created_at).toLocaleDateString('pt-BR')}</td>
-              <td style={{ ...td }}>{h.data?.tipo_documento || '—'}</td>
-              <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{h.data?.numero || '—'}</td>
-              <td style={td}>{h.data?.parte || '—'}</td>
-              <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoney(h.data?.valor)}</td>
-              <td style={{ ...td, fontSize: 11, color: 'var(--text-mid)' }}>{h.data?.status || '—'}</td>
+              <td style={{ ...td, color: 'var(--text-mid)' }}>{h.quando ? new Date(h.quando).toLocaleDateString('pt-BR') : '—'}</td>
+              <td style={{ ...td }}>{h.tipo || '—'}</td>
+              <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{h.numero || '—'}</td>
+              <td style={td}>{h.parte || '—'}</td>
+              <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoney(h.valor)}</td>
+              <td style={{ ...td, fontSize: 11 }}>
+                <span style={{ color: h.status === 'rejeitado' ? 'var(--red)' : h.status === 'aprovado' ? 'var(--green)' : 'var(--text-mid)' }}>
+                  {TEXTO_STATUS[h.status] || h.status || '—'}
+                </span>
+                {h.motivo && <div style={{ color: 'var(--text-mid)', fontStyle: 'italic', marginTop: 2 }}>“{h.motivo}”</div>}
+              </td>
             </tr>
           ))}
           </tbody>
@@ -437,20 +569,24 @@ function HistoricoTable({ historico }) {
   )
 }
 
-function UploadManualCard() {
+function UploadManualCard({ emailEntrada }) {
   return (
     <div style={emptyState}>
       <div style={{ fontSize: 22, marginBottom: 12 }}>📤</div>
       <div style={{ fontSize: 14, color: 'var(--navy)', fontWeight: 600, marginBottom: 6 }}>Upload manual</div>
       <div style={{ fontSize: 12, color: 'var(--text-mid)', maxWidth: 480, margin: '0 auto', lineHeight: 1.5 }}>
         Em preparação. Por enquanto, encaminhe a nota
-        {EMAIL_NOTAS ? <> para <strong>{EMAIL_NOTAS}</strong></> : <> para a caixa de e-mail configurada</>}
+        {emailEntrada ? <> para <strong>{emailEntrada}</strong></> : <> para o endereço configurado na caixa de entrada</>}
         {' '}— em segundos ela aparece na caixa de entrada.
       </div>
     </div>
   )
 }
 
+const inputEmail = { padding: '5px 9px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 240 }
+const btnMini = { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const btnMiniGhost = { padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
+const btnLinkMini = { background: 'none', border: 'none', padding: 0, color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }
 const consumoBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '8px 14px', borderRadius: 6, fontSize: 11, lineHeight: 1.5, background: 'var(--cream)', border: '1px solid var(--cream-dark)', color: 'var(--navy)' }
 const selectPeriodo = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
