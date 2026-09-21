@@ -45,6 +45,9 @@ export default function ImportarNFs() {
   const [ultimoResultado, setUltimoResultado] = useState(null)
   const [anexando, setAnexando] = useState(null) // nf_pending sendo anexada a lançamento existente
   const [plano, setPlano] = useState([])
+  // Quanto a leitura automática custou neste mês. Custo variável invisível é
+  // como margem que some sem ninguém ver.
+  const [consumo, setConsumo] = useState(null)
   // Quanto tempo para trás procurar no e-mail. 7 dias é o dia a dia; janelas
   // maiores servem para trazer o histórico (ex.: guias de imposto de meses
   // anteriores que nunca entraram).
@@ -86,6 +89,11 @@ export default function ImportarNFs() {
         if (errs > 0) msg += ` ${errs} com erro — veja no Histórico.`
         // Quando a rodada bate no teto, quase sempre há mais para trás.
         if (j?.pode_ter_mais) msg += ' Pode haver mais: clique de novo para continuar de onde parou.'
+        // O teto existe para o robô não gastar sem limite. Avisar é obrigatório:
+        // senão a usuária acha que acabou quando na verdade foi interrompido.
+        if (j?.teto_atingido) {
+          msg += ` Parei aqui: a leitura automática já custou ${(Number(j.gasto_mes_brl)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} neste mês, que é o limite combinado. Ela recomeça no mês que vem, ou você pode aumentar o limite.`
+        }
       }
       setUltimoResultado({ ok: errs === 0, msg, data: j })
       showToast(novas > 0 ? `${novas} nova(s) NF(s) na fila` : 'Robô rodou — nada novo no e-mail', errs > 0 ? 'warning' : 'success')
@@ -107,9 +115,11 @@ export default function ImportarNFs() {
     Promise.all([
       supabase.from('nf_pending').select('*').eq('status', 'pendente').order('created_at', { ascending: false }),
       supabase.from('nf_history').select('*').order('created_at', { ascending: false }).limit(200),
-    ]).then(([rP, rH]) => {
+      supabase.rpc('custo_ia_do_mes'),
+    ]).then(([rP, rH, rC]) => {
       setPendentes(rP.data || [])
       setHistorico(rH.data || [])
+      setConsumo(Array.isArray(rC?.data) ? rC.data[0] : rC?.data || null)
       setLoading(false)
     })
   }, [user])
@@ -280,6 +290,19 @@ export default function ImportarNFs() {
             </button>
           </div>
         </div>
+        {consumo && Number(consumo.documentos) > 0 && (
+          <div style={consumoBox}>
+            <span>
+              <strong>{consumo.documentos}</strong> documento(s) lido(s) pelo robô neste mês ·{' '}
+              <strong>{fmtMoney(Number(consumo.custo_brl) || 0)}</strong> de leitura automática
+            </span>
+            <span style={{ color: 'var(--text-mid)' }}>
+              {(Number(consumo.custo_brl) || 0) > 0
+                ? `média de ${fmtMoney((Number(consumo.custo_brl) || 0) / Number(consumo.documentos))} por documento`
+                : 'custo ainda sendo apurado'}
+            </span>
+          </div>
+        )}
         {ultimoResultado && (
           <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: ultimoResultado.ok ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.08)', borderLeft: `3px solid ${ultimoResultado.ok ? 'var(--green)' : 'var(--red)'}`, color: ultimoResultado.ok ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
             {ultimoResultado.ok ? '✓' : '⚠'} {ultimoResultado.msg}
@@ -428,6 +451,7 @@ function UploadManualCard() {
   )
 }
 
+const consumoBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '8px 14px', borderRadius: 6, fontSize: 11, lineHeight: 1.5, background: 'var(--cream)', border: '1px solid var(--cream-dark)', color: 'var(--navy)' }
 const selectPeriodo = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 6 }

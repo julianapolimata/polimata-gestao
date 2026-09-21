@@ -90,6 +90,42 @@ const EMAIL_ORCAMENTO_MS = numeroDoEnv('EMAIL_ORCAMENTO_MS', Math.max(20000, EMA
 // Uma mensagem com vários anexos faz uma leitura de IA por anexo.
 const EMAIL_CUSTO_MENSAGEM_MS = numeroDoEnv('EMAIL_CUSTO_MENSAGEM_MS', 25000);
 
+// ---------------------------------------------------------------------------
+// Quanto custa a leitura de IA (e o teto de gasto do mês)
+// ---------------------------------------------------------------------------
+// Cada anexo lido é uma chamada paga à Anthropic. A resposta traz quantos
+// "tokens" entraram e saíram; aqui isso vira dinheiro, é convertido para real
+// e gravado em `leituras_ia` — uma linha por leitura. Sem isso o custo fica
+// invisível e só aparece na fatura do cartão no fim do mês.
+//
+// PREÇOS EM DÓLAR POR MILHÃO DE TOKENS. Tabela pública da Anthropic.
+// >>> CONFERIR sempre que a Anthropic mudar preço ou quando o modelo usado
+// >>> aqui mudar: é este número que vira o valor mostrado para a dona.
+const PRECOS_IA = {
+  'claude-sonnet-5':  { entrada: 3.00,  saida: 15.00 },
+  'claude-haiku-4-5': { entrada: 1.00,  saida:  5.00 },
+  'claude-opus-5':    { entrada: 5.00,  saida: 25.00 },
+};
+// Modelo que a tabela acima usa quando o modelo da resposta não está listado
+// (ex.: trocamos o modelo e esquecemos de atualizar os preços). Nesse caso o
+// custo é uma ESTIMATIVA e fica marcado como tal em meta.preco_estimado.
+const PRECO_IA_FALLBACK = 'claude-sonnet-5';
+// Modelo usado para ler os documentos.
+const MODELO_IA = 'claude-sonnet-5';
+
+// Teto de gasto do mês, em reais. Chegou no teto, a varredura para: melhor
+// deixar e-mail para a próxima do que gastar sem limite. 0 (ou negativo)
+// significa SEM TETO.
+function tetoDoEnv() {
+  const bruto = String(process.env.EMAIL_TETO_MENSAL_BRL ?? '').trim().replace(',', '.');
+  if (!bruto) return 50;
+  const n = Number(bruto);
+  return Number.isFinite(n) ? n : 50;
+}
+const EMAIL_TETO_MENSAL_BRL = tetoDoEnv();
+// null = sem teto (é assim que o retorno da função avisa a tela).
+const TETO_MENSAL_BRL = EMAIL_TETO_MENSAL_BRL > 0 ? EMAIL_TETO_MENSAL_BRL : null;
+
 // Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
 // "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
 // justamente o truque usado em phishing. Quem precisar de outro host, põe na env.
@@ -213,6 +249,19 @@ async function processEmails(opts) {
   const reprocess = !!(opts && opts.reprocess);
   const t0 = (opts && opts.t0) || Date.now();
   const startedAt = new Date().toISOString();
+
+  // Quanto já se gastou com leitura de IA neste mês. É o ponto de partida do
+  // teto: a rodada vai somando o próprio custo aqui em cima e para quando
+  // encostar no limite.
+  const gasto = {
+    tetoBrl: TETO_MENSAL_BRL,          // null = sem teto
+    gastoMesBrl: await gastoIADoMes(),
+    custoRodadaBrl: 0,
+    custoRodadaUsd: 0,
+    leituras: 0,
+    tetoAtingido: false,
+  };
+
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
 
@@ -317,6 +366,15 @@ async function processEmails(opts) {
 
   for (let i = 0; i < messageIds.length; i++) {
     const mid = messageIds[i];
+    // TETO DE GASTO DO MÊS: chegou no limite (nesta rodada ou em rodadas
+    // anteriores do mês), para a varredura aqui. O que sobrou volta quando o
+    // mês virar ou quando a dona subir o teto.
+    if (tetoEstourado(gasto)) {
+      gasto.tetoAtingido = true;
+      summary.nao_processadas = messageIds.length - i;
+      console.log(`[teto] parando em ${i}/${messageIds.length}: gasto do mês R$ ${gasto.gastoMesBrl} de um teto de R$ ${gasto.tetoBrl}`);
+      break;
+    }
     // Orçamento de tempo: melhor devolver lote parcial com sucesso do que
     // morrer com 504 e não salvar nada. Uma vez dentro, a mensagem vai até o
     // fim (não deixamos e-mail pela metade) — por isso não basta perguntar
@@ -333,7 +391,7 @@ async function processEmails(opts) {
       break;
     }
     try {
-      const result = await processMessage(accessToken, mid, labelId);
+      const result = await processMessage(accessToken, mid, labelId, gasto);
       summary.processadas += 1;
       summary.processed += result.lancamentos;
       if (result.lancamentos === 0) summary.skipped += 1;
@@ -365,6 +423,16 @@ async function processEmails(opts) {
   // "clique de novo para continuar de onde parou".
   if (summary.interrompido_por_tempo) summary.pode_ter_mais = true;
   summary.duracao_ms = Date.now() - t0;
+
+  // ---- Quanto esta rodada custou de leitura de IA ----
+  summary.leituras = gasto.leituras;              // quantas chamadas de IA aconteceram
+  summary.custo_rodada_brl = gasto.custoRodadaBrl;
+  summary.custo_rodada_usd = gasto.custoRodadaUsd;
+  summary.gasto_mes_brl = gasto.gastoMesBrl;      // já inclui o custo desta rodada
+  summary.teto_brl = gasto.tetoBrl;               // null = sem teto
+  summary.teto_atingido = gasto.tetoAtingido;
+  // Parou no teto → sobrou e-mail para depois, igual ao corte por tempo.
+  if (gasto.tetoAtingido) summary.pode_ter_mais = true;
 
   return summary;
 }
@@ -745,7 +813,7 @@ async function registrarDescarte({ att, parsed, status, motivo, detalhe, parte, 
 // ============================================================================
 // Processamento de mensagem individual
 // ============================================================================
-async function processMessage(accessToken, messageId, labelId) {
+async function processMessage(accessToken, messageId, labelId, gasto) {
   const msgRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -859,6 +927,18 @@ async function processMessage(accessToken, messageId, labelId) {
   const lancamentoIds = [];
 
   for (const att of attachments) {
+    // TETO DE GASTO: chegou no limite do mês, não lê mais nada. A triagem lá
+    // em cima continua valendo — o teto é proteção contra VOLUME, não substituto
+    // dela. O que sobrou volta na próxima rodada (sem etiqueta ainda).
+    if (tetoEstourado(gasto)) {
+      gasto.tetoAtingido = true;
+      console.log(`[teto] gasto do mês R$ ${gasto.gastoMesBrl} atingiu o teto de R$ ${gasto.tetoBrl} — parando as leituras`);
+      break;
+    }
+
+    // Preenchido assim que a leitura de IA acontece; é o que garante que o
+    // consumo seja registrado mesmo quando o passo seguinte falha.
+    let leituraInfo = null;
     try {
       // Anexo vindo de link já chega em base64; o MIME ainda vem do Gmail.
       let base64 = att.base64 || null;
@@ -871,13 +951,43 @@ async function processMessage(accessToken, messageId, labelId) {
         base64 = data.replace(/-/g, '+').replace(/_/g, '/');
       }
 
-      const parsed = await parseDocumentWithAI(base64, att.mimeType);
-      if (!parsed) continue;
+      let leitura;
+      try {
+        leitura = await parseDocumentWithAI(base64, att.mimeType);
+        leituraInfo = {
+          modelo: leitura?.modelo || MODELO_IA,
+          usage: leitura?.usage || null,
+          origem: att.origem === 'link' ? 'link' : 'email',
+          arquivo: att.filename,
+          gmailMessageId: messageId,
+          resultado: 'descartado',   // vira 'documento' se gerar pendência
+          meta: null,
+        };
+      } catch (e) {
+        // A chamada falhou: registra tokens 0 e o motivo, e segue o fluxo de erro.
+        leituraInfo = {
+          modelo: MODELO_IA,
+          usage: null,
+          origem: att.origem === 'link' ? 'link' : 'email',
+          arquivo: att.filename,
+          gmailMessageId: messageId,
+          resultado: 'erro',
+          meta: { erro: String(e.message || e).slice(0, 300) },
+        };
+        throw e;
+      }
+
+      const parsed = leitura.parsed;
+      if (!parsed) {
+        leituraInfo.meta = { motivo: 'resposta_nao_json' };
+        continue;
+      }
 
       // 2ª trava: a própria IA disse que não é documento fiscal ("Outro" sem
       // valor). Não vira pendência — vira trilha em nf_history.
       if (naoEhDocumentoFiscal(parsed)) {
         descartadosCount++;
+        leituraInfo.meta = { motivo: 'nao_e_documento_fiscal' };
         console.log(`[descarte] ${att.filename}: nao_e_documento_fiscal (${parsed.tipo_documento || 'sem tipo'}, R$ ${parsed.valor_total || 0})`);
         await registrarDescarte({
           att, parsed,
@@ -892,9 +1002,16 @@ async function processMessage(accessToken, messageId, labelId) {
       if (lancamentoId) {
         lancamentosCount++;
         lancamentoIds.push(lancamentoId);
+        leituraInfo.resultado = 'documento';
+      } else {
+        // Documento era, mas já existia (duplicata) — não virou pendência nova.
+        leituraInfo.meta = { motivo: 'duplicata_ou_ja_vinculado' };
       }
     } catch (e) {
       console.warn(`Falha em anexo ${att.filename}:`, e.message);
+    } finally {
+      // Houve chamada de IA → o gasto entra na conta, deu certo ou não.
+      if (leituraInfo) await contabilizarLeitura(gasto, leituraInfo);
     }
   }
 
@@ -1025,7 +1142,7 @@ Responda APENAS com JSON válido, sem markdown:
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-5',
+      model: MODELO_IA,
       max_tokens: 1500,
       thinking: { type: 'disabled' },
       messages
@@ -1038,12 +1155,127 @@ Responda APENAS com JSON válido, sem markdown:
   }
 
   const data = await aiRes.json();
+  // O consumo vem na própria resposta (quantos tokens entraram e saíram).
+  // Antes era descartado — é dele que sai o custo em reais.
+  const usage = data.usage || null;
+  const modelo = data.model || MODELO_IA;
   const text = data.content[0].text.trim().replace(/```json|```/g, '').trim();
   try {
-    return JSON.parse(text);
+    return { parsed: JSON.parse(text), usage, modelo };
   } catch (e) {
     console.warn('Resposta não-JSON da IA:', text.slice(0, 200));
-    return null;
+    // A leitura ACONTECEU e foi cobrada mesmo sem JSON válido: devolve o
+    // consumo do mesmo jeito, senão esse gasto sumiria da conta.
+    return { parsed: null, usage, modelo };
+  }
+}
+
+// ============================================================================
+// Custo da leitura de IA — cálculo, conversão para real e registro
+// ============================================================================
+
+// Tokens → dólares, pela tabela PRECOS_IA.
+function calcularCustoUSD(modelo, inputTokens, outputTokens) {
+  const conhecido = Object.prototype.hasOwnProperty.call(PRECOS_IA, modelo);
+  const preco = conhecido ? PRECOS_IA[modelo] : PRECOS_IA[PRECO_IA_FALLBACK];
+  const usd = (inputTokens / 1e6) * preco.entrada + (outputTokens / 1e6) * preco.saida;
+  return { custoUsd: +usd.toFixed(6), precoEstimado: !conhecido };
+}
+
+// Grava UMA linha em leituras_ia. Nunca derruba o processamento: se o registro
+// do consumo falhar, o e-mail continua sendo processado e a falha só vai para
+// o console (a tabela é histórico de gasto, não parte do fluxo do documento).
+async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessageId, resultado, meta }) {
+  const vazio = { custoUsd: 0, custoBrl: 0 };
+  try {
+    const inputTokens = Math.max(0, Number(usage?.input_tokens) || 0);
+    const outputTokens = Math.max(0, Number(usage?.output_tokens) || 0);
+    const modeloUsado = modelo || MODELO_IA;
+    const { custoUsd, precoEstimado } = calcularCustoUSD(modeloUsado, inputTokens, outputTokens);
+
+    const metaFinal = { ...(meta || {}) };
+    if (precoEstimado) metaFinal.preco_estimado = true;
+
+    // Dólar do dia pela PTAX (mesma função das notas em moeda estrangeira, com
+    // cache). Gasto nosso é despesa → taxa de VENDA.
+    let cotacaoUsd = null;
+    let custoBrl = 0;
+    if (custoUsd > 0) {
+      try {
+        const ptax = await fetchPTAX('USD', new Date().toISOString().slice(0, 10));
+        const taxa = Number(ptax?.venda ?? ptax?.compra);
+        if (Number.isFinite(taxa) && taxa > 0) {
+          cotacaoUsd = +taxa.toFixed(4);
+          custoBrl = +(custoUsd * taxa).toFixed(4);
+        } else {
+          metaFinal.sem_cotacao = true;
+        }
+      } catch (e) {
+        // Sem cotação o custo em dólar é gravado assim mesmo — nunca deixamos
+        // a falta de cotação derrubar (ou apagar) a leitura.
+        metaFinal.sem_cotacao = true;
+        metaFinal.motivo_sem_cotacao = String(e.message || e).slice(0, 200);
+      }
+    }
+
+    const { error } = await getSupabase().from('leituras_ia').insert({
+      user_id: process.env.POLIMATA_USER_ID,
+      modelo: modeloUsado,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      custo_usd: custoUsd,
+      cotacao_usd: cotacaoUsd,
+      custo_brl: custoBrl,
+      origem: origem === 'link' ? 'link' : 'email',
+      arquivo: arquivo || null,
+      gmail_message_id: gmailMessageId || null,
+      resultado,
+      meta: Object.keys(metaFinal).length ? metaFinal : null,
+    });
+    if (error) console.warn('[custo-ia] não consegui gravar a leitura:', error.message);
+
+    // Mesmo se a gravação falhou, o gasto EXISTIU: devolve para o teto contar.
+    return { custoUsd, custoBrl };
+  } catch (e) {
+    console.warn('[custo-ia] falha ao registrar consumo:', e.message);
+    return vazio;
+  }
+}
+
+// Registra o consumo e soma no acumulado da rodada (é o que faz o teto valer
+// também no meio da própria execução, não só entre execuções).
+async function contabilizarLeitura(gasto, dados) {
+  const { custoUsd, custoBrl } = await registrarConsumoIA(dados);
+  if (!gasto) return;
+  gasto.leituras += 1;
+  gasto.custoRodadaUsd = +(gasto.custoRodadaUsd + custoUsd).toFixed(6);
+  gasto.custoRodadaBrl = +(gasto.custoRodadaBrl + custoBrl).toFixed(4);
+  gasto.gastoMesBrl = +(gasto.gastoMesBrl + custoBrl).toFixed(4);
+}
+
+// Já chegou no teto? (teto null = sem teto)
+function tetoEstourado(gasto) {
+  return !!(gasto && gasto.tetoBrl !== null && gasto.gastoMesBrl >= gasto.tetoBrl);
+}
+
+// Quanto já foi gasto com leitura de IA no mês corrente (consulta direta,
+// somando em memória). Se a consulta falhar, assume 0 e avisa no console —
+// não é motivo para a rodada inteira parar.
+async function gastoIADoMes() {
+  const agora = new Date();
+  const inicioMes = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1)).toISOString();
+  try {
+    const { data, error } = await getSupabase()
+      .from('leituras_ia')
+      .select('custo_brl')
+      .eq('user_id', process.env.POLIMATA_USER_ID)
+      .gte('created_at', inicioMes);
+    if (error) throw new Error(error.message);
+    const total = (data || []).reduce((s, r) => s + (Number(r.custo_brl) || 0), 0);
+    return +total.toFixed(4);
+  } catch (e) {
+    console.warn('[custo-ia] não consegui somar o gasto do mês:', e.message);
+    return 0;
   }
 }
 
