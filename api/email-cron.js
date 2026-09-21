@@ -33,6 +33,11 @@ function listaDoEnv(nome, padrao) {
     .filter(Boolean);
 }
 const EMAIL_REMETENTES_LINK = listaDoEnv('EMAIL_REMETENTES_LINK', 'gclick.com.br');
+// Remetentes de confiança (escritório de contabilidade). Deles, vale o anexo
+// mandado para QUALQUER caixa da empresa, não só o alias financeiro: quando
+// alguém do escritório responde direto (folha, esclarecimento de guia), o
+// e-mail costuma ir só para a caixa pessoal e ficava invisível para o robô.
+const EMAIL_REMETENTES_CONFIAVEIS = listaDoEnv('EMAIL_REMETENTES_CONFIAVEIS', 'jlramos.com.br,gclick.com.br');
 
 // Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
 // "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
@@ -203,6 +208,26 @@ async function processEmails(opts) {
         }
       } catch (e) {
         console.warn('Varredura de remetentes-link falhou:', e.message);
+      }
+    }
+
+    // 3ª varredura: ANEXO de verdade vindo de remetente de confiança, sem exigir
+    // que tenha sido endereçado ao alias financeiro. Continua estreita (só esses
+    // remetentes + has:attachment), então não vira varredura da caixa inteira.
+    const restante2 = Math.max(0, maxMsgs - messageIds.length);
+    if (restante2 > 0 && EMAIL_REMETENTES_CONFIAVEIS.length) {
+      try {
+        const fromExpr2 = EMAIL_REMETENTES_CONFIAVEIS.map(d => `from:${d}`).join(' OR ');
+        const queryConf = `(${fromExpr2}) has:attachment -label:polimata-processado newer_than:${days}d`;
+        const msgsConf = await listMessages(accessToken, queryConf, restante2);
+        const vistos2 = new Set(messageIds);
+        for (const m of msgsConf) {
+          if (vistos2.has(m.id)) continue;
+          vistos2.add(m.id);
+          messageIds.push(m.id);
+        }
+      } catch (e) {
+        console.warn('Varredura de remetentes confiáveis falhou:', e.message);
       }
     }
   }
