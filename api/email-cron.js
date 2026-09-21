@@ -82,7 +82,13 @@ const NOMES_DE_ASSINATURA = [
 // nada salvo. Aqui o laço para sozinho antes do corte e devolve o lote parcial
 // com sucesso; o que sobrou volta na próxima rodada (a etiqueta
 // `polimata-processado` garante que o já lido não retorna).
-const EMAIL_ORCAMENTO_MS = numeroDoEnv('EMAIL_ORCAMENTO_MS', 45000);
+// Tempo máximo da função na Vercel (vercel.json → functions.maxDuration).
+// O orçamento tem que ser MENOR que ele, com folga para a resposta sair.
+const EMAIL_LIMITE_FUNCAO_MS = numeroDoEnv('EMAIL_LIMITE_FUNCAO_MS', 300000);
+const EMAIL_ORCAMENTO_MS = numeroDoEnv('EMAIL_ORCAMENTO_MS', Math.max(20000, EMAIL_LIMITE_FUNCAO_MS - 30000));
+// Quanto tempo supor que uma mensagem leva, antes de ter medido alguma.
+// Uma mensagem com vários anexos faz uma leitura de IA por anexo.
+const EMAIL_CUSTO_MENSAGEM_MS = numeroDoEnv('EMAIL_CUSTO_MENSAGEM_MS', 25000);
 
 // Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
 // "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
@@ -292,6 +298,8 @@ async function processEmails(opts) {
     pode_ter_mais: messageIds.length >= maxMsgs,
     // Teto de tempo da rodada: o laço para sozinho antes do corte da Vercel.
     orcamento_ms: EMAIL_ORCAMENTO_MS,
+    limite_funcao_ms: EMAIL_LIMITE_FUNCAO_MS,
+    processadas: 0,
     interrompido_por_tempo: false,
     nao_processadas: 0,
     processed: 0,
@@ -304,25 +312,36 @@ async function processEmails(opts) {
     details: []
   };
 
+  // Tempo já gasto em autenticação e nas buscas do Gmail, fora do laço.
+  const tEspera = Date.now() - t0;
+
   for (let i = 0; i < messageIds.length; i++) {
     const mid = messageIds[i];
     // Orçamento de tempo: melhor devolver lote parcial com sucesso do que
-    // morrer com 504 e não salvar nada. O teste é ANTES de começar a mensagem
-    // (uma vez dentro, ela vai até o fim para não deixar e-mail pela metade).
-    if (Date.now() - t0 > EMAIL_ORCAMENTO_MS) {
+    // morrer com 504 e não salvar nada. Uma vez dentro, a mensagem vai até o
+    // fim (não deixamos e-mail pela metade) — por isso não basta perguntar
+    // "já estourei?": é preciso caber a PRÓXIMA mensagem inteira. Sem essa
+    // margem, uma mensagem iniciada perto do limite derruba a função (HTTP 504).
+    const decorrido = Date.now() - t0;
+    const custoEstimado = summary.processadas > 0
+      ? Math.max(5000, Math.round((decorrido - tEspera) / summary.processadas))
+      : EMAIL_CUSTO_MENSAGEM_MS;
+    if (decorrido + custoEstimado > EMAIL_ORCAMENTO_MS) {
       summary.interrompido_por_tempo = true;
       summary.nao_processadas = messageIds.length - i;
-      console.log(`[orçamento] parando em ${i}/${messageIds.length} após ${Date.now() - t0} ms`);
+      console.log(`[orçamento] parando em ${i}/${messageIds.length} após ${decorrido} ms (próxima custaria ~${custoEstimado} ms de ${EMAIL_ORCAMENTO_MS})`);
       break;
     }
     try {
       const result = await processMessage(accessToken, mid, labelId);
+      summary.processadas += 1;
       summary.processed += result.lancamentos;
       if (result.lancamentos === 0) summary.skipped += 1;
       summary.descartados += result.descartados || 0;
       summary.anexos_ignorados += result.anexos_ignorados || 0;
       summary.details.push({ id: mid, status: 'ok', ...result });
     } catch (e) {
+      summary.processadas += 1; // erro também consumiu tempo: entra na média
       summary.errors += 1;
       summary.details.push({ id: mid, status: 'error', error: e.message });
       await persistEmailHistory({
