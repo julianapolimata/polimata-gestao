@@ -45,6 +45,10 @@ export default function ImportarNFs() {
   const [ultimoResultado, setUltimoResultado] = useState(null)
   const [anexando, setAnexando] = useState(null) // nf_pending sendo anexada a lançamento existente
   const [plano, setPlano] = useState([])
+  // Quanto tempo para trás procurar no e-mail. 7 dias é o dia a dia; janelas
+  // maiores servem para trazer o histórico (ex.: guias de imposto de meses
+  // anteriores que nunca entraram).
+  const [diasBusca, setDiasBusca] = useState(7)
 
   useEffect(() => { fetchPlanoContas().then(p => setPlano(p || [])) }, [])
 
@@ -54,7 +58,8 @@ export default function ImportarNFs() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
-      const r = await fetch('/api/email-cron?days=7&max=10', {
+      const maxMsgs = diasBusca <= 7 ? 10 : diasBusca <= 30 ? 30 : 60
+      const r = await fetch(`/api/email-cron?days=${diasBusca}&max=${maxMsgs}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${session.access_token}` },
       })
@@ -259,8 +264,14 @@ export default function ImportarNFs() {
             {' '}Use o botão para verificar agora.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <select value={diasBusca} onChange={e => setDiasBusca(Number(e.target.value))} disabled={rodandoCron} style={selectPeriodo} title="Quanto tempo para trás procurar no e-mail">
+              <option value={7}>últimos 7 dias</option>
+              <option value={30}>últimos 30 dias</option>
+              <option value={90}>últimos 3 meses</option>
+              <option value={365}>últimos 12 meses</option>
+            </select>
             <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
-              {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
+              {rodandoCron ? '⏳ Procurando…' : '🔄 Procurar no e-mail'}
             </button>
           </div>
         </div>
@@ -412,6 +423,7 @@ function UploadManualCard() {
   )
 }
 
+const selectPeriodo = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 6 }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }

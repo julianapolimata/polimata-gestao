@@ -12,6 +12,53 @@ const GMAIL_TARGET_ALIAS = process.env.GMAIL_TARGET_ALIAS || 'financeiro@polimat
 // Limita por execução para não estourar timeout (Vercel Hobby = 60s)
 const MAX_MESSAGES_PER_RUN = 3;
 
+// ---------------------------------------------------------------------------
+// Anexos que chegam como LINK (portais de contabilidade, ex.: G-Click)
+// ---------------------------------------------------------------------------
+// O escritório manda a guia de imposto pelo portal: o e-mail NÃO tem anexo MIME,
+// o corpo HTML traz <a href="...arquivo.pdf">. A busca padrão do Gmail exige
+// has:attachment, então esses e-mails nem apareciam — nenhuma DAS/DARF entrava.
+//
+// SEGURANÇA — por que isto é sensível: baixar uma URL escrita dentro de um
+// e-mail é o vetor clássico de phishing/SSRF, e este código roda no servidor
+// com a SERVICE_ROLE_KEY. Por isso o download é preso a uma ALLOWLIST de hosts,
+// só https, com teto de redirects, timeout, teto de tamanho e lista fechada de
+// content-types. Nada fora disso é baixado — na dúvida, recusa e registra.
+
+// Remetentes cujos e-mails devem ser varridos MESMO sem anexo MIME.
+function listaDoEnv(nome, padrao) {
+  return String(process.env[nome] || padrao)
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+const EMAIL_REMETENTES_LINK = listaDoEnv('EMAIL_REMETENTES_LINK', 'gclick.com.br');
+
+// Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
+// "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
+// justamente o truque usado em phishing. Quem precisar de outro host, põe na env.
+const EMAIL_LINKS_DOMINIOS = listaDoEnv(
+  'EMAIL_LINKS_DOMINIOS',
+  'app.gclick.com.br,innubem-prod.s3.amazonaws.com'
+);
+
+const MAX_LINKS_POR_EMAIL = 5;          // teto de arquivos baixados por e-mail
+const MAX_LINKS_CANDIDATOS = 20;        // teto de hrefs analisados por e-mail
+const MAX_LINK_BYTES = 10 * 1024 * 1024; // 10 MB — guia fiscal tem ~200 KB
+const MAX_LINK_REDIRECTS = 3;           // o G-Click faz 1 salto (302 → S3 assinado)
+const LINK_TIMEOUT_MS = 30000;
+const LINK_EXTENSOES = ['.pdf', '.xml', '.png', '.jpg', '.jpeg'];
+const LINK_MIMES_ACEITOS = new Set([
+  'application/pdf', 'text/xml', 'application/xml', 'image/png', 'image/jpeg'
+]);
+const EXT_PARA_MIME = {
+  '.pdf': 'application/pdf',
+  '.xml': 'application/xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg'
+};
+
 // Lazy init do Supabase (só cria o client na primeira chamada autenticada)
 let _supabase = null;
 function getSupabase() {
@@ -138,6 +185,26 @@ async function processEmails(opts) {
     const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:${days}d`;
     const messages = await listMessages(accessToken, query, maxMsgs);
     messageIds = messages.map(m => m.id);
+
+    // 2ª varredura: remetentes que mandam o arquivo como LINK, sem anexo MIME.
+    // Aqui a busca NÃO pode ter has:attachment (senão o e-mail some), então é
+    // restrita aos remetentes configurados — não varremos a caixa inteira.
+    const restante = Math.max(0, maxMsgs - messageIds.length);
+    if (restante > 0 && EMAIL_REMETENTES_LINK.length) {
+      try {
+        const fromExpr = EMAIL_REMETENTES_LINK.map(d => `from:${d}`).join(' OR ');
+        const queryLink = `to:${GMAIL_TARGET_ALIAS} (${fromExpr}) -label:polimata-processado newer_than:${days}d`;
+        const msgsLink = await listMessages(accessToken, queryLink, restante);
+        const vistos = new Set(messageIds);
+        for (const m of msgsLink) {
+          if (vistos.has(m.id)) continue; // não duplica o que a 1ª busca já trouxe
+          vistos.add(m.id);
+          messageIds.push(m.id);
+        }
+      } catch (e) {
+        console.warn('Varredura de remetentes-link falhou:', e.message);
+      }
+    }
   }
 
   const summary = {
@@ -243,6 +310,210 @@ async function applyLabel(accessToken, messageId, labelId) {
 }
 
 // ============================================================================
+// Anexos por LINK (corpo HTML) — extração e download com allowlist
+// ============================================================================
+
+// Host autorizado? Comparação exata contra a allowlist, sem sufixo e sem
+// curinga. É a única porta de entrada: tanto o link do e-mail quanto CADA
+// redirect passam por aqui.
+function hostPermitido(host) {
+  const h = String(host || '').toLowerCase().replace(/\.$/, '');
+  if (!h) return false;
+  return EMAIL_LINKS_DOMINIOS.includes(h);
+}
+
+function decodeSeguro(s) {
+  try { return decodeURIComponent(String(s || '')); } catch { return String(s || ''); }
+}
+
+// Entidades HTML mínimas que aparecem em href (&amp; é o caso real do G-Click).
+function decodeEntidadesHtml(s) {
+  return String(s || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function extensaoDe(caminho) {
+  const limpo = String(caminho || '').split('?')[0].split('#')[0];
+  const i = limpo.lastIndexOf('.');
+  return i === -1 ? '' : limpo.slice(i).toLowerCase();
+}
+
+// Nome de arquivo saneado: o nome vem de dentro do e-mail, então não pode
+// carregar caminho ("../", "/", "\") nem caractere de controle.
+function sanitizarNome(bruto, fallback = 'anexo-link.pdf') {
+  const soNome = String(bruto || '').split('?')[0].split('#')[0].split(/[/\\]/).pop();
+  const limpo = soNome
+    .replace(/\p{Cc}/gu, '')
+    .replace(/[^\p{L}\p{N}. _()-]/gu, '_')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 120);
+  return limpo || fallback;
+}
+
+// Extrai do corpo HTML os <a href> que apontam para arquivo baixável.
+// Devolve { url, host, filename, permitido } — quem não está na allowlist vem
+// marcado como permitido:false para virar estatística de recusa, não download.
+function extrairLinksDeAnexo(html) {
+  const achados = [];
+  if (!html) return achados;
+  const vistos = new Set();
+  const re = /<a\b[^>]*?href\s*=\s*["']([^"']+)["']/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (achados.length >= MAX_LINKS_CANDIDATOS) break;
+    const bruto = decodeEntidadesHtml(m[1].trim());
+    let u;
+    try { u = new URL(bruto); } catch { continue; }
+    // Só https: http permitiria interceptar/trocar o arquivo no caminho.
+    if (u.protocol !== 'https:') continue;
+    // O alvo pode estar no parâmetro (?arquivo=...%2Fguia.pdf) ou no caminho.
+    const paramArquivo = decodeSeguro(u.searchParams.get('arquivo') || '');
+    const alvo = paramArquivo || decodeSeguro(u.pathname);
+    if (!LINK_EXTENSOES.includes(extensaoDe(alvo))) continue;
+    const chave = u.toString();
+    if (vistos.has(chave)) continue; // o mesmo link aparece no ícone e no texto
+    vistos.add(chave);
+    achados.push({
+      url: chave,
+      host: u.hostname.toLowerCase(),
+      filename: sanitizarNome(alvo),
+      permitido: hostPermitido(u.hostname)
+    });
+  }
+  return achados;
+}
+
+// Corpo HTML da mensagem (walk nas parts; Gmail entrega em base64url).
+function extrairCorpoHtml(payload) {
+  let html = '';
+  function walk(p) {
+    if (!p || html) return;
+    if (p.mimeType === 'text/html' && p.body?.data) {
+      try {
+        html = Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64')
+          .toString('utf8')
+          .slice(0, 500000);
+      } catch { html = ''; }
+    }
+    if (p.parts) for (const filho of p.parts) walk(filho);
+  }
+  walk(payload);
+  return html;
+}
+
+// Baixa o arquivo do link com todas as travas. Devolve
+// { ok:true, base64, mimeType, filename } — mesmo formato dos anexos MIME,
+// pra cair no pipeline existente sem mudança — ou { ok:false, motivo }.
+async function baixarAnexoDeLink(linkUrl, nomeSugerido) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LINK_TIMEOUT_MS);
+  try {
+    let atual = linkUrl;
+    let res = null;
+    // redirect:'manual' é proposital: com 'follow' o fetch iria para onde o
+    // servidor mandasse SEM passar pela allowlist. Aqui cada salto é validado.
+    for (let salto = 0; salto <= MAX_LINK_REDIRECTS; salto++) {
+      let u;
+      try { u = new URL(atual); } catch { return { ok: false, motivo: 'url_invalida' }; }
+      if (u.protocol !== 'https:') return { ok: false, motivo: 'protocolo_nao_https', host: u.hostname };
+      if (!hostPermitido(u.hostname)) return { ok: false, motivo: 'dominio_nao_autorizado', host: u.hostname };
+
+      const r = await fetch(u.toString(), {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'polimata-email-cron/1' }
+      });
+
+      if ([301, 302, 303, 307, 308].includes(r.status)) {
+        const loc = r.headers.get('location');
+        if (!loc) return { ok: false, motivo: 'redirect_sem_destino', host: u.hostname };
+        try { await r.body?.cancel(); } catch { /* corpo do 302 não interessa */ }
+        atual = new URL(loc, u).toString(); // relativo resolve contra o host atual
+        continue;
+      }
+      res = r;
+      break;
+    }
+    if (!res) return { ok: false, motivo: 'redirects_demais' };
+    if (!res.ok) return { ok: false, motivo: `http_${res.status}` };
+
+    const hostFinal = new URL(res.url || atual).hostname.toLowerCase();
+
+    // Nome: content-disposition manda; senão o que veio do link.
+    let filename = sanitizarNome(nomeSugerido);
+    const cd = res.headers.get('content-disposition') || '';
+    const mCd = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
+    if (mCd) filename = sanitizarNome(decodeSeguro(mCd[1].trim()), filename);
+
+    // Tamanho declarado: recusa antes de abrir o stream quando o servidor avisa.
+    const declarado = parseInt(res.headers.get('content-length') || '0', 10);
+    if (declarado && declarado > MAX_LINK_BYTES) {
+      try { await res.body?.cancel(); } catch { /* ignora */ }
+      return { ok: false, motivo: 'tamanho_excedido', host: hostFinal };
+    }
+
+    // Tipo: lista fechada. octet-stream (S3 costuma mandar) só passa se a
+    // extensão do nome disser qual é; sem isso, descarta.
+    const ct = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    let mimeType = ct;
+    if (!LINK_MIMES_ACEITOS.has(mimeType)) {
+      if (ct === 'application/octet-stream' || ct === 'binary/octet-stream' || ct === '') {
+        mimeType = EXT_PARA_MIME[extensaoDe(filename)] || '';
+      } else {
+        mimeType = '';
+      }
+      if (!mimeType) {
+        try { await res.body?.cancel(); } catch { /* ignora */ }
+        return { ok: false, motivo: `tipo_nao_aceito:${ct || 'sem-tipo'}`, host: hostFinal };
+      }
+    }
+
+    // Leitura com corte no stream: content-length pode mentir ou faltar, então
+    // o teto de 10 MB é aplicado de novo enquanto os bytes chegam.
+    const partes = [];
+    let total = 0;
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.length;
+        if (total > MAX_LINK_BYTES) {
+          try { await reader.cancel(); } catch { /* ignora */ }
+          return { ok: false, motivo: 'tamanho_excedido', host: hostFinal };
+        }
+        partes.push(Buffer.from(value));
+      }
+    } else {
+      const buf = Buffer.from(await res.arrayBuffer());
+      total = buf.length;
+      if (total > MAX_LINK_BYTES) return { ok: false, motivo: 'tamanho_excedido', host: hostFinal };
+      partes.push(buf);
+    }
+    if (!total) return { ok: false, motivo: 'arquivo_vazio', host: hostFinal };
+
+    return {
+      ok: true,
+      base64: Buffer.concat(partes).toString('base64'),
+      mimeType,
+      filename,
+      bytes: total,
+      host: hostFinal
+    };
+  } catch (e) {
+    const abortou = e.name === 'AbortError';
+    return { ok: false, motivo: abortou ? 'timeout' : `falha_download:${e.message}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ============================================================================
 // Processamento de mensagem individual
 // ============================================================================
 async function processMessage(accessToken, messageId, labelId) {
@@ -287,14 +558,53 @@ async function processMessage(accessToken, messageId, labelId) {
     }
   }
 
+  // ---- Sem anexo MIME: tenta os LINKS do corpo (portais tipo G-Click) ----
+  // Só entra aqui quando não veio anexo de verdade; e-mail com anexo segue
+  // pelo caminho de sempre, sem tocar em link nenhum.
+  let linksVistos = 0;
+  const linksRecusados = [];
+  const linksBaixados = [];
+  if (!attachments.length) {
+    const candidatos = extrairLinksDeAnexo(extrairCorpoHtml(msg.payload));
+    linksVistos = candidatos.length;
+    for (const c of candidatos) {
+      if (!c.permitido) linksRecusados.push({ host: c.host, motivo: 'dominio_nao_autorizado' });
+    }
+    const permitidos = candidatos.filter(c => c.permitido).slice(0, MAX_LINKS_POR_EMAIL);
+    for (const link of permitidos) {
+      const baixado = await baixarAnexoDeLink(link.url, link.filename);
+      if (!baixado.ok) {
+        console.warn(`[link] recusado ${link.host}: ${baixado.motivo}`);
+        linksRecusados.push({ host: baixado.host || link.host, motivo: baixado.motivo });
+        continue;
+      }
+      linksBaixados.push(link.url);
+      attachments.push({
+        filename: baixado.filename,
+        mimeType: baixado.mimeType,
+        base64: baixado.base64,   // já em base64 — não passa pela Gmail API
+        origem: 'link',
+        url: link.url
+      });
+    }
+  }
+
   if (!attachments.length) {
     await applyLabel(accessToken, messageId, labelId);
     await persistEmailHistory({
       gmail_message_id: messageId, subject, from, date,
       status: 'sem_anexo',
+      links_vistos: linksVistos,
+      links_recusados: linksRecusados.length,
+      links_recusas: linksRecusados,
       processed_at: new Date().toISOString().slice(0, 10)
     });
-    return { lancamentos: 0, message: 'sem anexos PDF/imagem' };
+    return {
+      lancamentos: 0,
+      message: 'sem anexos PDF/imagem',
+      links_vistos: linksVistos,
+      links_recusados: linksRecusados.length
+    };
   }
 
   // Processa cada anexo
@@ -303,12 +613,16 @@ async function processMessage(accessToken, messageId, labelId) {
 
   for (const att of attachments) {
     try {
-      const attRes = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${att.attachmentId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      const { data } = await attRes.json();
-      const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+      // Anexo vindo de link já chega em base64; o MIME ainda vem do Gmail.
+      let base64 = att.base64 || null;
+      if (!base64) {
+        const attRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${att.attachmentId}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const { data } = await attRes.json();
+        base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+      }
 
       const parsed = await parseDocumentWithAI(base64, att.mimeType);
       if (!parsed) continue;
@@ -330,10 +644,18 @@ async function processMessage(accessToken, messageId, labelId) {
     status: lancamentosCount > 0 ? 'ok' : 'sem_lancamento',
     lancamentos_ids: lancamentoIds,
     n_anexos: attachments.length,
+    n_anexos_link: linksBaixados.length,
+    links_vistos: linksVistos,
+    links_recusados: linksRecusados.length,
+    links_recusas: linksRecusados,
     processed_at: new Date().toISOString().slice(0, 10)
   });
 
-  return { lancamentos: lancamentosCount, lancamentoIds };
+  return {
+    lancamentos: lancamentosCount,
+    lancamentoIds,
+    ...(linksVistos ? { links_vistos: linksVistos, links_baixados: linksBaixados.length, links_recusados: linksRecusados.length } : {})
+  };
 }
 
 // ============================================================================
@@ -394,6 +716,11 @@ CAMPOS OBRIGATÓRIOS (extraia com muito cuidado, mesmo se aparecem em rodapé/ca
 - data_emissao: procure por "Data de emissão", "Emissão", "Issue date", "Issued on". Formato YYYY-MM-DD obrigatório.
 - emitente_cnpj e destinatario_cnpj: extraia mesmo de rodapé. Format 14 dígitos.
 
+SE FOR GUIA DE IMPOSTO (DAS, DARF, GPS, GNRE), extraia também:
+- periodo_apuracao: o campo "Período de Apuração" (ou "PA", "Competência"), SEMPRE no formato "YYYY-MM". Ex.: "agosto/2026" → "2026-08"; "08/2026" → "2026-08". Se não achar, string vazia.
+- numero_documento: o campo "Número do Documento" (ou "Nº do Documento", "Documento de Arrecadação"), exatamente como impresso. Se não achar, string vazia.
+Para documentos que não são guia, devolva os dois como string vazia.
+
 Responda APENAS com JSON válido, sem markdown:
 {
   "tipo": "entrada" ou "saida",
@@ -409,6 +736,8 @@ Responda APENAS com JSON válido, sem markdown:
   "valor_original": 0.00,
   "data_emissao": "YYYY-MM-DD",
   "data_vencimento": "YYYY-MM-DD ou null",
+  "periodo_apuracao": "YYYY-MM (só guia, senão \\"\\")",
+  "numero_documento": "número do documento de arrecadação (só guia, senão \\"\\")",
   "parte": "...",
   "categoria": "Impostos" se for guia, senão "Operacional"
 }`
@@ -457,6 +786,13 @@ async function createLancamento(parsed, att, base64) {
   const desc = String(parsed.descricao || 'Documento Fiscal').trim();
   const numero = parsed.numero_nf || '';
   const tipoDoc = parsed.tipo_documento || 'NF';
+  // Guias de imposto têm identidade própria: número do documento de arrecadação
+  // e período de apuração. É por eles que se reconhece o mesmo DAS chegando duas
+  // vezes (o contador manda pra dois endereços e reenvia dias seguidos).
+  const tipoDocUp = String(tipoDoc).toUpperCase();
+  const ehGuia = ['DAS', 'DARF', 'GPS', 'GNRE'].includes(tipoDocUp);
+  const numeroDoc = String(parsed.numero_documento || '').trim();
+  const periodoApuracao = normalizarPeriodo(parsed.periodo_apuracao);
   // Direção DETERMINÍSTICA pelo CNPJ da Polímata — não confia só no "tipo" da IA
   // (que às vezes erra, ex.: NFS-e de compra classificada como receita).
   // Emitente = Polímata → saída (receita/Receber); destinatário = Polímata →
@@ -571,6 +907,37 @@ async function createLancamento(parsed, att, base64) {
     .select('id, data')
     .eq('user_id', process.env.POLIMATA_USER_ID)
     .eq('status', 'pendente');
+  // ── Dedup de GUIA (DAS/DARF/GPS/GNRE) ────────────────────────────────
+  // O mesmo e-mail vai para dois endereços e o contador reenvia o mesmo
+  // assunto dias seguidos. A guia é a mesma quando o número do documento
+  // bate; sem número, quando período + tipo + valor batem.
+  if (ehGuia && (numeroDoc || periodoApuracao)) {
+    const numDocDigitos = numeroDoc.replace(/\D/g, '');
+    const mesmaGuia = (d) => {
+      if (!d) return false;
+      if (numDocDigitos) {
+        const dn = String(d.numero_documento || d.numero || '').replace(/\D/g, '');
+        if (dn && dn === numDocDigitos) return true;
+      }
+      if (periodoApuracao
+          && String(d.periodo_apuracao || '') === periodoApuracao
+          && String(d.tipo_documento || '').toUpperCase() === tipoDocUp
+          && Math.abs(Number(d.valor ?? d.value ?? 0) - val) <= 0.02) return true;
+      return false;
+    };
+    const guiaPend = (pendentes || []).find(p => mesmaGuia(p.data));
+    const guiaLanc = (candidates || []).find(c => {
+      const item = c.data || {};
+      if (mesmaGuia(item)) return true;
+      // Lançamento já aprovado guarda o número dentro da descrição.
+      return !!(numeroDoc && String(item.desc || '').includes(numeroDoc));
+    });
+    if (guiaPend || guiaLanc) {
+      console.log(`[dedup-guia] ${tipoDocUp} ${numeroDoc || periodoApuracao} (R$ ${val}) já registrada (${guiaPend ? 'nf_pending ' + guiaPend.id : targetTable + ' ' + guiaLanc.id}) — pulando ${att.filename}`);
+      return null;
+    }
+  }
+
   const dupPend = (pendentes || []).find(p => {
     const d = p.data || {};
     const mesmoValor = Math.abs(Number(d.valor || 0) - val) <= 0.02;
@@ -595,6 +962,8 @@ async function createLancamento(parsed, att, base64) {
     tipo: parsed.tipo,
     tipo_documento: tipoDoc,
     numero: numero,
+    numero_documento: numeroDoc || null,
+    periodo_apuracao: periodoApuracao || null,
     data_emissao: parsed.data_emissao || null,
     data_vencimento: due,
     emitente_nome: parsed.emitente_nome || '',
@@ -616,6 +985,10 @@ async function createLancamento(parsed, att, base64) {
     anexo: base64,
     anexoNome: att.filename,
     anexoTipo: att.mimeType,
+    // Rastreabilidade: dá pra saber depois se o arquivo veio de anexo MIME ou
+    // foi baixado de um link do corpo, e de qual URL.
+    origem_anexo: att.origem === 'link' ? 'link' : 'mime',
+    origem_url: att.origem === 'link' ? att.url : null,
   };
   const { error } = await getSupabase().from('nf_pending').insert({
     id: pendingId,
@@ -636,6 +1009,9 @@ async function createLancamento(parsed, att, base64) {
       tipo: parsed.tipo,
       tipo_documento: tipoDoc,
       numero: numero || null,
+      numero_documento: numeroDoc || null,
+      periodo_apuracao: periodoApuracao || null,
+      origem_anexo: att.origem === 'link' ? 'link' : 'mime',
       parte, valor: val,
       status: 'Aguardando aprovação (nf_pending)',
       pending_id: pendingId,
@@ -643,6 +1019,37 @@ async function createLancamento(parsed, att, base64) {
   });
 
   return pendingId;
+}
+
+// Período de apuração sempre em YYYY-MM. A IA às vezes devolve "08/2026" ou a
+// data cheia; o que não vier reconhecível vira string vazia (melhor sem campo
+// do que com campo errado, que estragaria o dedup).
+function normalizarPeriodo(valor) {
+  const s = String(valor || '').trim();
+  const formatos = [
+    /^(\d{4})-(\d{2})$/,          // 2026-08
+    /^(\d{4})-(\d{2})-\d{2}$/,    // 2026-08-31
+    /^(\d{4})\/(\d{2})$/,         // 2026/08
+  ];
+  for (const re of formatos) {
+    const m = re.exec(s);
+    if (m) return mesValido(m[1], m[2]);
+  }
+  const mBr = /^(\d{1,2})[/-](\d{4})$/.exec(s); // 08/2026
+  if (mBr) return mesValido(mBr[2], mBr[1]);
+  // "agosto/2026", "agosto de 2026" — rede de segurança caso a IA não converta.
+  const semAcento = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const mNome = /^([a-z]{3,})\s*(?:\/|-|\s+de\s+|\s+)\s*(\d{4})$/.exec(semAcento);
+  if (mNome) {
+    const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const idx = meses.indexOf(mNome[1].slice(0, 3));
+    if (idx >= 0) return mesValido(mNome[2], String(idx + 1));
+  }
+  return '';
+}
+function mesValido(ano, mes) {
+  const n = parseInt(mes, 10);
+  return n >= 1 && n <= 12 ? `${ano}-${String(n).padStart(2, '0')}` : '';
 }
 
 async function ensurePessoa(parsed, isSaida) {
