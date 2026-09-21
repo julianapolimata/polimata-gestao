@@ -321,6 +321,16 @@ export default function ImportarNFs() {
           <button onClick={() => setAba('upload')} style={aba === 'upload' ? tabActive : tabInactive}>
             Upload Manual
           </button>
+          {consumo && (
+            <span
+              style={contadorCusto}
+              title={Number(consumo.documentos) > 0
+                ? `${consumo.documentos} documento(s) lido(s) pelo robô neste mês · média de ${fmtMoney((Number(consumo.custo_brl) || 0) / Number(consumo.documentos))} por documento`
+                : 'A medição começou agora: as leituras anteriores não foram registradas.'}
+            >
+              robô · {fmtMoney(Number(consumo.custo_brl) || 0)} no mês
+            </span>
+          )}
         </div>
       )}
     >
@@ -375,25 +385,6 @@ export default function ImportarNFs() {
             </button>
           </div>
         </div>
-        {consumo && (
-          <div style={consumoBox}>
-            <span>
-              {Number(consumo.documentos) > 0 ? (
-                <>
-                  <strong>{consumo.documentos}</strong> documento(s) lido(s) pelo robô neste mês ·{' '}
-                  <strong>{fmtMoney(Number(consumo.custo_brl) || 0)}</strong> de leitura automática
-                </>
-              ) : (
-                <>Nenhum documento lido pelo robô neste mês — <strong>{fmtMoney(0)}</strong> de leitura automática.</>
-              )}
-            </span>
-            <span style={{ color: 'var(--text-mid)' }}>
-              {Number(consumo.documentos) > 0 && (Number(consumo.custo_brl) || 0) > 0
-                ? `média de ${fmtMoney((Number(consumo.custo_brl) || 0) / Number(consumo.documentos))} por documento`
-                : 'a contagem começou agora: leituras anteriores não foram medidas'}
-            </span>
-          </div>
-        )}
         {ultimoResultado && (
           <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: ultimoResultado.ok ? 'rgba(39,174,96,0.08)' : 'rgba(231,76,60,0.08)', borderLeft: `3px solid ${ultimoResultado.ok ? 'var(--green)' : 'var(--red)'}`, color: ultimoResultado.ok ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
             {ultimoResultado.ok ? '✓' : '⚠'} {ultimoResultado.msg}
@@ -587,9 +578,9 @@ const inputEmail = { padding: '5px 9px', border: '1.5px solid var(--cream-dark)'
 const btnMini = { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const btnMiniGhost = { padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
 const btnLinkMini = { background: 'none', border: 'none', padding: 0, color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }
-const consumoBox = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '8px 14px', borderRadius: 6, fontSize: 11, lineHeight: 1.5, background: 'var(--cream)', border: '1px solid var(--cream-dark)', color: 'var(--navy)' }
 const selectPeriodo = { padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
-const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
+const tabsBar = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8 }
+const contadorCusto = { marginLeft: 'auto', marginRight: 6, fontSize: 10, fontWeight: 600, letterSpacing: 0.3, color: 'var(--text-mid)', whiteSpace: 'nowrap', cursor: 'default' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.6, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 6 }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
