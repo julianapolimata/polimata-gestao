@@ -61,7 +61,7 @@ export default function App() {
           <Route path="/fechamento-mensal" element={<ProtectedRoute><FechamentoMensal /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
           <Route path="/nfse-config" element={<ProtectedRoute><NfseConfig /></ProtectedRoute>} />
-          <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="Emissão automática de NFS-e pela API Nacional. Em desenvolvimento." /></ProtectedRoute>} />
+          <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="A emissão de nota fiscal pelo sistema, no Padrão Nacional, ainda não está pronta." comoFazerAgora={<>Emita a nota no portal do Emissor Nacional e envie o PDF para a caixa de e-mail das notas: ela chega na Caixa de entrada e você lança em um clique.</>} /></ProtectedRoute>} />
           <Route path="/simples-nacional" element={<ProtectedRoute><SimplesNacional /></ProtectedRoute>} />
           <Route path="/importar-nfs" element={<ProtectedRoute><ImportarNFs /></ProtectedRoute>} />
           <Route path="/recorrencias" element={<ProtectedRoute><Recorrencias /></ProtectedRoute>} />

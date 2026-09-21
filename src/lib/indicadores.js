@@ -37,7 +37,9 @@ export function calcInadimplencia(receivable) {
 export function calcMargem(receivable, payable, plano, ano) {
   const linhas = computeDRE({ receivable, payable, plano, ano })
   const recBruta = linhas.find(l => l.id === 'rec-bruta')?.total || 0
-  const liquido = linhas.find(l => l.id === 'liquido')?.total || 0
+  // 'resul-fin' é o Lucro Líquido desde que a distribuição de lucro saiu do
+  // resultado (é movimento do patrimônio, CPC 26). O id 'liquido' não existe mais.
+  const liquido = linhas.find(l => l.id === 'resul-fin')?.total || 0
   return { recBruta, liquido, pct: recBruta > 0 ? liquido / recBruta : null }
 }
 

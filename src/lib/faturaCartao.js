@@ -96,7 +96,18 @@ export function planejarCompras({ conta, linhas, compras, hoje }) {
     if (t.tipo === 'entrada') {
       if (ehPagamentoFatura(t.descricao)) { pagamentos.push(ln); continue }
       if (temCaraDeParcela(t.descricao)) { ambiguas.push(ln); continue }
-      criar.push({ extrato_id: ln.id, data: { ...base(t, venc), ...pago(t), value: -valor, cat: 'Créditos/Estornos de cartão', criado_via_credito_fatura: true } })
+      // Crédito/estorno entra como abatimento da fatura numa categoria própria.
+      // A observação fica no lançamento porque o destino contábil correto é a
+      // categoria da compra estornada — quem escritura decide isso depois.
+      criar.push({
+        extrato_id: ln.id,
+        data: {
+          ...base(t, venc), ...pago(t), value: -valor,
+          cat: 'Créditos/Estornos de cartão',
+          notes: 'Crédito/estorno do cartão: abate a fatura. Se for o estorno de uma compra, reclassifique na Escrituração para a categoria da compra estornada.',
+          criado_via_credito_fatura: true,
+        },
+      })
       continue
     }
 

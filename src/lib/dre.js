@@ -10,7 +10,10 @@ import { ocorrenciasEntre } from './recorrencias'
 
 export const DRE_BLOCOS = [
   { id: 'rec-bruta', label: 'Receita Bruta de Serviços', kind: 'positivo', classifs: ['Receita Bruta', 'Outras Receitas'], tipoFin: 'Entrada' },
-  { id: 'deducoes', label: '(−) Impostos sobre Vendas', kind: 'negativo', classifs: ['Impostos sobre Vendas'], tipoFin: 'Saída' },
+  // Deduções da receita bruta: impostos retidos na fonte (ISS/IRRF/INSS/PIS-COFINS-CSLL)
+  // e descontos concedidos. Ambos reduzem a receita — sem isso a Receita Líquida
+  // saía pelo bruto (revisão contábil set/26).
+  { id: 'deducoes', label: '(−) Impostos e deduções sobre a receita', kind: 'negativo', classifs: ['Impostos sobre Vendas', 'Deduções de Receita'], tipoFin: 'Saída' },
   { id: 'rec-liquida', label: '= Receita Líquida', kind: 'subtotal', formula: 'rec-bruta - deducoes' },
   { id: 'csp', label: '(−) Custo dos Serviços Prestados', kind: 'negativo', classifs: ['CSP'], tipoFin: 'Saída' },
   { id: 'lucro-bruto', label: '= Lucro Bruto', kind: 'subtotal', formula: 'rec-liquida - csp' },
@@ -18,10 +21,19 @@ export const DRE_BLOCOS = [
   { id: 'ebitda', label: '= EBITDA', kind: 'subtotal', formula: 'lucro-bruto - desp-op' },
   { id: 'rec-fin', label: '(+) Receita Financeira', kind: 'positivo', classifs: ['Receita Financeira'], tipoFin: 'Entrada' },
   { id: 'desp-fin', label: '(−) Despesas Financeiras', kind: 'negativo', classifs: ['Despesas Financeiras'], tipoFin: 'Saída' },
-  { id: 'resul-fin', label: '= Resultado Antes de Distribuições', kind: 'subtotal', formula: 'ebitda + rec-fin - desp-fin' },
-  { id: 'antec', label: '(−) Antecipação de Lucro', kind: 'negativo', classifs: ['Antecipação de Lucro'], tipoFin: 'Saída' },
-  { id: 'liquido', label: '= Lucro Líquido', kind: 'subtotal', strong: true, formula: 'resul-fin - antec' },
+  { id: 'resul-fin', label: '= Lucro Líquido', kind: 'subtotal', strong: true, formula: 'ebitda + rec-fin - desp-fin' },
+  // Distribuição/antecipação de lucro é movimento do PATRIMÔNIO LÍQUIDO (CPC 26),
+  // não despesa: não pode reduzir o resultado. Fica como linha INFORMATIVA depois
+  // do Lucro Líquido — kind 'info' nunca é publicada em `valores`, logo nenhuma
+  // fórmula consegue somá-la.
+  { id: 'antec', label: 'Distribuição de lucro (não afeta o resultado)', kind: 'info', classifs: ['Antecipação de Lucro'], tipoFin: 'Saída' },
 ]
+
+// Classificações que APARECEM em alguma linha da DRE (derivado de DRE_BLOCOS,
+// não escrito à mão: se um bloco mudar de classificação, isto acompanha).
+// Uma classificação válida no plano mas fora desta lista (ex.: 'Conta Transitória')
+// não some em silêncio — cai no rodapé `fora` com motivo 'nao-entra-no-resultado'.
+const CLASSIFS_EM_BLOCO = new Set(DRE_BLOCOS.flatMap(b => b.classifs || []))
 
 function evalFormula(formula, valores) {
   const tokens = formula.split(/\s+/)
@@ -68,8 +80,17 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
   }
   // O que NÃO entrou — pra tela mostrar em vez de sumir em silêncio (revisão set/26:
   // ~R$ 7,4 mil de saídas caíam fora por categoria fora do plano, sem aviso).
-  const fora = { count: 0, total: 0, porCat: {} }      // sem categoria / categoria fora do plano
+  // Cada item carrega o MOTIVO, porque a saída é diferente em cada caso:
+  //   'sem-categoria'          → falta escriturar
+  //   'fora-do-plano'          → categoria não existe no plano de contas
+  //   'nao-entra-no-resultado' → classificação válida que a DRE não usa (conta transitória)
+  const fora = { count: 0, total: 0, porCat: {} }
   const naoEscriturados = { count: 0, total: 0 }       // no ano, mas ainda sem revisão
+  function registraFora(k, val, tipoFin, motivo) {
+    fora.count++; fora.total += val
+    if (!fora.porCat[k]) fora.porCat[k] = { count: 0, total: 0, tipoFin, motivo }
+    fora.porCat[k].count++; fora.porCat[k].total += val
+  }
   function processa(reg, tipoFin) {
     if (!incluirProvisao && reg.data?.status === 'Provisão') return
     const ref = reg.data?.data_competencia || reg.due || reg.created || null
@@ -81,10 +102,12 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
     const cat = reg.data?.cat
     const classif = cat ? resolveClassif(tipoFin, cat, reg.data?.subcat) : null
     if (!classif) {
-      const k = cat || '(sem categoria)'
-      fora.count++; fora.total += val
-      if (!fora.porCat[k]) fora.porCat[k] = { count: 0, total: 0, tipoFin }
-      fora.porCat[k].count++; fora.porCat[k].total += val
+      registraFora(cat || '(sem categoria)', val, tipoFin, cat ? 'fora-do-plano' : 'sem-categoria')
+      return
+    }
+    if (!CLASSIFS_EM_BLOCO.has(classif)) {
+      // Classificação existe no plano mas não é linha da DRE (ex.: Conta Transitória).
+      registraFora(cat, val, tipoFin, 'nao-entra-no-resultado')
       return
     }
     add(classif, cat, m, val)
@@ -105,7 +128,7 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
       if (!valor || !d.cat) continue
       const tipoFin = d.tipo === 'despesa' ? 'Saída' : 'Entrada'
       const classif = resolveClassif(tipoFin, d.cat, d.subcat)
-      if (!classif) continue
+      if (!classif || !CLASSIFS_EM_BLOCO.has(classif)) continue
       for (const due of ocorrenciasEntre(master, `${anoNum}-01-01`, `${anoNum}-12-31`)) {
         const m = parseInt(due.substring(5, 7), 10) - 1
         if (m <= mesCorte) continue
@@ -135,7 +158,9 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
         }
       }
       subItems.sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
-      valores[blk.id] = { total, byMes }
+      // Linha informativa (distribuição de lucro) NÃO entra em `valores`: assim é
+      // impossível uma fórmula somá-la, mesmo por engano.
+      if (blk.kind !== 'info') valores[blk.id] = { total, byMes }
       linhas.push({ ...blk, total, byMes, subItems })
     }
   }

@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [nfsCaixa, setNfsCaixa] = useState(0)
   const [painelCfg, setPainelCfg] = useState(null)
   const [metaMeses, setMetaMeses] = useState(6)
+  const [indAberto, setIndAberto] = useState(false) // seção "Indicadores" começa fechada
   const [loading, setLoading] = useState(true)
   const canvasRef = useRef(null)
   const chartRef = useRef(null)
@@ -90,29 +91,45 @@ export default function Dashboard() {
   // ── Alertas ──────────────────────────────────────────────────────────
   // ── Contas hoje: saldo no banco × saldo no sistema, e o que falta fazer ──
   // (bench: QuickBooks/Xero/Conta Azul mostram por conta "banco × sistema" e a fila.)
+  // Uma conta, um saldo: esta tabela é a fonte do número da faixa (saldoConta e
+  // dividaCartao são somas destas linhas). Antes a coluna "No sistema" só contava
+  // linha conciliada e brigava com o número grande da tela.
   const painelContas = useMemo(() => {
     const porConta = {}
     for (const e of extratos) {
-      const g = porConta[e.conta_id] || (porConta[e.conta_id] = { pend: 0, inConc: 0, outConc: 0, ultimo: '' })
+      const g = porConta[e.conta_id] || (porConta[e.conta_id] = { ent: 0, sai: 0, entConc: 0, saiConc: 0, n: 0, pend: 0, ultimo: '' })
+      const v = Number(e.valor || 0)
+      if (e.tipo === 'entrada') g.ent += v; else g.sai += v
+      if (e.status === 'conciliado') { if (e.tipo === 'entrada') g.entConc += v; else g.saiConc += v }
       if (e.status === 'pendente') g.pend++
-      if (e.status === 'conciliado') { if (e.tipo === 'entrada') g.inConc += Number(e.valor || 0); else g.outConc += Number(e.valor || 0) }
-      if ((e.dt || '') > g.ultimo) g.ultimo = e.dt
+      g.n++
+      if ((e.dt || '') > g.ultimo) g.ultimo = e.dt || ''
     }
     return contas.map(c => {
-      const g = porConta[c.id] || { pend: 0, inConc: 0, outConc: 0, ultimo: '' }
+      const g = porConta[c.id] || { ent: 0, sai: 0, entConc: 0, saiConc: 0, n: 0, pend: 0, ultimo: '' }
       const sIni = Number(c.data?.saldo_inicial) || 0
       const cartao = c.data?.tipo === 'cartao'
-      let sistema
+      let saldo
       if (cartao) {
+        // Cartão não tem saldo: tem dívida (negativa).
         const compras = payable.filter(p => p.cartao_id === c.id).filter(p => p.status === 'Pago').reduce((a, p) => a + Number(p.value || 0), 0)
         const recebidas = transferencias.filter(t => t.para_conta_id === c.id).reduce((a, t) => a + Number(t.valor || 0), 0)
         const enviadas = transferencias.filter(t => t.de_conta_id === c.id).reduce((a, t) => a + Number(t.valor || 0), 0)
-        sistema = sIni - compras + recebidas - enviadas
+        saldo = sIni - compras + recebidas - enviadas
       } else {
-        sistema = sIni + g.inConc - g.outConc
+        saldo = sIni + g.ent - g.sai // todas as linhas importadas, conciliadas ou não
       }
+      // "Conferido" só existe onde o saldo vem de linha de extrato. No cartão o
+      // saldo vem das compras e das transferências, então conferir linha contra
+      // lançamento não se aplica: fica null e a tabela mostra "—".
+      const conferido = cartao ? null : sIni + g.entConc - g.saiConc
       const banco = saldosBanco[c.id] || null
-      return { id: c.id, nome: c.data?.nome || '(sem nome)', cartao, sistema, banco: banco?.saldo ?? null, bancoEm: banco?.em || null, pendentes: g.pend, ultimo: g.ultimo }
+      return {
+        id: c.id, nome: c.data?.nome || '(sem nome)', cartao,
+        saldo, conferido, aConferir: cartao ? null : saldo - conferido,
+        banco: banco?.saldo ?? null, bancoEm: banco?.em || null,
+        pendentes: g.pend, nLinhas: g.n, ultimo: g.ultimo,
+      }
     })
   }, [contas, extratos, saldosBanco, transferencias, payable])
 
@@ -153,16 +170,49 @@ export default function Dashboard() {
     return out
   }, [receivable, payable])
 
-  // ── Caixa atual (base pra ICC e Saldo Projetado) ─────────────────────
-  // Ancorado no saldo inicial das contas + tudo que entrou/saiu de fato (inclusive
-  // financiamento — é caixa). Antes era Σ recebido − Σ pago desde sempre, sem o
-  // saldo com que a conta começou — nunca batia com o banco.
-  const caixaAtual = useMemo(() => {
-    const saldoInicial = contas.reduce((a, c) => a + (Number(c.data?.saldo_inicial) || 0), 0)
-    const totalRecebido = receivable.filter(r => r.status === 'Recebido').reduce((a, r) => a + r.value, 0)
-    const totalPago = payable.filter(r => r.status === 'Pago').reduce((a, r) => a + r.value, 0)
-    return saldoInicial + totalRecebido - totalPago
-  }, [receivable, payable, contas])
+  // ── Saldo em conta (base pra ICC e Saldo Projetado) ──────────────────
+  // P0 da revisão contábil: o número grande não podia ser Σ recebido − Σ pago.
+  // Aquilo não exigia conciliação nenhuma e nascia líquido da dívida do cartão
+  // (compra de cartão entra como "Pago" na data da compra), então não era caixa.
+  //
+  // Regra nova: saldo em conta = o que o extrato do banco diz. Por conta que não
+  // é cartão: saldo_inicial + Σ entradas − Σ saídas de TODAS as linhas de extrato
+  // importadas — conciliadas ou não. Linha 'ignorado' também conta: é movimento
+  // real do banco que a usuária só decidiu não virar lançamento.
+  // Cartão não entra aqui: vira dívida, num card próprio.
+  const saldoConta = useMemo(() => {
+    const naoCartao = painelContas.filter(c => !c.cartao)
+    const algumExtrato = naoCartao.some(c => c.nLinhas > 0)
+    if (!algumExtrato) {
+      // Nenhuma conta tem extrato importado: não dá pra saber o que o banco diz.
+      // Cai no cálculo antigo por lançamento e o card avisa que é estimativa.
+      const saldoInicial = naoCartao.reduce((a, c) => a + c.saldo, 0)
+      const totalRecebido = receivable.filter(r => r.status === 'Recebido').reduce((a, r) => a + r.value, 0)
+      const totalPago = payable.filter(r => r.status === 'Pago').reduce((a, r) => a + r.value, 0)
+      return { valor: saldoInicial + totalRecebido - totalPago, porExtrato: false, ultimo: '' }
+    }
+    let ultimo = ''
+    for (const c of naoCartao) if (c.ultimo > ultimo) ultimo = c.ultimo
+    return { valor: naoCartao.reduce((a, c) => a + c.saldo, 0), porExtrato: true, ultimo }
+  }, [painelContas, receivable, payable])
+
+  const caixaAtual = saldoConta.valor
+
+  // Dívida do cartão: o que o cartão ainda vai cobrar. Número negativo, fora do
+  // saldo em conta (antes ele era abatido do caixa e fazia o número parecer menor
+  // e "já pago" — a fatura ainda não saiu do banco).
+  const dividaCartao = useMemo(() => {
+    const cartoes = painelContas.filter(c => c.cartao)
+    if (cartoes.length === 0) return null
+    return cartoes.reduce((a, c) => a + c.saldo, 0)
+  }, [painelContas])
+
+  // Confiança do número: quantas linhas do extrato ainda não foram conferidas.
+  const linhasPendentes = useMemo(() => extratos.filter(e => e.status === 'pendente').length, [extratos])
+
+  const saldoOrigem = saldoConta.porExtrato
+    ? `pelo extrato importado${saldoConta.ultimo && saldoConta.ultimo.length >= 10 ? ` · até ${saldoConta.ultimo.slice(8, 10)}/${saldoConta.ultimo.slice(5, 7)}` : ''}`
+    : 'estimado · importe o extrato'
 
   // ── KPI 1: ICC ───────────────────────────────────────────────────────
   const icc = useMemo(() => {
@@ -411,7 +461,7 @@ export default function Dashboard() {
       },
     })
     return () => { if (sparkChartRef.current) { sparkChartRef.current.destroy(); sparkChartRef.current = null } }
-  }, [faturamento])
+  }, [faturamento, indAberto]) // o canvas só existe quando a seção "Indicadores" está aberta
 
   if (loading) return (
     <AppLayout title="Início">
@@ -442,13 +492,26 @@ export default function Dashboard() {
       <div style={narrativaCard}>
         <div style={narrativaLabel}>Sua situação de caixa</div>
         <div style={{ fontSize: 16, lineHeight: 1.65, color: '#fff' }}>
-          Você tem <strong>{fmtMoney(caixaAtual)}</strong> em caixa,{' '}
+          Você tem <strong>{fmtMoney(caixaAtual)}</strong> em conta,{' '}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aReceber)}</strong> a receber e{' '}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aPagar)}</strong> a pagar.{' '}
           {resumoCaixa.resultado >= 0
             ? <>Sobram <strong style={{ color: '#7fe0a8' }}>{fmtMoney(resumoCaixa.resultado)}</strong> para aplicar. 💰</>
             : <>Faltam <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(resumoCaixa.resultado))}</strong> para não ficar no negativo. ⚠️</>}
+          {dividaCartao != null && Math.abs(dividaCartao) >= 0.01 && (
+            <> Fora isso, o cartão vai cobrar <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(dividaCartao))}</strong>.</>
+          )}
         </div>
+        {linhasPendentes > 0 && (
+          <div
+            onClick={() => navigate('/conciliacao')}
+            role="button" tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter') navigate('/conciliacao') }}
+            style={narrativaNota}
+          >
+            {linhasPendentes} linha{linhasPendentes > 1 ? 's' : ''} do extrato ainda {linhasPendentes > 1 ? 'não foram conferidas' : 'não foi conferida'}. <span style={{ textDecoration: 'underline' }}>conferir →</span>
+          </div>
+        )}
       </div>
 
       {/* Contas hoje + o que falta fazer — banco × sistema por conta e a fila do mês */}
@@ -457,24 +520,47 @@ export default function Dashboard() {
           <div style={indLabel}>Contas hoje · banco × sistema</div>
           {painelContas.length === 0 ? <div style={indSub}>Nenhuma conta cadastrada.</div> : (
             <table style={painelTbl}>
-              <thead><tr><th style={painelTh}>Conta</th><th style={{ ...painelTh, textAlign: 'right' }}>No banco</th><th style={{ ...painelTh, textAlign: 'right' }}>No sistema</th><th style={{ ...painelTh, textAlign: 'right' }}>Diferença</th><th style={{ ...painelTh, textAlign: 'right' }}>A conciliar</th></tr></thead>
+              <thead><tr><th style={painelTh}>Conta</th><th style={{ ...painelTh, textAlign: 'right' }}>Saldo em conta</th><th style={{ ...painelTh, textAlign: 'right' }}>Conferido</th><th style={{ ...painelTh, textAlign: 'right' }}>A conferir</th></tr></thead>
               <tbody>
                 {painelContas.map(c => {
-                  const dif = c.banco == null ? null : c.banco - c.sistema
+                  const zerado = c.cartao ? c.pendentes === 0 : (Math.abs(c.aConferir) < 0.01 && c.pendentes === 0)
                   return (
                     <tr key={c.id} onClick={() => navigate('/conciliacao')} style={{ cursor: 'pointer' }} title="Abrir a conciliação">
                       <td style={painelTd}>{c.cartao ? '💳 ' : '🏦 '}{c.nome}{c.ultimo && <span style={{ color: 'var(--text-mid)', fontSize: 10 }}> · extrato até {c.ultimo.split('-').reverse().join('/')}</span>}</td>
-                      <td style={{ ...painelTd, textAlign: 'right', color: c.banco == null ? 'var(--text-mid)' : 'var(--navy)' }}>{c.banco == null ? (c.cartao ? '—' : 'importe OFX') : fmtMoney(c.banco)}</td>
-                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 700, color: c.sistema < 0 ? 'var(--red)' : 'var(--navy)' }}>{fmtMoney(c.sistema)}</td>
-                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 700, color: dif == null ? 'var(--text-mid)' : (Math.abs(dif) < 0.01 ? 'var(--green)' : 'var(--red)') }}>{dif == null ? '—' : (Math.abs(dif) < 0.01 ? '✓ bate' : fmtMoney(dif))}</td>
-                      <td style={{ ...painelTd, textAlign: 'right', color: c.pendentes ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 600 }}>{c.pendentes ? `${c.pendentes} linha(s)` : '✓'}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 700, color: c.saldo < 0 ? 'var(--red)' : 'var(--navy)' }}>{fmtMoney(c.saldo)}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', color: 'var(--text-mid)' }}>{c.cartao ? '—' : fmtMoney(c.conferido)}</td>
+                      <td style={{ ...painelTd, textAlign: 'right', fontWeight: 600, color: zerado ? 'var(--green)' : 'var(--gold-dark)' }}>
+                        {zerado
+                          ? '✓'
+                          : c.cartao
+                            // No cartão não há valor a conferir: há linha de fatura pendente.
+                            ? `${c.pendentes} linha${c.pendentes > 1 ? 's' : ''} da fatura`
+                            : <>{fmtMoney(c.aConferir)}{c.pendentes ? <span style={{ color: 'var(--text-mid)', fontWeight: 500 }}> · {c.pendentes} linha{c.pendentes > 1 ? 's' : ''}</span> : null}</>}
+                      </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           )}
-          <div style={{ ...indSub, marginTop: 8 }}>“No banco” = saldo do último OFX importado. “No sistema” = saldo inicial + o que já está conciliado (cartão: compras cobradas − pagamentos da fatura). A diferença é exatamente o que falta conciliar.</div>
+          {/* Verificação contra o OFX: o saldo do banco não é mais uma coluna, é
+              um conferimento. Cartão fica de fora: não tem BALAMT comparável. */}
+          {painelContas.filter(c => !c.cartao && c.banco != null).map(c => {
+            const bate = Math.abs(c.banco - c.saldo) < 0.01
+            return (
+              <div key={c.id} style={{ ...indSub, marginTop: 6, color: bate ? 'var(--green)' : 'var(--gold-dark)' }}>
+                {bate
+                  ? `${c.nome} · bate com o extrato do banco ✓`
+                  : `O extrato do ${c.nome} fecha em ${fmtMoney(c.banco)}, o sistema em ${fmtMoney(c.saldo)} — faltam linhas para importar.`}
+              </div>
+            )
+          })}
+          {!saldoConta.porExtrato && (
+            <div style={{ ...indSub, marginTop: 6, color: 'var(--gold-dark)' }}>
+              Nenhum extrato importado ainda: aqui aparece só o saldo inicial de cada conta, e o número da faixa é uma estimativa pelos lançamentos.
+            </div>
+          )}
+          <div style={{ ...indSub, marginTop: 8 }}>“Saldo em conta” é o que o extrato importado diz que existe — todas as linhas, conferidas ou não (no cartão, a dívida a cobrar). “Conferido” é quanto desse saldo já foi amarrado a lançamentos. A diferença é trabalho pendente de conciliação, não dinheiro a mais nem a menos.</div>
         </div>
         <div style={indCard}>
           <div style={indLabel}>O que falta fazer</div>
@@ -491,10 +577,19 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Cockpit de decisão — o que você olha primeiro, todo dia */}
+      {/* Faixa de números — no máximo 4, e o saldo aparece uma vez só */}
       <div style={indGrid}>
-        <IndCard label="Saldo na conta" valor={fmtMoney(caixaAtual)} sub="disponível hoje" />
-        <IndCard label="Projeção de despesa (mês)" valor={fmtMoney(despesaMes)} sub="a pagar este mês" />
+        <IndCard label="Saldo em conta" valor={fmtMoney(caixaAtual)} sub={saldoOrigem} />
+
+        {dividaCartao != null && (
+          <div style={indCard}>
+            <div style={indLabel}>Dívida do cartão</div>
+            <div style={{ ...indValor, color: 'var(--red)' }}>{fmtMoney(dividaCartao)}</div>
+            <div style={indSub}>o cartão ainda vai cobrar</div>
+          </div>
+        )}
+
+        <IndCard label="A pagar este mês" valor={fmtMoney(despesaMes)} sub="vencimentos em aberto no mês" />
 
         <div style={{ ...indCard, ...(necessidadeReceita > 0 ? { borderTop: '3px solid var(--gold-dark)' } : {}) }}>
           <div style={indLabel}>Necessidade de receita</div>
@@ -502,7 +597,20 @@ export default function Dashboard() {
           <div style={indSub}>{necessidadeReceita > 0 ? 'falta faturar pra cobrir o mês' : 'mês coberto ✓'}</div>
           {despesaMes > 0 && <div style={barBox}><i style={{ ...barFill, width: `${Math.min(100, (faturamento.valAtual / despesaMes) * 100)}%` }} /></div>}
         </div>
+      </div>
 
+      {/* Indicadores — tudo o que era análise sai da frente e vive aqui dentro */}
+      <button
+        type="button"
+        onClick={() => setIndAberto(v => !v)}
+        style={secToggle}
+        aria-expanded={indAberto}
+      >
+        Indicadores {indAberto ? '▾' : '▸'}
+      </button>
+
+      {indAberto && (<>
+      <div style={indGrid}>
         <div style={indCard}>
           <div style={indLabel}>ICC · meses de caixa</div>
           <div style={indValor}>{metaICC.mesesAtuais != null ? metaICC.mesesAtuais.toFixed(1) : '—'}<span style={{ fontSize: 13, color: 'var(--text-mid)', fontWeight: 600 }}> de {metaMeses}</span></div>
@@ -597,6 +705,7 @@ export default function Dashboard() {
         <IndCard label="Liquidez 30 dias" valor={liquidez.indice == null ? '—' : `${liquidez.indice.toFixed(2)}×`} sub={`${fmtMoney(liquidez.aReceber)} ÷ ${fmtMoney(liquidez.aPagar)}`} />
         <IndCard label="Maior cliente (concentração)" valor={concentracao.pct > 0 ? `${(concentracao.pct * 100).toFixed(0)}%` : '—'} sub={concentracao.maiorNome !== '—' ? concentracao.maiorNome : `${concentracao.nClientes} cliente(s)`} alerta={concentracao.pct > 0.5} />
       </div>
+      </>)}
 
       {/* Gráfico Evolução */}
       <div style={chartCard}>
@@ -700,6 +809,8 @@ function IndCard({ label, valor, sub, alerta }) {
 
 const narrativaCard = { background: 'linear-gradient(135deg, #00203E 0%, #1D3B5C 100%)', borderRadius: 14, padding: '22px 26px', marginBottom: 18, boxShadow: 'var(--shadow)' }
 const narrativaLabel = { fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--gold-light)', marginBottom: 10 }
+const narrativaNota = { marginTop: 12, fontSize: 11, color: 'rgba(255,255,255,0.65)', cursor: 'pointer' }
+const secToggle = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', padding: '4px 2px', margin: '0 0 12px', cursor: 'pointer', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }
 const painelGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 18 }
 const painelTbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const painelTh = { textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '6px 8px', borderBottom: '1px solid var(--cream-dark)' }

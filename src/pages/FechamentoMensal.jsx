@@ -129,7 +129,11 @@ function montarChecklist(comp, ctx) {
 
   // 8. DAS / impostos pagos (aviso)
   {
-    const guias = payable.filter(p => compDe(p) === comp && p.st !== 'Provisão' && String(p.cat || '').startsWith('Impostos'))
+    // Guia de imposto = o que a empresa RECOLHE (DAS, INSS, FGTS, taxas).
+    // "Impostos retidos na fonte" fica de fora de propósito: é dedução da
+    // receita, criada já quitada na conciliação — não é conta a pagar.
+    const CATS_GUIA = ['Impostos sobre Receita', 'Impostos sobre Folha', 'Outros Tributos']
+    const guias = payable.filter(p => compDe(p) === comp && p.st !== 'Provisão' && CATS_GUIA.includes(String(p.cat || '')))
     const abertas = guias.filter(p => p.st !== 'Pago')
     items.push({
       key: 'impostos', label: 'DAS / impostos pagos', obrigatorio: false,
@@ -436,7 +440,7 @@ export default function FechamentoMensal() {
         <em> Extrato importado</em> = cada conta bancária ativa tem linhas no mês · <em>Conciliação completa</em> = nenhuma linha do extrato pendente (cartão incluído) ·
         <em> Escrituração completa</em> = nenhum lançamento do mês a escriturar · <em>Sem NF pendente / Sem suspense</em> = nenhum lançamento nesses estados ·
         <em> Contas do mês liquidadas</em> = tudo com vencimento no mês já pago/recebido · <em>Fatura do cartão paga</em> = compras com vencimento no mês ≤ transferências pro cartão no mês ·
-        <em> DAS / impostos</em> = guias da categoria Impostos pagas · <em>Caixa de entrada</em> = NFs lidas do e-mail até o fim do mês já revisadas ·
+        <em> DAS / impostos</em> = guias que a empresa recolhe (DAS, INSS/FGTS, taxas) já pagas · <em>Caixa de entrada</em> = NFs lidas do e-mail até o fim do mês já revisadas ·
         <em> Mês anterior fechado</em> = ordem cronológica. Provisões não contam. Obrigatórios travam o botão; avisos viram exceção registrada.
       </div>
     </AppLayout>

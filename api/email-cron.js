@@ -610,7 +610,7 @@ async function createLancamento(parsed, att, base64) {
     cotacao_ptax: cotacao ? (isSaida ? cotacao.compra : cotacao.venda) : null,
     cotacao_tipo: cotacao ? (isSaida ? 'compra' : 'venda') : null,
     data_cotacao: cotacao ? cotacao.dataCotacao : null,
-    categoria_sugerida: isSaida ? '' : mapNFCategoria(parsed),
+    categoria_sugerida: isSaida ? '' : await mapNFCategoria(parsed, isSaida),
     target_table: targetTable,
     is_saida: isSaida,
     anexo: base64,
@@ -692,10 +692,29 @@ async function ensurePessoa(parsed, isSaida) {
   });
 }
 
-function mapNFCategoria(nf) {
+// Categorias do plano de contas (lidas uma vez por execução). Só sugerimos
+// categoria que EXISTE lá: sugestão inventada vira lançamento fora do plano,
+// que some da DRE sem ninguém perceber.
+let _catsPlano = null;
+async function categoriasDoPlano() {
+  if (_catsPlano) return _catsPlano;
+  const { data } = await getSupabase().from('plano_contas').select('tipo,categoria');
+  _catsPlano = new Map();
+  for (const r of data || []) _catsPlano.set(`${r.tipo}|${(r.categoria || '').toLowerCase()}`, r.categoria);
+  return _catsPlano;
+}
+
+// Sugere categoria para a NF. Guias de imposto têm destino conhecido; o resto
+// depende do que o modelo leu. Nada que não esteja no plano passa — sem
+// sugestão, o lançamento nasce sem categoria e vai para a Escrituração.
+async function mapNFCategoria(nf, isSaida) {
+  const cats = await categoriasDoPlano();
+  const tipo = isSaida ? 'Entrada' : 'Saída';
+  const ok = (nome) => cats.get(`${tipo}|${String(nome || '').toLowerCase()}`) || '';
   const td = (nf.tipo_documento || '').toUpperCase();
-  if (['DAS', 'DARF', 'GPS', 'GNRE'].includes(td)) return 'Impostos';
-  return nf.categoria || 'Operacional';
+  if (td === 'DAS') return ok('Impostos sobre Receita');
+  if (['DARF', 'GPS'].includes(td)) return ok('Impostos sobre Folha');
+  return ok(nf.categoria);
 }
 
 // ============================================================================
