@@ -58,7 +58,10 @@ export default function ImportarNFs() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
-      const maxMsgs = diasBusca <= 7 ? 10 : diasBusca <= 30 ? 30 : 60
+      // Teto por rodada: a função do servidor é cortada em 60 s e cada documento
+      // passa por leitura de IA. Lote pequeno e, se sobrar, a usuária roda de novo
+      // (o que já foi lido fica etiquetado e não volta).
+      const maxMsgs = diasBusca <= 7 ? 10 : diasBusca <= 30 ? 15 : 20
       const r = await fetch(`/api/email-cron?days=${diasBusca}&max=${maxMsgs}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${session.access_token}` },
@@ -79,8 +82,10 @@ export default function ImportarNFs() {
       if (found === 0) {
         msg = 'Nenhuma nota nova no e-mail — está tudo em dia.'
       } else {
-        msg = `Verifiquei o e-mail: ${found} documento(s) encontrado(s), ${novas} nova(s) na fila.`
+        msg = `Procurei no e-mail: ${found} documento(s) lido(s), ${novas} nova(s) esperando sua decisão abaixo.`
         if (errs > 0) msg += ` ${errs} com erro — veja no Histórico.`
+        // Quando a rodada bate no teto, quase sempre há mais para trás.
+        if (j?.pode_ter_mais) msg += ' Pode haver mais: clique de novo para continuar de onde parou.'
       }
       setUltimoResultado({ ok: errs === 0, msg, data: j })
       showToast(novas > 0 ? `${novas} nova(s) NF(s) na fila` : 'Robô rodou — nada novo no e-mail', errs > 0 ? 'warning' : 'success')

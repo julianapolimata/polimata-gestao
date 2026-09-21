@@ -38,6 +38,15 @@ const EMAIL_REMETENTES_LINK = listaDoEnv('EMAIL_REMETENTES_LINK', 'gclick.com.br
 // alguém do escritório responde direto (folha, esclarecimento de guia), o
 // e-mail costuma ir só para a caixa pessoal e ficava invisível para o robô.
 const EMAIL_REMETENTES_CONFIAVEIS = listaDoEnv('EMAIL_REMETENTES_CONFIAVEIS', 'jlramos.com.br,gclick.com.br');
+// ESCOPO DA BUSCA. Por padrão o robô varre TODAS as caixas da conta conectada
+// (nota fiscal e guia chegam em qualquer endereço, não só no alias financeiro).
+// GMAIL_SO_ALIAS=true volta a estreitar para GMAIL_TARGET_ALIAS.
+const GMAIL_SO_ALIAS = String(process.env.GMAIL_SO_ALIAS || 'false').toLowerCase() === 'true';
+const escopoDestino = () => (GMAIL_SO_ALIAS && GMAIL_TARGET_ALIAS ? `to:${GMAIL_TARGET_ALIAS} ` : '');
+// Varrer tudo sem filtro encheria a fila de apresentação, contrato e foto. O
+// documento fiscal é PDF ou XML — o resto nem é lido (economiza leitura de IA).
+const EMAIL_TIPOS_ARQUIVO = listaDoEnv('EMAIL_TIPOS_ARQUIVO', 'pdf,xml');
+const filtroArquivo = () => (EMAIL_TIPOS_ARQUIVO.length ? `(${EMAIL_TIPOS_ARQUIVO.map(t => `filename:${t}`).join(' OR ')}) ` : '');
 
 // Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
 // "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
@@ -187,18 +196,19 @@ async function processEmails(opts) {
       .map(([mid]) => mid)
       .slice(0, maxMsgs);
   } else {
-    const query = `to:${GMAIL_TARGET_ALIAS} has:attachment -label:polimata-processado newer_than:${days}d`;
+    const query = `${escopoDestino()}has:attachment ${filtroArquivo()}-label:polimata-processado newer_than:${days}d`;
     const messages = await listMessages(accessToken, query, maxMsgs);
     messageIds = messages.map(m => m.id);
 
     // 2ª varredura: remetentes que mandam o arquivo como LINK, sem anexo MIME.
-    // Aqui a busca NÃO pode ter has:attachment (senão o e-mail some), então é
-    // restrita aos remetentes configurados — não varremos a caixa inteira.
+    // Aqui a busca NÃO pode ter has:attachment (senão o e-mail some), então
+    // continua restrita aos remetentes configurados — sem isso viraria "ler
+    // todo e-mail da conta".
     const restante = Math.max(0, maxMsgs - messageIds.length);
     if (restante > 0 && EMAIL_REMETENTES_LINK.length) {
       try {
         const fromExpr = EMAIL_REMETENTES_LINK.map(d => `from:${d}`).join(' OR ');
-        const queryLink = `to:${GMAIL_TARGET_ALIAS} (${fromExpr}) -label:polimata-processado newer_than:${days}d`;
+        const queryLink = `${escopoDestino()}(${fromExpr}) -label:polimata-processado newer_than:${days}d`;
         const msgsLink = await listMessages(accessToken, queryLink, restante);
         const vistos = new Set(messageIds);
         for (const m of msgsLink) {
@@ -236,6 +246,10 @@ async function processEmails(opts) {
     started_at: startedAt,
     reprocess,
     found: messageIds.length,
+    // teto por execução: a Vercel corta a função em 60 s, então a rodada pega
+    // um lote e o resto fica para a próxima (o que já passou ganha etiqueta).
+    limite_por_rodada: maxMsgs,
+    pode_ter_mais: messageIds.length >= maxMsgs,
     processed: 0,
     skipped: 0,
     errors: 0,
