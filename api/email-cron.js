@@ -48,6 +48,42 @@ const escopoDestino = () => (GMAIL_SO_ALIAS && GMAIL_TARGET_ALIAS ? `to:${GMAIL_
 const EMAIL_TIPOS_ARQUIVO = listaDoEnv('EMAIL_TIPOS_ARQUIVO', 'pdf,xml');
 const filtroArquivo = () => (EMAIL_TIPOS_ARQUIVO.length ? `(${EMAIL_TIPOS_ARQUIVO.map(t => `filename:${t}`).join(' OR ')}) ` : '');
 
+function numeroDoEnv(nome, padrao) {
+  const n = parseInt(process.env[nome] ?? '', 10);
+  return Number.isFinite(n) && n >= 0 ? n : padrao;
+}
+
+// ---------------------------------------------------------------------------
+// Lixo que entrava na fila: ASSINATURA DE E-MAIL
+// ---------------------------------------------------------------------------
+// A busca do Gmail filtra por `filename:pdf OR filename:xml`, mas isso escolhe
+// a MENSAGEM — não o anexo. O e-mail que traz a nota em PDF traz junto o
+// logotipo do rodapé (image.png, Outlook-xxxxxxx.png), e o robô mandava cada um
+// deles para a IA e criava pendência com valor R$ 0,00 e tipo "Outro".
+// Regra: se a mensagem tem pdf/xml, só o pdf/xml é lido (a assinatura vem
+// sempre junto do documento). Se não tem nenhum, a imagem só passa se for
+// pesada — nota fotografada tem centenas de KB, logotipo de rodapé tem poucos.
+const EMAIL_IMAGEM_MINIMA_BYTES = numeroDoEnv('EMAIL_IMAGEM_MINIMA_BYTES', 80000);
+
+// Nomes com cara de assinatura/inline. Só valem para IMAGEM: um PDF chamado
+// "logo-fiscal.pdf" continua sendo lido normalmente.
+const NOMES_DE_ASSINATURA = [
+  /^image\d*\./i,     // image.png, image001.png — inline clássico do Outlook
+  /^outlook[-_]/i,    // Outlook-dqr14huu.png
+  /^logo/i,
+  /^assinatura/i,
+];
+
+// ---------------------------------------------------------------------------
+// Orçamento de tempo (o 504 da Vercel)
+// ---------------------------------------------------------------------------
+// vercel.json corta esta função em 60 s e CADA anexo custa uma chamada de IA:
+// um lote de 15–20 mensagens não cabe e a dona recebia "Erro: HTTP 504" sem
+// nada salvo. Aqui o laço para sozinho antes do corte e devolve o lote parcial
+// com sucesso; o que sobrou volta na próxima rodada (a etiqueta
+// `polimata-processado` garante que o já lido não retorna).
+const EMAIL_ORCAMENTO_MS = numeroDoEnv('EMAIL_ORCAMENTO_MS', 45000);
+
 // Hosts de onde é permitido baixar. Comparação EXATA (nunca "termina com"):
 // "endsWith('gclick.com.br')" aceitaria app.gclick.com.br.evil.tld, que é
 // justamente o truque usado em phishing. Quem precisar de outro host, põe na env.
@@ -86,6 +122,9 @@ function getSupabase() {
 }
 
 export default async function handler(req, res) {
+  // Marco zero do orçamento de tempo: conta a partir da ENTRADA da requisição,
+  // porque é daí que a Vercel conta os 60 s (auth, envs e OAuth já gastam).
+  const t0 = Date.now();
   try {
     // CORS: só a origem própria do app. O cron do GitHub Actions é
     // server-to-server (sem header Origin), então não depende disto.
@@ -150,7 +189,7 @@ export default async function handler(req, res) {
     const maxMsgs = Math.max(1, Math.min(10, parseInt(url.searchParams.get('max') || String(MAX_MESSAGES_PER_RUN))));
     const reprocess = url.searchParams.get('reprocess') === '1';
 
-    const result = await processEmails({ days, maxMsgs, reprocess, mode: authedAsUser ? 'manual' : 'cron' });
+    const result = await processEmails({ days, maxMsgs, reprocess, t0, mode: authedAsUser ? 'manual' : 'cron' });
     return res.status(200).json(result);
   } catch (e) {
     console.error('Erro no email-cron:', e);
@@ -166,6 +205,7 @@ async function processEmails(opts) {
   const maxMsgs = (opts && opts.maxMsgs) || MAX_MESSAGES_PER_RUN;
   const mode = (opts && opts.mode) || 'cron';
   const reprocess = !!(opts && opts.reprocess);
+  const t0 = (opts && opts.t0) || Date.now();
   const startedAt = new Date().toISOString();
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
@@ -250,17 +290,37 @@ async function processEmails(opts) {
     // um lote e o resto fica para a próxima (o que já passou ganha etiqueta).
     limite_por_rodada: maxMsgs,
     pode_ter_mais: messageIds.length >= maxMsgs,
+    // Teto de tempo da rodada: o laço para sozinho antes do corte da Vercel.
+    orcamento_ms: EMAIL_ORCAMENTO_MS,
+    interrompido_por_tempo: false,
+    nao_processadas: 0,
     processed: 0,
     skipped: 0,
+    // Descarte legítimo (assinatura de e-mail, "Outro" sem valor, duplicata):
+    // não é erro — só não vira pendência.
+    descartados: 0,
+    anexos_ignorados: 0,
     errors: 0,
     details: []
   };
 
-  for (const mid of messageIds) {
+  for (let i = 0; i < messageIds.length; i++) {
+    const mid = messageIds[i];
+    // Orçamento de tempo: melhor devolver lote parcial com sucesso do que
+    // morrer com 504 e não salvar nada. O teste é ANTES de começar a mensagem
+    // (uma vez dentro, ela vai até o fim para não deixar e-mail pela metade).
+    if (Date.now() - t0 > EMAIL_ORCAMENTO_MS) {
+      summary.interrompido_por_tempo = true;
+      summary.nao_processadas = messageIds.length - i;
+      console.log(`[orçamento] parando em ${i}/${messageIds.length} após ${Date.now() - t0} ms`);
+      break;
+    }
     try {
       const result = await processMessage(accessToken, mid, labelId);
       summary.processed += result.lancamentos;
       if (result.lancamentos === 0) summary.skipped += 1;
+      summary.descartados += result.descartados || 0;
+      summary.anexos_ignorados += result.anexos_ignorados || 0;
       summary.details.push({ id: mid, status: 'ok', ...result });
     } catch (e) {
       summary.errors += 1;
@@ -280,6 +340,12 @@ async function processEmails(opts) {
       }
     }
   }
+
+  // Parou no tempo → sempre há mais para a próxima rodada, mesmo que a busca
+  // tenha trazido menos que o limite. A tela usa isto para continuar dizendo
+  // "clique de novo para continuar de onde parou".
+  if (summary.interrompido_por_tempo) summary.pode_ter_mais = true;
+  summary.duracao_ms = Date.now() - t0;
 
   return summary;
 }
@@ -553,6 +619,111 @@ async function baixarAnexoDeLink(linkUrl, nomeSugerido) {
 }
 
 // ============================================================================
+// Triagem de anexos — antes de gastar leitura de IA
+// ============================================================================
+function ehPdfOuXml(att) {
+  const nome = String(att.filename || '').toLowerCase();
+  const mime = String(att.mimeType || '').toLowerCase();
+  return mime === 'application/pdf' || nome.endsWith('.pdf')
+      || /xml/.test(mime) || nome.endsWith('.xml');
+}
+
+function ehImagem(att) {
+  const nome = String(att.filename || '').toLowerCase();
+  const mime = String(att.mimeType || '').toLowerCase();
+  return mime.startsWith('image/') || /\.(png|jpe?g|gif|bmp|webp|tiff?)$/.test(nome);
+}
+
+function pareceAssinatura(nome) {
+  const n = String(nome || '').trim();
+  return NOMES_DE_ASSINATURA.some(re => re.test(n));
+}
+
+// Decide o que vai para a IA. Devolve { aceitos, ignorados } — os ignorados
+// carregam o MOTIVO, que fica registrado em emails_processados para a dona
+// poder conferir depois o que o robô deixou de lado e por quê.
+function triarAnexos(brutos) {
+  const ignorados = [];
+  const docs = brutos.filter(ehPdfOuXml);
+
+  // Tem documento de verdade: a imagem que veio junto é a assinatura.
+  if (docs.length) {
+    for (const a of brutos) {
+      if (docs.includes(a)) continue;
+      ignorados.push({
+        filename: a.filename || '(sem nome)',
+        bytes: Number(a.bytes || 0),
+        motivo: 'imagem_em_email_com_pdf_ou_xml'
+      });
+    }
+    return { aceitos: docs, ignorados };
+  }
+
+  // Só imagem: pode ser nota fotografada — ou só o rodapé da assinatura.
+  const aceitos = [];
+  for (const a of brutos) {
+    const nome = a.filename || '(sem nome)';
+    const bytes = Number(a.bytes || 0);
+    if (!ehImagem(a)) {
+      ignorados.push({ filename: nome, bytes, motivo: 'tipo_nao_fiscal' });
+      continue;
+    }
+    if (pareceAssinatura(nome)) {
+      ignorados.push({ filename: nome, bytes, motivo: 'nome_de_assinatura' });
+      continue;
+    }
+    // bytes === 0 significa tamanho desconhecido: na dúvida, lê (perder uma
+    // nota fotografada é pior do que gastar uma leitura de IA).
+    if (bytes && bytes < EMAIL_IMAGEM_MINIMA_BYTES) {
+      ignorados.push({ filename: nome, bytes, motivo: 'imagem_pequena' });
+      continue;
+    }
+    aceitos.push(a);
+  }
+  return { aceitos, ignorados };
+}
+
+// A IA leu, mas disse que não é documento fiscal: tipo "Outro" E sem valor.
+// Esse é exatamente o retrato da assinatura de e-mail ("Assinatura de e-mail
+// corporativo, sem informações fiscais"). Com valor > 0 continua entrando —
+// pode ser fatura que o modelo não soube classificar.
+function naoEhDocumentoFiscal(parsed) {
+  const tipoDoc = String(parsed?.tipo_documento || '').trim().toLowerCase();
+  const valor = parseFloat(parsed?.valor_total);
+  const valorOrig = parseFloat(parsed?.valor_original);
+  // valor_original entra como proteção: documento em moeda estrangeira pode vir
+  // com valor_total 0 e o valor só no original — esse NÃO é descarte.
+  const semValor = !(Number.isFinite(valor) && valor > 0)
+                && !(Number.isFinite(valorOrig) && valorOrig > 0);
+  return tipoDoc === 'outro' && semValor;
+}
+
+// Trilha do que NÃO virou pendência. Sem isto o descarte seria invisível e
+// ninguém saberia que o robô viu o arquivo e decidiu não criar nada.
+async function registrarDescarte({ att, parsed, status, motivo, detalhe, parte, valor }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const nfId = crypto.randomUUID();
+  const { error } = await getSupabase().from('nf_history').insert({
+    id: nfId, user_id: process.env.POLIMATA_USER_ID,
+    data: {
+      id: nfId, date: today,
+      fileName: att?.filename || null,
+      tipo: parsed?.tipo || null,
+      tipo_documento: parsed?.tipo_documento || null,
+      numero: parsed?.numero_nf || null,
+      parte: parte || parsed?.emitente_nome || parsed?.destinatario_nome || null,
+      valor: Number.isFinite(Number(valor)) ? Number(valor) : (parseFloat(parsed?.valor_total) || 0),
+      status,
+      motivo,
+      detalhe: detalhe || null,
+      descricao_ia: String(parsed?.descricao || '').slice(0, 300),
+      origem_anexo: att?.origem === 'link' ? 'link' : 'mime',
+    },
+  });
+  if (error) console.warn(`[descarte] nf_history falhou (${motivo}):`, error.message);
+}
+
+// ============================================================================
 // Processamento de mensagem individual
 // ============================================================================
 async function processMessage(accessToken, messageId, labelId) {
@@ -569,7 +740,7 @@ async function processMessage(accessToken, messageId, labelId) {
   const date = headers.find(h => h.name === 'Date')?.value || '';
 
   // Coletar anexos PDF/imagem (walk recursivo nas parts)
-  const attachments = [];
+  const brutos = [];
   function walk(parts) {
     if (!parts) return;
     for (const p of parts) {
@@ -579,31 +750,41 @@ async function processMessage(accessToken, messageId, labelId) {
       const ehXml = /xml/i.test(mimeType) || filename.toLowerCase().endsWith('.xml');
       if (p.body?.attachmentId &&
           (mimeType === 'application/pdf' || mimeType.startsWith('image/') || ehXml)) {
-        attachments.push({ attachmentId: p.body.attachmentId, filename, mimeType });
+        // O tamanho vem no próprio índice da mensagem: dá para descartar a
+        // assinatura SEM baixar o anexo e sem gastar leitura de IA.
+        brutos.push({ attachmentId: p.body.attachmentId, filename, mimeType, bytes: Number(p.body.size || 0) });
       }
     }
   }
   walk(msg.payload?.parts);
   // Caso especial: payload é o próprio anexo (sem parts)
-  if (!attachments.length && msg.payload?.body?.attachmentId) {
+  if (!brutos.length && msg.payload?.body?.attachmentId) {
     const mt = msg.payload.mimeType || '';
     const fn = msg.payload.filename || '';
     if (mt === 'application/pdf' || mt.startsWith('image/') || /xml/i.test(mt) || fn.toLowerCase().endsWith('.xml')) {
-      attachments.push({
+      brutos.push({
         attachmentId: msg.payload.body.attachmentId,
         filename: fn || 'anexo',
-        mimeType: mt
+        mimeType: mt,
+        bytes: Number(msg.payload.body.size || 0)
       });
     }
   }
 
+  // Triagem ANTES da IA: a assinatura do rodapé para aqui.
+  const { aceitos, ignorados: anexosIgnorados } = triarAnexos(brutos);
+  const attachments = aceitos;
+  if (anexosIgnorados.length) {
+    console.log(`[triagem] ${messageId}: ignorados ${anexosIgnorados.map(i => `${i.filename} (${i.motivo})`).join(', ')}`);
+  }
+
   // ---- Sem anexo MIME: tenta os LINKS do corpo (portais tipo G-Click) ----
-  // Só entra aqui quando não veio anexo de verdade; e-mail com anexo segue
-  // pelo caminho de sempre, sem tocar em link nenhum.
+  // Só entra aqui quando não veio anexo NENHUM; se veio e a triagem descartou
+  // tudo (mensagem só com assinatura), NÃO é caso de procurar link no corpo.
   let linksVistos = 0;
   const linksRecusados = [];
   const linksBaixados = [];
-  if (!attachments.length) {
+  if (!brutos.length) {
     const candidatos = extrairLinksDeAnexo(extrairCorpoHtml(msg.payload));
     linksVistos = candidatos.length;
     for (const c of candidatos) {
@@ -629,10 +810,16 @@ async function processMessage(accessToken, messageId, labelId) {
   }
 
   if (!attachments.length) {
+    // Mensagem que só tinha assinatura é DESCARTE, não falha: status próprio
+    // (fora da lista de FALHOS) para não voltar a cada reprocessamento.
+    const soLixo = anexosIgnorados.length > 0;
     await applyLabel(accessToken, messageId, labelId);
     await persistEmailHistory({
       gmail_message_id: messageId, subject, from, date,
-      status: 'sem_anexo',
+      status: soLixo ? 'descartado' : 'sem_anexo',
+      motivo: soLixo ? 'anexos_ignorados_na_triagem' : null,
+      anexos_ignorados: anexosIgnorados.length,
+      anexos_ignorados_detalhe: anexosIgnorados,
       links_vistos: linksVistos,
       links_recusados: linksRecusados.length,
       links_recusas: linksRecusados,
@@ -640,7 +827,8 @@ async function processMessage(accessToken, messageId, labelId) {
     });
     return {
       lancamentos: 0,
-      message: 'sem anexos PDF/imagem',
+      message: soLixo ? 'anexos ignorados na triagem (assinatura/imagem leve)' : 'sem anexos PDF/imagem',
+      anexos_ignorados: anexosIgnorados.length,
       links_vistos: linksVistos,
       links_recusados: linksRecusados.length
     };
@@ -648,6 +836,7 @@ async function processMessage(accessToken, messageId, labelId) {
 
   // Processa cada anexo
   let lancamentosCount = 0;
+  let descartadosCount = 0;
   const lancamentoIds = [];
 
   for (const att of attachments) {
@@ -666,6 +855,20 @@ async function processMessage(accessToken, messageId, labelId) {
       const parsed = await parseDocumentWithAI(base64, att.mimeType);
       if (!parsed) continue;
 
+      // 2ª trava: a própria IA disse que não é documento fiscal ("Outro" sem
+      // valor). Não vira pendência — vira trilha em nf_history.
+      if (naoEhDocumentoFiscal(parsed)) {
+        descartadosCount++;
+        console.log(`[descarte] ${att.filename}: nao_e_documento_fiscal (${parsed.tipo_documento || 'sem tipo'}, R$ ${parsed.valor_total || 0})`);
+        await registrarDescarte({
+          att, parsed,
+          status: 'descartado',
+          motivo: 'nao_e_documento_fiscal',
+          detalhe: `tipo_documento="${parsed.tipo_documento || ''}" e valor 0`
+        });
+        continue;
+      }
+
       const lancamentoId = await createLancamento(parsed, att, base64);
       if (lancamentoId) {
         lancamentosCount++;
@@ -678,12 +881,21 @@ async function processMessage(accessToken, messageId, labelId) {
 
   await applyLabel(accessToken, messageId, labelId);
 
+  // Nada criado MAS houve descarte legítimo → 'descartado', não 'sem_lancamento'
+  // (que está na lista de FALHOS e voltaria a cada reprocessamento).
+  const statusMsg = lancamentosCount > 0
+    ? 'ok'
+    : (descartadosCount || anexosIgnorados.length) ? 'descartado' : 'sem_lancamento';
+
   await persistEmailHistory({
     gmail_message_id: messageId, subject, from, date,
-    status: lancamentosCount > 0 ? 'ok' : 'sem_lancamento',
+    status: statusMsg,
     lancamentos_ids: lancamentoIds,
     n_anexos: attachments.length,
     n_anexos_link: linksBaixados.length,
+    anexos_ignorados: anexosIgnorados.length,
+    anexos_ignorados_detalhe: anexosIgnorados,
+    anexos_descartados: descartadosCount,
     links_vistos: linksVistos,
     links_recusados: linksRecusados.length,
     links_recusas: linksRecusados,
@@ -693,6 +905,8 @@ async function processMessage(accessToken, messageId, labelId) {
   return {
     lancamentos: lancamentosCount,
     lancamentoIds,
+    descartados: descartadosCount,
+    anexos_ignorados: anexosIgnorados.length,
     ...(linksVistos ? { links_vistos: linksVistos, links_baixados: linksBaixados.length, links_recusados: linksRecusados.length } : {})
   };
 }
@@ -973,6 +1187,53 @@ async function createLancamento(parsed, att, base64) {
     });
     if (guiaPend || guiaLanc) {
       console.log(`[dedup-guia] ${tipoDocUp} ${numeroDoc || periodoApuracao} (R$ ${val}) já registrada (${guiaPend ? 'nf_pending ' + guiaPend.id : targetTable + ' ' + guiaLanc.id}) — pulando ${att.filename}`);
+      return null;
+    }
+  }
+
+  // ── Dedup do MESMO documento chegando em DOIS FORMATOS ───────────────────
+  // A NFS-e veio como "...-nfse.pdf" e "...-nfse.xml" no mesmo e-mail e virou
+  // duas pendências. O `dupPend` abaixo casa por PARTE, e parte depende da
+  // direção que a IA deduziu — a leitura do PDF e a do XML podem divergir no
+  // nome (e até na direção), e aí o dedup não pegava. Aqui a chave é a
+  // identidade do documento, independente de direção: número + valor (±0,02) +
+  // emitente. Mesmo padrão do dedup de guia acima, reaproveitando as MESMAS
+  // consultas (`pendentes` e `candidates`) — nenhuma query nova.
+  const numeroDigitos = numeroLower.replace(/\D/g, '');
+  const emitNomeLower = String(parsed.emitente_nome || '').toLowerCase().trim();
+  if (numeroLower) {
+    const mesmoDocumento = (d) => {
+      if (!d) return false;
+      const dn = String(d.numero ?? d.numero_nf ?? '').trim().toLowerCase();
+      const numeroBate = (!!dn && dn === numeroLower)
+        || (!!numeroDigitos && dn.replace(/\D/g, '') === numeroDigitos);
+      if (!numeroBate) return false;
+      if (Math.abs(Number(d.valor ?? d.value ?? 0) - val) > 0.02) return false;
+      const dCnpj = String(d.emitente_cnpj || d.cnpj || '').replace(/\D/g, '');
+      const dNome = String(d.emitente_nome || '').toLowerCase().trim();
+      if (emitCnpj && dCnpj) return dCnpj === emitCnpj;            // CNPJ manda
+      if (emitNomeLower && dNome) return dNome === emitNomeLower;  // senão, nome
+      return !emitCnpj && !emitNomeLower;  // sem emitente dos dois lados: nº+valor bastam
+    };
+    const docPend = (pendentes || []).find(p => mesmoDocumento(p.data));
+    const docLanc = (candidates || []).find(c => {
+      const item = c.data || {};
+      if (mesmoDocumento(item)) return true;
+      // Lançamento já aprovado guarda o número dentro da descrição. Exige
+      // número razoavelmente longo + valor idêntico pra não casar por acaso.
+      if (numeroLower.length < 4) return false;
+      if (!String(item.desc || '').toLowerCase().includes(numeroLower)) return false;
+      return Math.abs(Number(item.value ?? item.valor ?? 0) - val) <= 0.02;
+    });
+    if (docPend || docLanc) {
+      const onde = docPend ? `nf_pending ${docPend.id}` : `${targetTable} ${docLanc.id}`;
+      console.log(`[dedup-formato] ${tipoDoc} ${numero} (R$ ${val}) já registrada (${onde}) — pulando ${att.filename}`);
+      await registrarDescarte({
+        att, parsed, parte, valor: val,
+        status: 'duplicado',
+        motivo: 'duplicado_mesmo_documento',
+        detalhe: `mesmo número + valor + emitente já em ${onde}`
+      });
       return null;
     }
   }

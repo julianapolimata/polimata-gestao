@@ -2,7 +2,9 @@ name: Email Cron — Polímata Gestão
 
 on:
   schedule:
-    # A cada 15 minutos
+    # A cada 15 minutos. A janela de 365 dias faz o robô descer o histórico
+    # sozinho, 8 documentos por rodada (o que cabe nos 60 s da função); o que
+    # já foi lido fica etiquetado no Gmail e não volta.
     - cron: '*/15 * * * *'
   workflow_dispatch:  # permite acionamento manual
 
@@ -13,7 +15,7 @@ jobs:
     steps:
       - name: Acionar /api/email-cron na Vercel
         run: |
-          response=$(curl -sS -X POST "https://polimata-gestao.vercel.app/api/email-cron" \
+          response=$(curl -sS -X POST "https://polimata-gestao.vercel.app/api/email-cron?days=365&max=8" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             -w "\n---HTTP_CODE---\n%{http_code}" \
