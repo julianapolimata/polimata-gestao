@@ -7,6 +7,7 @@ import AppLayout from '../components/AppLayout'
 import { fmtMoney, flatten, ehOperacional } from '../lib/finance'
 import { showToast } from '../components/Toast'
 import { proximoCodigoPayable } from '../lib/codigos'
+import { fetchPlanoContas } from '../lib/planoContas'
 import {
   descobrirFaixa, calcularAliquotaEfetiva,
   projetarDAS, compor, vencimentoDAS, ultimoDiaDoMes,
@@ -35,7 +36,13 @@ const CAT_IMPOSTOS_FOLHA = 'Impostos sobre Folha'
 //  - Prestadores PJ: pessoa jurídica, não é remuneração a pessoa física;
 //  - Estagiários: bolsa de estágio não é remuneração do trabalho nem entra na
 //    base da contribuição previdenciária (Lei 11.788/2008, art. 3º).
-const SUBCAT_FOLHA_FORA = ['Prestadores PJ', 'Estagiários', 'Estagiarios']
+//  - Antecipação de Lucro: distribuição de lucro não é remuneração do trabalho
+//    e não tem contribuição previdenciária — a lei conta folha, não retirada de
+//    sócio (LC 123/2006, art. 18 §24; Resolução CGSN 140/2018, art. 26 §1º).
+const SUBCAT_FOLHA_FORA = ['Prestadores PJ', 'Estagiários', 'Estagiarios', 'Antecipação de Lucro', 'Antecipacao de Lucro']
+// Trava adicional: qualquer lançamento cuja CLASSIFICAÇÃO no plano de contas
+// seja distribuição de lucro fica fora, mesmo que a subcategoria mude de nome.
+const CLASSIF_FOLHA_FORA = ['Antecipação de Lucro']
 // De "Impostos sobre Folha" só entram CPP e FGTS efetivamente recolhidos.
 const SUBCAT_IMPOSTOS_FOLHA_DENTRO = ['FGTS', 'INSS - Pró Labore', 'INSS - Pro Labore', 'INSS - Fopag']
 
@@ -65,6 +72,7 @@ export default function SimplesNacional() {
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])       // linhas cruas {id, codigo, data}
   const [nfseCfg, setNfseCfg] = useState(null)     // nfse_config.data — fonte única do município do ISS
+  const [plano, setPlano] = useState([])           // classificação de cada categoria (quem é distribuição de lucro)
   const [gerandoDAS, setGerandoDAS] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(false)
@@ -94,6 +102,7 @@ export default function SimplesNacional() {
   }, [user])
 
   useEffect(() => { carregar() }, [carregar])
+  useEffect(() => { fetchPlanoContas().then(p => setPlano(p || [])) }, [])
 
   const cfg = config?.data || {}
   // Município do ISS: fonte única = Configurações › NFS-e (nfse_config.data.municipio_incidencia).
@@ -218,6 +227,17 @@ export default function SimplesNacional() {
   // FATOR R — folha de salários dos 12 meses anteriores ÷ receita bruta dos
   // mesmos 12 meses (LC 123/2006, art. 18, §§5º-J, 5º-K, 5º-M e 24 a 26).
   // ------------------------------------------------------------------
+  // O plano de contas é quem diz o que é distribuição de lucro. Usar a
+  // classificação (e não só o nome da subcategoria) mantém a regra de pé se
+  // alguém renomear a conta depois.
+  const foraPorClassificacao = useMemo(() => {
+    const set = new Set()
+    for (const l of plano || []) {
+      if (CLASSIF_FOLHA_FORA.includes(l.classificacao)) set.add(l.categoria + "|" + (l.subcategoria || ""))
+    }
+    return set
+  }, [plano])
+
   const ehFolhaEm = (p, mesISO) => {
     const d = p.data || {}
     if (d.status === 'Provisão') return false
@@ -225,6 +245,7 @@ export default function SimplesNacional() {
     if (!ref || !ref.startsWith(mesISO)) return false
     const cat = d.cat || ''
     const sub = (d.subcat || '').trim()
+    if (foraPorClassificacao.has(cat + "|" + sub)) return false
     if (cat === CAT_FOLHA) return !SUBCAT_FOLHA_FORA.includes(sub)
     if (cat === CAT_IMPOSTOS_FOLHA) return SUBCAT_IMPOSTOS_FOLHA_DENTRO.includes(sub)
     return false
@@ -251,7 +272,7 @@ export default function SimplesNacional() {
     }
     porSub.sort((a, b) => b.valor - a.valor)
     return { total, porSub }
-  }, [payable, janela12])
+  }, [payable, janela12, foraPorClassificacao])
 
   const folha12 = folhaInfo.total
   const fatorR = useMemo(() => calcularFatorR({ folha12, rbt12 }), [folha12, rbt12])
