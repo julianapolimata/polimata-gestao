@@ -132,7 +132,7 @@ export default function ClassificarLancamentos() {
   function validar(s) {
     if (!s?.cat) return 'Escolha uma categoria.'
     if (!s?.situacao_fiscal) return 'Informe a situação fiscal.'
-    if (s.situacao_fiscal === 'dispensado' && !String(s.motivo || '').trim()) return 'Sem NF exige o motivo.'
+    if (s.situacao_fiscal === 'dispensado' && !String(s.motivo || '').trim()) return '"Não tem nota" exige o motivo — escreva por que esta despesa não tem nota fiscal.'
     return null
   }
 
@@ -165,7 +165,7 @@ export default function ClassificarLancamentos() {
       const comNota = itensAlvo.filter(temNF)
       const semNota = itensAlvo.filter(it => !temNF(it))
       if (!comNota.length) {
-        showToast('Nenhum destes tem nota ainda. Clique "Vincular NF" para anexar, ou use "NF pendente"/"Sem NF".', 'warning')
+        showToast('Nenhum destes tem a nota anexada. Clique "Vincular NF" para anexar, ou marque "A nota vai chegar" ou "Não tem nota".', 'warning')
         setExpandido(prev => new Set(prev).add(grupo.key))
         return
       }
@@ -254,8 +254,8 @@ export default function ClassificarLancamentos() {
 
   // Escritura de uma vez tudo que está pronto — transforma a fila numa sessão de minutos.
   async function escriturarProntos() {
-    if (!totalProntos) { showToast('Nada pronto ainda — preencha categoria e situação fiscal (e vincule a nota nos "Com NF").', 'info'); return }
-    if (!window.confirm(`Escriturar ${totalProntos} lançamento(s) em ${gruposProntos.length} grupo(s) com a classificação pré-carregada?\n\nConfira os grupos antes: o que estiver desmarcado ou sem nota (nos "Com NF") fica na fila.`)) return
+    if (!totalProntos) { showToast('Nada pronto ainda — preencha categoria e situação fiscal (e anexe a nota nos "Tenho a nota").', 'info'); return }
+    if (!window.confirm(`Escriturar ${totalProntos} lançamento(s) em ${gruposProntos.length} grupo(s) com a classificação pré-carregada?\n\nConfira os grupos antes: o que estiver desmarcado ou sem a nota anexada fica na fila.`)) return
     setAutoRodando(true)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()

@@ -39,17 +39,52 @@ export function isOverdue(due) {
 }
 
 /**
+ * Subcategorias que são PRINCIPAL de dívida (captação e amortização). Movimento
+ * de financiamento: não é receita nem despesa, fica fora do operacional.
+ * Os JUROS dessa mesma dívida NÃO estão aqui de propósito — juros são despesa
+ * financeira e a DRE os conta em "Despesas Financeiras".
+ */
+const SUBCATS_PRINCIPAL_DIVIDA = new Set([
+  'amortização do principal (saída)',
+  'captação de empréstimo (entrada)',
+  'parcela do principal',
+])
+const norm = s => String(s || '').trim().toLowerCase()
+
+/**
  * Regra ÚNICA de "é movimento operacional?" — usada por Início, DRE, Fluxo,
  * Contas a Pagar/Receber e Relatórios. Fora: Provisão (previsão, não fato),
- * empréstimo (financiamento) e crédito/estorno de fatura (abatimento).
+ * o PRINCIPAL de empréstimo/parcelamento (financiamento) e crédito/estorno de
+ * fatura (abatimento).
  * Antes cada tela tinha a sua e os números nunca batiam entre elas.
+ *
+ * ⚠️ A decisão sobre empréstimo é pela SUBCATEGORIA/CATEGORIA do lançamento, não
+ * pela flag `criado_via_emprestimo`: a flag marca a parcela inteira (principal E
+ * juros) e excluía os juros do "despesas do ano" do Início, enquanto a DRE os
+ * contava em Despesas Financeiras — os dois números nunca fechavam (revisão
+ * contábil set/26). Agora só o principal sai; os juros entram nos dois lugares.
  */
+/** É o PRINCIPAL de um empréstimo/parcelamento? (captação ou amortização)
+ *  Serve às listas de Receber/Pagar, que escondem financiamento mas mostram
+ *  o que está Previsto — por isso não dá pra usar ehOperacional lá. */
+export function ehPrincipalDeDivida(reg) {
+  const d = reg?.data || reg || {}
+  const sub = norm(d.subcat ?? reg?.subcat)
+  if (SUBCATS_PRINCIPAL_DIVIDA.has(sub)) return true
+  return norm(d.cat ?? reg?.cat).endsWith('- principal')
+}
+
 export function ehOperacional(reg) {
   const d = reg?.data || reg || {}
   const st = d.status || reg?.status
   if (st === 'Provisão') return false
-  if (d.criado_via_emprestimo) return false
   if (d.criado_via_credito_fatura) return false
+  const sub = norm(d.subcat ?? reg?.subcat)
+  if (SUBCATS_PRINCIPAL_DIVIDA.has(sub)) return false
+  // Classificações do plano cujo nome já diz "principal" (Empréstimo - Principal /
+  // Parcelamento - Principal), quando a categoria vier com esse nome.
+  const cat = norm(d.cat ?? reg?.cat)
+  if (cat.endsWith('- principal')) return false
   return true
 }
 

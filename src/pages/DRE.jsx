@@ -21,6 +21,14 @@ import { computeDRE } from '../lib/dre'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
+// Por que o lançamento ficou de fora da DRE — e o que fazer em cada caso.
+// A ordem aqui é a ordem em que os avisos aparecem no rodapé.
+const MOTIVOS_FORA = [
+  { motivo: 'sem-categoria', texto: 'sem categoria — escriture', href: '/classificar', acao: 'Escriturar →' },
+  { motivo: 'fora-do-plano', texto: 'categoria fora do plano de contas — ajuste em Categorias', href: '/plano-contas', acao: 'Abrir Categorias →' },
+  { motivo: 'nao-entra-no-resultado', texto: 'não entra no resultado (conta transitória a esclarecer) — resolva na Conciliação', href: '/conciliacao', acao: 'Abrir Conciliação →' },
+]
+
 
 export default function DRE() {
   const { user } = useAuth()
@@ -71,6 +79,19 @@ export default function DRE() {
   const fora = linhas.fora || { count: 0, total: 0, porCat: {} }
   const naoEscriturados = linhas.naoEscriturados || { count: 0, total: 0 }
 
+  // Agrupa os excluídos por MOTIVO — cada motivo tem uma saída diferente.
+  const foraPorMotivo = useMemo(() => {
+    const g = {}
+    for (const [cat, v] of Object.entries(fora.porCat || {})) {
+      const mot = v.motivo || 'fora-do-plano'
+      if (!g[mot]) g[mot] = { count: 0, total: 0, cats: [] }
+      g[mot].count += v.count
+      g[mot].total += v.total
+      g[mot].cats.push(`${cat} (${v.count})`)
+    }
+    return g
+  }, [fora])
+
   function toggleExp(id) {
     setExpandido(s => {
       const ns = new Set(s)
@@ -99,7 +120,18 @@ export default function DRE() {
       {(fora.count > 0 || naoEscriturados.count > 0) && (
         <div style={{ margin: '0 0 14px', padding: '10px 14px', background: 'rgba(204,145,94,0.10)', border: '1px solid var(--gold)', borderRadius: 8, fontSize: 12, color: 'var(--navy)', lineHeight: 1.6 }}>
           {fora.count > 0 && (
-            <div>⚠️ <strong>{fora.count} lançamento(s) · {fmtMoney(fora.total)} ficaram FORA da DRE</strong> (sem categoria ou categoria fora do plano de contas): {Object.entries(fora.porCat).map(([cat, v]) => `${cat} (${v.count})`).join(' · ')}. <a href="/classificar" style={{ color: 'var(--gold-dark)', fontWeight: 700 }}>Escriturar →</a></div>
+            <>
+              <div>⚠️ <strong>{fora.count} lançamento(s) · {fmtMoney(fora.total)} ficaram FORA da DRE</strong> — por quê:</div>
+              {MOTIVOS_FORA.filter(m => foraPorMotivo[m.motivo]).map(m => {
+                const g = foraPorMotivo[m.motivo]
+                return (
+                  <div key={m.motivo} style={{ paddingLeft: 18 }}>
+                    • <strong>{g.count} · {fmtMoney(g.total)}</strong> {m.texto}: {g.cats.join(' · ')}.{' '}
+                    <a href={m.href} style={{ color: 'var(--gold-dark)', fontWeight: 700 }}>{m.acao}</a>
+                  </div>
+                )
+              })}
+            </>
           )}
           {naoEscriturados.count > 0 && (
             <div>📋 Inclui <strong>{naoEscriturados.count} lançamento(s) · {fmtMoney(naoEscriturados.total)} ainda não escriturados</strong> (sem revisão) — os números podem mudar depois da escrituração.</div>
@@ -122,18 +154,23 @@ export default function DRE() {
               <tbody>
                 {linhas.map(l => {
                   const isSubtotal = l.kind === 'subtotal'
-                  const corBase = isSubtotal
-                    ? 'var(--navy)'
-                    : (l.kind === 'positivo' ? 'var(--green)' : 'var(--red)')
+                  // 'info' = linha fora do encadeamento (distribuição de lucro):
+                  // discreta, sem cor de despesa e sem negrito de subtotal.
+                  const isInfo = l.kind === 'info'
+                  const corBase = isInfo
+                    ? 'var(--text-mid)'
+                    : isSubtotal
+                      ? 'var(--navy)'
+                      : (l.kind === 'positivo' ? 'var(--green)' : 'var(--red)')
                   const corTot = l.total >= 0 ? 'var(--green)' : 'var(--red)'
-                  const bgRow = l.strong ? 'rgba(204,145,94,0.06)' : (isSubtotal ? 'var(--cream)' : 'transparent')
+                  const bgRow = isInfo ? 'transparent' : (l.strong ? 'rgba(204,145,94,0.06)' : (isSubtotal ? 'var(--cream)' : 'transparent'))
                   const exp = expandido.has(l.id)
                   const podeExp = l.subItems && l.subItems.length > 0
                   return (
                     <FragmentLinha
                       key={l.id} linha={l} exp={exp} podeExp={podeExp}
                       onToggle={() => toggleExp(l.id)}
-                      isSubtotal={isSubtotal} bg={bgRow} corBase={corBase} corTot={corTot}
+                      isSubtotal={isSubtotal} isInfo={isInfo} bg={bgRow} corBase={corBase} corTot={corTot}
                     />
                   )
                 })}
@@ -146,26 +183,32 @@ export default function DRE() {
   )
 }
 
-function FragmentLinha({ linha, exp, podeExp, onToggle, isSubtotal, bg, corBase, corTot }) {
+function FragmentLinha({ linha, exp, podeExp, onToggle, isSubtotal, isInfo, bg, corBase, corTot }) {
   return (
     <>
       <tr style={{ background: bg, borderBottom: isSubtotal ? '2px solid var(--cream-dark)' : '1px solid var(--cream-dark)' }}>
         <td style={{
           ...td,
-          fontWeight: isSubtotal ? 700 : 600,
+          fontWeight: isInfo ? 400 : (isSubtotal ? 700 : 600),
           color: corBase,
           cursor: podeExp ? 'pointer' : 'default',
-          fontSize: linha.strong ? 13 : 12,
+          fontSize: isInfo ? 11 : (linha.strong ? 13 : 12),
+          fontStyle: isInfo ? 'italic' : 'normal',
         }} onClick={podeExp ? onToggle : undefined}>
           {podeExp && <span style={{ marginRight: 6, color: 'var(--text-mid)', fontSize: 10 }}>{exp ? '▼' : '▶'}</span>}
           {linha.label}
+          {isInfo && (
+            <div style={{ fontStyle: 'normal', fontSize: 10, color: 'var(--text-mid)', marginTop: 2, fontWeight: 400 }}>
+              Retirada dos sócios: movimento do patrimônio líquido (CPC 26), já depois do Lucro Líquido — não entra no resultado.
+            </div>
+          )}
         </td>
         {linha.byMes.map((v, i) => (
-          <td key={i} style={{ ...td, textAlign: 'right', color: v === 0 ? 'var(--text-mid)' : corBase, fontWeight: isSubtotal ? 700 : 500 }}>
+          <td key={i} style={{ ...td, textAlign: 'right', color: v === 0 ? 'var(--text-mid)' : corBase, fontWeight: isInfo ? 400 : (isSubtotal ? 700 : 500), fontSize: isInfo ? 11 : 12 }}>
             {v === 0 ? '—' : fmtMoney(v)}
           </td>
         ))}
-        <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: isSubtotal ? corTot : corBase, background: 'rgba(0,0,0,0.025)' }}>
+        <td style={{ ...td, textAlign: 'right', fontWeight: isInfo ? 500 : 700, color: isSubtotal ? corTot : corBase, background: 'rgba(0,0,0,0.025)', fontSize: isInfo ? 11 : 12 }}>
           {linha.total === 0 ? '—' : fmtMoney(linha.total)}
         </td>
       </tr>

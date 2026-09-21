@@ -4,21 +4,52 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 
-import { fmtMoney, flatten } from '../lib/finance'
+import { fmtMoney, flatten, ehOperacional } from '../lib/finance'
 import { showToast } from '../components/Toast'
 import { proximoCodigoPayable } from '../lib/codigos'
 import {
   descobrirFaixa, calcularAliquotaEfetiva,
   projetarDAS, compor, vencimentoDAS, ultimoDiaDoMes,
+  calcularFatorR, anexoPorFatorR, folhaMinimaParaAnexoIII,
+  percentualIssDaFaixa, proporcionalizarRBT12, FATOR_R_LIMITE,
 } from '../lib/simplesNacional'
 
 // =====================================================================
 // SIMPLES NACIONAL — Calculadora + projeção do DAS do mês seguinte.
-// Polímata é Anexo III (consultoria com Fator R ≥ 28%). Anexo determinado
-// via análise do último DAS (composição IRPJ/CSLL/COFINS/PIS/CPP/ISS).
+//
+// Consultoria em gestão (CNAE 70.20-4) é serviço do art. 18, §5º-I, IX da
+// LC 123/2006: nasce no ANEXO V e só vai para o ANEXO III quando o Fator R
+// (folha 12 meses ÷ receita 12 meses) chega a 28% (§§5º-J e 5º-M). O anexo
+// NÃO é fixo no código: é recalculado todo mês a partir dos lançamentos.
 // =====================================================================
 
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+// --- Folha de salários do Fator R (LC 123/2006 art. 18 §§24 a 26; Resolução
+// CGSN 140/2018 art. 26 §§1º a 3º): entra o montante pago a PESSOAS FÍSICAS a
+// título de trabalho e pró-labore, mais a CPP e o FGTS efetivamente recolhidos.
+// Não entram: pagamentos a pessoa jurídica, aluguéis e distribuição de lucros.
+const CAT_FOLHA = 'Pessoal / Mão de Obra'
+const CAT_IMPOSTOS_FOLHA = 'Impostos sobre Folha'
+// Subcategorias de "Pessoal / Mão de Obra" que a lei NÃO deixa somar:
+//  - Prestadores PJ: pessoa jurídica, não é remuneração a pessoa física;
+//  - Estagiários: bolsa de estágio não é remuneração do trabalho nem entra na
+//    base da contribuição previdenciária (Lei 11.788/2008, art. 3º).
+const SUBCAT_FOLHA_FORA = ['Prestadores PJ', 'Estagiários', 'Estagiarios']
+// De "Impostos sobre Folha" só entram CPP e FGTS efetivamente recolhidos.
+const SUBCAT_IMPOSTOS_FOLHA_DENTRO = ['FGTS', 'INSS - Pró Labore', 'INSS - Pro Labore', 'INSS - Fopag']
+
+const AJUSTES_RETENCAO_INDEVIDA = {
+  irrf: 'IRRF retido',
+  pcc: 'PIS/COFINS/CSLL retido',
+  inss: 'INSS retido',
+}
+
+const RBT12_ORIGEM = {
+  calculada: 'calculada pelas notas emitidas',
+  informada: 'informada na configuração (base curta)',
+  proporcionalizada: 'proporcionalizada (início de atividade)',
+}
 
 function fmtPct(v) { return (v * 100).toFixed(2) + '%' }
 function fmtDataBR(s) {
@@ -47,12 +78,15 @@ export default function SimplesNacional() {
       supabase.from('simples_nacional_config').select('*').limit(1),
       supabase.from('simples_nacional_das').select('*').order('periodo_apuracao', { ascending: false }).limit(13),
       supabase.from('receivable').select('*'),
-      supabase.from('payable').select('id,codigo,data'),
+      // extrato_id é COLUNA (não vive no jsonb) — é ela que amarra o ajuste de
+      // ISS da Conciliação ao recebível que sofreu a retenção.
+      supabase.from('payable').select('id,codigo,extrato_id,data'),
       supabase.from('nfse_config').select('*').limit(1),
     ]).then(([rC, rD, rR, rP, rN]) => {
       setConfig(rC.data?.[0] || null)
       setDasHist(rD.data || [])
-      setReceivable((rR.data || []).map(flatten))
+      // flatten() não carrega extrato_id — preservamos à mão.
+      setReceivable((rR.data || []).map(r => ({ ...flatten(r), extrato_id: r.extrato_id })))
       setPayable(rP.data || [])
       setNfseCfg(rN.data?.[0]?.data || null)
       setLoading(false)
@@ -70,10 +104,8 @@ export default function SimplesNacional() {
     setFormRbt12(cfg.rbt12_estimada != null ? String(cfg.rbt12_estimada) : '')
     setEditando(true)
   }
-  // Prévia ao vivo enquanto digita a RBT12: faixa + alíquota efetiva calculadas.
+  // Prévia ao vivo enquanto digita a RBT12 — o anexo sai do Fator R (mais abaixo).
   const rbt12Form = Number(String(formRbt12).replace(/\./g, '').replace(',', '.')) || 0
-  const faixaForm = descobrirFaixa(rbt12Form)
-  const aliquotaForm = calcularAliquotaEfetiva(rbt12Form, faixaForm)
 
   async function salvarConfig() {
     if (rbt12Form <= 0) { showToast('Informe a RBT12 estimada (receita dos últimos 12 meses).', 'warning'); return }
@@ -81,7 +113,8 @@ export default function SimplesNacional() {
     const { municipio_iss: _descartado, ...cfgSem } = cfg || {}
     const novo = {
       ...cfgSem,
-      anexo: 'III',
+      // Não existe mais anexo fixo: grava o que o Fator R indica para a RBT12 digitada.
+      anexo: anexoForm,
       rbt12_estimada: rbt12Form,
       aliquota_efetiva: aliquotaForm,
       atualizado_em: new Date().toISOString().slice(0, 10),
@@ -116,7 +149,7 @@ export default function SimplesNacional() {
   const ehNfEmitida = r => r.data?.doc_status === 'vinculado' || !!r.data?.numero_nf
   const ehFaturamentoEm = (r, mesISO) => {
     const ref = r.data?.data_competencia || r.due
-    return ref && ref.startsWith(mesISO) && r.data?.status !== 'Provisão' && !r.data?.criado_via_emprestimo && ehNfEmitida(r)
+    return ref && ref.startsWith(mesISO) && ehOperacional(r) && ehNfEmitida(r)
   }
   const ehFaturamento = r => ehFaturamentoEm(r, mesSelecionado)
   const faturamentoMes = useMemo(() => {
@@ -128,37 +161,193 @@ export default function SimplesNacional() {
     return receivable.filter(ehFaturamento).sort((a, b) => (a.due || '').localeCompare(b.due || ''))
   }, [receivable, mesSelecionado])
 
-  // Projeção
-  // RBT12 CALCULADA dos 12 meses anteriores ao mês selecionado (NFs emitidas). O valor
-  // digitado (rbt12_estimada) só serve de override quando a base ainda não tem 12 meses.
-  const rbt12Calc = useMemo(() => {
+  // ------------------------------------------------------------------
+  // RBT12 — receita bruta dos 12 meses ANTERIORES ao período de apuração
+  // (LC 123/2006, art. 18, §1º). Regra: manda a CALCULADA sempre que houver 12
+  // meses de histórico de notas. O valor digitado só vale com base curta, e a
+  // tela avisa. Sem valor digitado e com base curta, proporcionaliza como
+  // empresa em início de atividade (art. 18, §2º / CGSN 140/2018, art. 22).
+  // ------------------------------------------------------------------
+  const janela12 = useMemo(() => {
     const [y0, m0] = mesSelecionado.split('-').map(Number)
-    let soma = 0
+    const out = []
     for (let i = 1; i <= 12; i++) {
       const d = new Date(y0, m0 - 1 - i, 1)
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      soma += receivable.filter(r => ehFaturamentoEm(r, iso)).reduce((s, r) => s + Number(r.value || 0), 0)
+      out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
     }
-    return soma
-  }, [receivable, mesSelecionado])
-  const rbt12 = Number(cfg.rbt12_estimada) > 0 ? Number(cfg.rbt12_estimada) : rbt12Calc
-  const faixaInfo = useMemo(() => descobrirFaixa(rbt12), [rbt12])
+    return out.reverse() // do mais antigo para o mais recente
+  }, [mesSelecionado])
+
+  // Primeiro mês com NFS-e emitida em todo o histórico = início da base.
+  const primeiroMesComNf = useMemo(() => {
+    let min = null
+    for (const r of receivable) {
+      if (!ehOperacional(r) || !ehNfEmitida(r)) continue
+      const ref = r.data?.data_competencia || r.due
+      if (!ref) continue
+      const ym = ref.slice(0, 7)
+      if (!min || ym < min) min = ym
+    }
+    return min
+  }, [receivable])
+
+  const rbt12Info = useMemo(() => {
+    const porMes = janela12.map(iso => ({
+      iso,
+      valor: receivable.filter(r => ehFaturamentoEm(r, iso)).reduce((s, r) => s + Number(r.value || 0), 0),
+    }))
+    const soma = porMes.reduce((s, m) => s + m.valor, 0)
+    // Meses de base = meses da janela que já existiam depois da 1ª nota emitida.
+    const mesesDeBase = primeiroMesComNf ? porMes.filter(m => m.iso >= primeiroMesComNf).length : 0
+    const baseCompleta = mesesDeBase >= 12
+    const informada = Number(cfg.rbt12_estimada) || 0
+    const proporcionalizada = proporcionalizarRBT12(soma, mesesDeBase)
+
+    if (baseCompleta) {
+      return { valor: soma, origem: 'calculada', soma, mesesDeBase, proporcionalizada, informada, porMes }
+    }
+    if (informada > 0) {
+      return { valor: informada, origem: 'informada', soma, mesesDeBase, proporcionalizada, informada, porMes }
+    }
+    return { valor: proporcionalizada, origem: 'proporcionalizada', soma, mesesDeBase, proporcionalizada, informada, porMes }
+  }, [receivable, janela12, primeiroMesComNf, cfg.rbt12_estimada])
+
+  const rbt12 = rbt12Info.valor
+
+  // ------------------------------------------------------------------
+  // FATOR R — folha de salários dos 12 meses anteriores ÷ receita bruta dos
+  // mesmos 12 meses (LC 123/2006, art. 18, §§5º-J, 5º-K, 5º-M e 24 a 26).
+  // ------------------------------------------------------------------
+  const ehFolhaEm = (p, mesISO) => {
+    const d = p.data || {}
+    if (d.status === 'Provisão') return false
+    const ref = d.data_competencia || d.due
+    if (!ref || !ref.startsWith(mesISO)) return false
+    const cat = d.cat || ''
+    const sub = (d.subcat || '').trim()
+    if (cat === CAT_FOLHA) return !SUBCAT_FOLHA_FORA.includes(sub)
+    if (cat === CAT_IMPOSTOS_FOLHA) return SUBCAT_IMPOSTOS_FOLHA_DENTRO.includes(sub)
+    return false
+  }
+
+  const folhaInfo = useMemo(() => {
+    const itens = []
+    let total = 0
+    for (const iso of janela12) {
+      for (const p of payable) {
+        if (!ehFolhaEm(p, iso)) continue
+        const v = Number(p.data?.value || 0)
+        total += v
+        itens.push({ cat: p.data?.cat || '', sub: (p.data?.subcat || '').trim() || '(sem subcategoria)', valor: v })
+      }
+    }
+    // Agrupa por subcategoria só para explicar na tela o que entrou.
+    const porSub = []
+    for (const it of itens) {
+      const chave = `${it.cat} › ${it.sub}`
+      const achou = porSub.find(x => x.chave === chave)
+      if (achou) { achou.valor += it.valor; achou.qtd += 1 }
+      else porSub.push({ chave, valor: it.valor, qtd: 1 })
+    }
+    porSub.sort((a, b) => b.valor - a.valor)
+    return { total, porSub }
+  }, [payable, janela12])
+
+  const folha12 = folhaInfo.total
+  const fatorR = useMemo(() => calcularFatorR({ folha12, rbt12 }), [folha12, rbt12])
+  const anexoCalculado = anexoPorFatorR(fatorR)
+  const anexoGravado = (cfg.anexo || '').toUpperCase() || null
+  const anexoDivergente = !!anexoGravado && anexoGravado !== anexoCalculado
+  // O cálculo usa SEMPRE o anexo calculado — o gravado é só histórico.
+  const anexoEfetivo = anexoCalculado
+  const folhaMinima = folhaMinimaParaAnexoIII(rbt12)
+  const distanciaFatorR = folha12 - folhaMinima   // > 0 = folga; < 0 = falta folha
+
+  // Prévia do editor (depende do Fator R, por isso vem depois).
+  const anexoForm = anexoPorFatorR(calcularFatorR({ folha12, rbt12: rbt12Form }))
+  const faixaForm = descobrirFaixa(rbt12Form, anexoForm)
+  const aliquotaForm = calcularAliquotaEfetiva(rbt12Form, faixaForm)
+
+  // ------------------------------------------------------------------
+  // Faixa + alíquota efetiva do período
+  // ------------------------------------------------------------------
+  const faixaInfo = useMemo(() => descobrirFaixa(rbt12, anexoEfetivo), [rbt12, anexoEfetivo])
   // Alíquota efetiva recalculada na leitura (a gravada ficava congelada ao trocar de faixa).
   const aliquotaEf = useMemo(() => {
     const calc = calcularAliquotaEfetiva(rbt12, faixaInfo)
     return Number.isFinite(calc) && calc > 0 ? calc : Number(cfg.aliquota_efetiva || 0)
   }, [rbt12, faixaInfo, cfg.aliquota_efetiva])
-  // ISS retido na fonte no mês: ajustes "ISS retido" que a Conciliação cria em payable
-  // (criado_via_conciliacao_ajuste + ajuste_tipo 'iss'). Abate o DAS de verdade.
+
+  // ------------------------------------------------------------------
+  // ISS retido na fonte — receita SEGREGADA (LC 123/2006, art. 18, §4º-A, II e
+  // art. 21, §4º, VII). Sobre a receita que sofreu retenção não há ISS a
+  // recolher no DAS: o que sai é a PARCELA DO ISS dentro da alíquota efetiva,
+  // não o valor que o tomador reteve.
+  // ------------------------------------------------------------------
   const ehIssRetidoEm = (p, mesISO) => {
     const d = p.data || {}
     if (d.criado_via_conciliacao_ajuste !== true || d.ajuste_tipo !== 'iss') return false
     const ref = d.data_competencia || d.due
     return !!ref && ref.startsWith(mesISO)
   }
-  const retencaoIssMes = useMemo(() => payable.filter(p => ehIssRetidoEm(p, mesSelecionado)).reduce((s, p) => s + Number(p.data?.value || 0), 0), [payable, mesSelecionado])
-  const projecao = useMemo(() => projetarDAS({ faturamentoMes, aliquotaEfetiva: aliquotaEf, retencaoIssTotal: retencaoIssMes }), [faturamentoMes, aliquotaEf, retencaoIssMes])
-  const composicao = useMemo(() => compor(projecao.dasLiquido, faixaInfo.faixa), [projecao.dasLiquido, faixaInfo.faixa])
+  const ajustesIssMes = useMemo(() => payable.filter(p => ehIssRetidoEm(p, mesSelecionado)), [payable, mesSelecionado])
+  const retencaoIssMes = useMemo(() => ajustesIssMes.reduce((s, p) => s + Number(p.data?.value || 0), 0), [ajustesIssMes])
+
+  const issInfo = useMemo(() => {
+    const idsExtrato = new Set()
+    let semVinculo = 0
+    const orfaos = []
+    for (const a of ajustesIssMes) {
+      if (a.extrato_id) idsExtrato.add(a.extrato_id)
+      else { semVinculo += Number(a.data?.value || 0); orfaos.push(a) }
+    }
+    // Recebíveis do mês que dividem a linha de extrato com um ajuste de ISS.
+    const comRetencao = lancamentosDoMes.filter(r => r.extrato_id && idsExtrato.has(r.extrato_id))
+    const casados = new Set(comRetencao.map(r => r.extrato_id))
+    // Ajuste com extrato_id que não casou com nenhum recebível → método antigo.
+    for (const a of ajustesIssMes) {
+      if (a.extrato_id && !casados.has(a.extrato_id)) {
+        semVinculo += Number(a.data?.value || 0)
+        orfaos.push(a)
+      }
+    }
+    const receitaComRetencao = comRetencao.reduce((s, r) => s + Number(r.value || 0), 0)
+    return { receitaComRetencao, comRetencao, estimado: semVinculo, orfaos }
+  }, [ajustesIssMes, lancamentosDoMes])
+
+  const pctIssFaixa = useMemo(
+    () => percentualIssDaFaixa(faixaInfo.faixa, aliquotaEf, anexoEfetivo),
+    [faixaInfo.faixa, aliquotaEf, anexoEfetivo],
+  )
+
+  const projecao = useMemo(() => projetarDAS({
+    faturamentoMes,
+    aliquotaEfetiva: aliquotaEf,
+    retencaoIssTotal: retencaoIssMes,
+    receitaComRetencaoIss: issInfo.receitaComRetencao,
+    percentualIssFaixa: pctIssFaixa,
+    retencaoIssEstimadaTotal: issInfo.estimado,
+  }), [faturamentoMes, aliquotaEf, retencaoIssMes, issInfo, pctIssFaixa])
+
+  const composicao = useMemo(
+    () => compor(projecao.dasLiquido, faixaInfo.faixa, anexoEfetivo, aliquotaEf),
+    [projecao.dasLiquido, faixaInfo.faixa, anexoEfetivo, aliquotaEf],
+  )
+
+  // ------------------------------------------------------------------
+  // Retenções que a optante do Simples normalmente NÃO deveria sofrer.
+  // ------------------------------------------------------------------
+  const retencoesIndevidas = useMemo(() => {
+    const itens = payable.filter(p => {
+      const d = p.data || {}
+      if (d.criado_via_conciliacao_ajuste !== true) return false
+      if (!AJUSTES_RETENCAO_INDEVIDA[d.ajuste_tipo]) return false
+      const ref = d.data_competencia || d.due
+      return !!ref && ref.startsWith(mesSelecionado)
+    })
+    const total = itens.reduce((s, p) => s + Number(p.data?.value || 0), 0)
+    return { itens, total }
+  }, [payable, mesSelecionado])
   const vencimento = vencimentoDAS(mesSelecionado)
   const labelMes = `${MESES[parseInt(mesSelecionado.split('-')[1], 10) - 1]}/${mesSelecionado.split('-')[0]}`
   const competenciaMMAAAA = `${mesSelecionado.split('-')[1]}/${mesSelecionado.split('-')[0]}`
@@ -171,7 +360,12 @@ export default function SimplesNacional() {
     if (valor <= 0) return
     const ok = window.confirm(
       `Gerar conta a pagar do DAS de ${labelMes}?\n\n`
-      + `Valor: ${fmtMoney(valor)}${retencaoIssMes > 0 ? ` (já descontado ${fmtMoney(retencaoIssMes)} de ISS retido)` : ''}\n`
+      + `Valor: ${fmtMoney(valor)}\n`
+      + `Anexo ${anexoEfetivo} · Faixa ${faixaInfo.faixa} · alíquota efetiva ${fmtPct(aliquotaEf)}\n`
+      + (issInfo.receitaComRetencao > 0
+        ? `Receita com ISS retido: ${fmtMoney(issInfo.receitaComRetencao)} — já sem a parcela de ISS (${fmtPct(pctIssFaixa)} da alíquota)\n`
+        : '')
+      + (issInfo.estimado > 0 ? `Abatimento estimado (ISS retido sem vínculo): ${fmtMoney(issInfo.estimado)}\n` : '')
       + `Vencimento: ${fmtDataBR(vencimento)}\n\n`
       + 'Entra em Contas a Pagar como Pendente, já escriturada (guia DAS, sem NF). Se o PGDAS-D fechar outro valor, ajuste a conta lá.'
     )
@@ -250,7 +444,15 @@ export default function SimplesNacional() {
           </div>
         </div>
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-mid)' }}>
-          Anexo <strong>III</strong> (consultoria, Fator R ≥ 28%) · Faixa <strong>{faixaForm.faixa}</strong> (até {fmtMoney(faixaForm.ate)}) · Alíquota efetiva calculada: <strong style={{ color: 'var(--gold-dark)' }}>{fmtPct(aliquotaForm)}</strong>
+          Anexo <strong>{anexoForm}</strong> · Faixa <strong>{faixaForm.faixa}</strong> (até {fmtMoney(faixaForm.ate)}) · Alíquota efetiva calculada: <strong style={{ color: 'var(--gold-dark)' }}>{fmtPct(aliquotaForm)}</strong>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-mid)', lineHeight: 1.6 }}>
+          O anexo não é escolhido: ele sai do <strong>Fator R</strong>. Com folha de {fmtMoney(folha12)} nos 12 meses
+          e receita de {fmtMoney(rbt12Form)}, o Fator R fica em <strong>{rbt12Form > 0 ? fmtPct(folha12 / rbt12Form) : '—'}</strong>
+          {' '}— {rbt12Form > 0 && folha12 / rbt12Form >= FATOR_R_LIMITE ? 'igual ou acima' : 'abaixo'} dos 28% da lei, então vale o Anexo {anexoForm}.
+        </div>
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-mid)', fontStyle: 'italic' }}>
+          A RBT12 digitada só é usada enquanto o sistema não tiver 12 meses de notas emitidas. Depois disso, manda a calculada.
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button onClick={salvarConfig} disabled={salvando} style={btnPrimary}>{salvando ? 'Salvando…' : 'Salvar configuração'}</button>
@@ -286,11 +488,88 @@ export default function SimplesNacional() {
             <button onClick={abrirEditor} style={btnGhost}>⚙️ Editar</button>
           </div>
           <div style={{ display: 'flex', gap: 24, marginTop: 8, flexWrap: 'wrap' }}>
-            <Param label="Anexo" valor={`Anexo ${cfg.anexo || 'III'} (serviços)`} />
+            <Param label="Anexo" valor={`Anexo ${anexoEfetivo} (serviços)`} sub={anexoDivergente ? `configuração gravada: Anexo ${anexoGravado}` : 'pelo Fator R do período'} />
             <Param label="Faixa" valor={`Faixa ${faixaInfo.faixa}`} sub={`até ${fmtMoney(faixaInfo.ate)}`} />
-            <Param label="RBT12 estimada" valor={fmtMoney(cfg.rbt12_estimada)} />
+            <Param label="RBT12 em uso" valor={fmtMoney(rbt12)} sub={RBT12_ORIGEM[rbt12Info.origem]} />
             <Param label="Alíquota efetiva" valor={fmtPct(aliquotaEf)} />
             <Param label="Município do ISS" valor={municipioIss || 'não definido'} sub={<>definido em <Link to="/nfse-config" style={{ color: 'var(--gold-dark)' }}>Configurações › NFS-e</Link></>} />
+          </div>
+        </div>
+      </div>
+
+      {anexoDivergente && (
+        <Aviso tom="alerta" titulo={`O anexo mudou: a configuração diz Anexo ${anexoGravado}, o Fator R deste período dá Anexo ${anexoEfetivo}.`}>
+          O cálculo abaixo usa o <strong>Anexo {anexoEfetivo}</strong> (o calculado), porque é ele que a lei manda aplicar.
+          Se o Anexo {anexoGravado} é que está certo, o que precisa ser corrigido são os lançamentos de folha ou de faturamento — não o cadastro.
+        </Aviso>
+      )}
+
+      {rbt12Info.origem === 'informada' && (
+        <Aviso tom="alerta" titulo="Usando a RBT12 informada — o sistema ainda não tem 12 meses de notas.">
+          Há {rbt12Info.mesesDeBase} mês(es) de histórico de NFS-e emitidas na janela dos 12 meses anteriores a {labelMes},
+          somando {fmtMoney(rbt12Info.soma)}. Enquanto a base for curta, vale o valor digitado na configuração ({fmtMoney(rbt12Info.informada)}).
+          Como referência, a regra de início de atividade (média dos meses existentes × 12) daria <strong>{fmtMoney(rbt12Info.proporcionalizada)}</strong>.
+          Assim que houver 12 meses de notas, a calculada passa a mandar sozinha.
+        </Aviso>
+      )}
+      {rbt12Info.origem === 'proporcionalizada' && (
+        <Aviso tom="info" titulo="RBT12 proporcionalizada (empresa em início de atividade).">
+          Com {rbt12Info.mesesDeBase} mês(es) de notas emitidas somando {fmtMoney(rbt12Info.soma)}, a lei manda usar a média dos meses
+          existentes multiplicada por 12 — dá <strong>{fmtMoney(rbt12Info.proporcionalizada)}</strong>. Nenhuma RBT12 foi digitada na configuração.
+        </Aviso>
+      )}
+
+      {/* Fator R — decide o anexo */}
+      <div style={projecaoCard}>
+        <div style={{ fontSize: 11, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10 }}>Fator R</div>
+        <div style={{ fontSize: 12, color: 'var(--text-mid)', lineHeight: 1.7, marginBottom: 14 }}>
+          Consultoria em gestão é serviço intelectual: começa no <strong>Anexo V</strong> e só vai para o <strong>Anexo III</strong> (mais barato)
+          quando a folha dos 12 meses anteriores chega a <strong>28% da receita</strong> dos mesmos 12 meses.
+        </div>
+        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 14 }}>
+          <Param label="Folha 12 meses" valor={fmtMoney(folha12)} sub={`até ${labelMes}, exclusive`} />
+          <Param label="Receita 12 meses" valor={fmtMoney(rbt12)} sub={RBT12_ORIGEM[rbt12Info.origem]} />
+          <Param label="Fator R" valor={fatorR == null ? '—' : fmtPct(fatorR)} sub={`limite legal: ${fmtPct(FATOR_R_LIMITE)}`} />
+          <Param label="Anexo que vale" valor={`Anexo ${anexoEfetivo}`} sub={fatorR == null ? 'sem receita para calcular' : (fatorR >= FATOR_R_LIMITE ? 'Fator R ≥ 28%' : 'Fator R < 28%')} />
+        </div>
+        <div style={formulaBox}>
+          {fatorR == null ? (
+            <div style={{ fontSize: 12, color: 'var(--navy)' }}>
+              Sem receita nos 12 meses anteriores não dá para calcular o Fator R. Na dúvida vale o <strong>Anexo V</strong>,
+              que é a regra geral da consultoria — o Anexo III é a exceção, e precisa da folha para ser provada.
+            </div>
+          ) : anexoEfetivo === 'V' ? (
+            <div style={{ fontSize: 12, color: 'var(--navy)' }}>
+              Faltam <strong style={{ color: 'var(--gold-dark)' }}>{fmtMoney(Math.abs(distanciaFatorR))}</strong> de folha nos 12 meses para cair no Anexo III
+              {' '}(a folha precisaria chegar a {fmtMoney(folhaMinima)}).
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--navy)' }}>
+              Sobram <strong style={{ color: 'var(--green)' }}>{fmtMoney(Math.abs(distanciaFatorR))}</strong> de folga: a folha poderia cair até {fmtMoney(folhaMinima)} sem sair do Anexo III.
+            </div>
+          )}
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>O que entrou na folha</div>
+          {folhaInfo.porSub.length === 0 ? (
+            <div style={{ fontSize: 11, color: 'var(--text-mid)', fontStyle: 'italic' }}>
+              Nenhum lançamento de folha encontrado nos 12 meses anteriores. Sem folha lançada, o Fator R fica em zero e o sistema aplica o Anexo V — confira se a folha está toda registrada.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {folhaInfo.porSub.map(s => (
+                <div key={s.chave} style={{ fontSize: 11, color: 'var(--text-mid)', display: 'flex', justifyContent: 'space-between', gap: 12, maxWidth: 520 }}>
+                  <span>{s.chave} <span style={{ opacity: 0.7 }}>({s.qtd})</span></span>
+                  <strong style={{ color: 'var(--navy)' }}>{fmtMoney(s.valor)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 8, lineHeight: 1.6, maxWidth: 720 }}>
+            A lei conta o que foi pago a <strong>pessoas físicas</strong> pelo trabalho, mais pró-labore, mais o INSS patronal e o FGTS efetivamente recolhidos.
+            Ficam de fora <strong>Prestadores PJ</strong> (pessoa jurídica), <strong>Estagiários</strong> (bolsa de estágio não é remuneração do trabalho),
+            aluguéis, distribuição de lucros e tudo que estiver como <strong>Provisão</strong>.
+            Se algum lançamento de “Freelancers” for pessoa jurídica, ele está somando aqui indevidamente — vale conferir.
           </div>
         </div>
       </div>
@@ -318,25 +597,68 @@ export default function SimplesNacional() {
           </div>
         </div>
 
-        {/* Fórmula */}
+        {/* Fórmula — conta aberta, com a receita segregada pela retenção de ISS */}
         <div style={formulaBox}>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            Faturamento de {labelMes}: <strong>{fmtMoney(faturamentoMes)}</strong>
+            Faturamento de {labelMes}: <strong>{fmtMoney(faturamentoMes)}</strong> · Anexo {anexoEfetivo}, faixa {faixaInfo.faixa}, alíquota efetiva <strong>{fmtPct(aliquotaEf)}</strong>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            × Alíquota efetiva: <strong>{fmtPct(aliquotaEf)}</strong>
+            Receita <strong>sem</strong> retenção de ISS: <strong>{fmtMoney(projecao.receitaSemRetencao)}</strong> × {fmtPct(aliquotaEf)} = <strong>{fmtMoney(projecao.receitaSemRetencao * aliquotaEf)}</strong>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            = DAS nominal: <strong>{fmtMoney(projecao.dasNominal)}</strong>
+            Receita <strong>com</strong> retenção de ISS: <strong>{fmtMoney(projecao.receitaComRetencao)}</strong> × {fmtPct(aliquotaEf)} × (1 − {fmtPct(pctIssFaixa)} de ISS) = <strong>{fmtMoney(projecao.receitaComRetencao * aliquotaEf * (1 - pctIssFaixa))}</strong>
+            <span style={{ display: 'block', fontSize: 10, fontStyle: 'italic' }}>
+              sobre essa receita o ISS não é recolhido no DAS: sai a parcela de ISS da faixa ({fmtMoney(projecao.abatimentoIss)}), não o valor retido pelo tomador
+            </span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
-            (−) ISS retido na fonte no mês: <strong>{retencaoIssMes > 0 ? fmtMoney(retencaoIssMes) : 'nenhum ISS retido registrado neste mês'}</strong>
-            <span style={{ display: 'block', fontSize: 10, fontStyle: 'italic' }}>vem dos ajustes "ISS retido" feitos na Conciliação</span>
-          </div>
+          {projecao.abatimentoEstimado > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
+              (−) Abatimento <strong>estimado</strong>: <strong>{fmtMoney(projecao.abatimentoEstimado)}</strong>
+              <span style={{ display: 'block', fontSize: 10, fontStyle: 'italic' }}>
+                ajuste(s) de ISS sem vínculo com uma nota — usei o método antigo só para esse valor
+              </span>
+            </div>
+          )}
           <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
             = DAS a pagar: <strong style={{ color: 'var(--gold-dark)' }}>{fmtMoney(projecao.dasLiquido)}</strong>
+            <span style={{ display: 'block', fontSize: 10, fontStyle: 'italic' }}>
+              DAS sem nenhuma retenção seria {fmtMoney(projecao.dasNominal)} · ISS retido registrado no mês: {retencaoIssMes > 0 ? fmtMoney(retencaoIssMes) : 'nenhum'}
+            </span>
           </div>
         </div>
+
+        {projecao.abatimentoEstimado > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Aviso tom="alerta" titulo="Parte do abatimento de ISS foi estimada." compacto>
+              {issInfo.orfaos.length} ajuste(s) de ISS retido não puderam ser ligados a uma NFS-e deste mês (sem linha de extrato em comum),
+              somando {fmtMoney(projecao.abatimentoEstimado)}. Para esse valor usei o método antigo — abater o que foi retido.
+              É uma aproximação: o número certo sai quando o ajuste estiver conciliado junto com o recebível da nota.
+            </Aviso>
+          </div>
+        )}
+
+        {retencoesIndevidas.itens.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Aviso tom="alerta" titulo={`Retenção que optante do Simples normalmente não deveria sofrer: ${fmtMoney(retencoesIndevidas.total)} em ${labelMes}.`}>
+              <div style={{ marginBottom: 8 }}>
+                {retencoesIndevidas.itens.map(p => (
+                  <div key={p.id} style={{ fontSize: 11 }}>
+                    • {AJUSTES_RETENCAO_INDEVIDA[p.data?.ajuste_tipo]} — {fmtMoney(p.data?.value)}
+                    {p.codigo ? <span style={{ opacity: 0.7 }}> (código {p.codigo})</span> : null}
+                  </div>
+                ))}
+              </div>
+              Empresa do Simples Nacional é dispensada da retenção de IRRF e de PIS/COFINS/CSLL na fonte nos pagamentos que recebe
+              (IN RFB 765/2007 e IN SRF 459/2004, art. 3º, II). A retenção de INSS só cabe em cessão de mão de obra ou empreitada
+              (serviços do Anexo IV) — não é o caso de consultoria.
+              <div style={{ marginTop: 8 }}>
+                Na prática: isso costuma ser <strong>erro do tomador</strong>. O valor retido <strong>não é despesa</strong> e <strong>não compensa no DAS</strong> —
+                some do caixa sem virar crédito. O caminho é falar com o cliente para corrigir a nota e devolver o valor, ou pedir restituição do que foi recolhido a mais.
+                Não mexi em nenhum lançamento: isto é só um aviso.
+              </div>
+            </Aviso>
+          </div>
+        )}
 
         {/* DAS vira conta a pagar */}
         <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -373,7 +695,10 @@ export default function SimplesNacional() {
       <div style={tableCard}>
         <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid var(--cream-dark)' }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy)' }}>NFS-e emitidas no período</div>
-          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }}>Base do cálculo do DAS. {lancamentosDoMes.length} lançamento(s).</div>
+          <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }}>
+            Base do cálculo do DAS. {lancamentosDoMes.length} lançamento(s).
+            {issInfo.comRetencao.length > 0 && <> {issInfo.comRetencao.length} com ISS retido na fonte (marcadas abaixo) — essas entram no DAS sem a parcela do ISS.</>}
+          </div>
         </div>
         {lancamentosDoMes.length === 0 ? (
           <div style={emptyState}>Nenhuma NFS-e emitida neste período.</div>
@@ -392,7 +717,12 @@ export default function SimplesNacional() {
               {lancamentosDoMes.map(r => (
                 <tr key={r.id}>
                   <td style={{ ...td, fontFamily: 'monospace', color: 'var(--text-mid)' }}>{r.codigo || '—'}</td>
-                  <td style={td}>{r.client || r.data?.client || '—'}</td>
+                  <td style={td}>
+                    {r.client || r.data?.client || '—'}
+                    {issInfo.comRetencao.some(x => x.id === r.id) && (
+                      <span style={tagIss} title="Esta nota teve ISS retido na fonte: o DAS sai sem a parcela de ISS sobre ela.">ISS retido</span>
+                    )}
+                  </td>
                   <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtDataBR(r.data?.data_competencia)}</td>
                   <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtDataBR(r.due)}</td>
                   <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoney(r.value)}</td>
@@ -449,6 +779,21 @@ function Param({ label, valor, sub }) {
   )
 }
 
+function Aviso({ tom = 'info', titulo, compacto = false, children }) {
+  const cor = tom === 'alerta' ? 'var(--red)' : 'var(--gold-dark)'
+  const fundo = tom === 'alerta' ? 'rgba(200,60,60,0.06)' : 'rgba(204,145,94,0.08)'
+  return (
+    <div style={{
+      background: fundo, borderLeft: `3px solid ${cor}`, borderRadius: 6,
+      padding: compacto ? '10px 14px' : '14px 16px',
+      marginBottom: compacto ? 0 : 18, fontFamily: 'var(--body)',
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: cor, marginBottom: 5 }}>{titulo}</div>
+      <div style={{ fontSize: 11, color: 'var(--navy)', lineHeight: 1.7 }}>{children}</div>
+    </div>
+  )
+}
+
 function Tributo({ label, valor, cor, sub }) {
   return (
     <div style={{ background: 'var(--white)', borderRadius: 8, padding: 12, border: '1px solid var(--cream-dark)' }}>
@@ -463,6 +808,7 @@ const parametrosBox = { background: 'var(--white)', borderRadius: 10, padding: 1
 const projecaoCard = { background: 'var(--white)', borderRadius: 12, padding: 24, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 18 }
 const formulaBox = { background: 'rgba(204,145,94,0.06)', borderLeft: '3px solid var(--gold)', padding: 14, borderRadius: 6, fontSize: 12, color: 'var(--navy)', display: 'flex', flexDirection: 'column', gap: 4 }
 const composicaoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }
+const tagIss = { marginLeft: 8, padding: '1px 7px', borderRadius: 10, background: 'rgba(204,145,94,0.16)', color: 'var(--gold-dark)', fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }
 const select = { padding: '6px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const campo = { display: 'flex', flexDirection: 'column', gap: 5, flex: '1 1 240px', minWidth: 200 }
 const campoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-mid)' }

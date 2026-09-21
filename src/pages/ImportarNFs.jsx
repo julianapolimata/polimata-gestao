@@ -6,7 +6,12 @@ import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximoCodigoPessoa } from '../lib/codigos'
 import { anexoDaNF } from '../lib/vincularNF'
+import { fetchPlanoContas, categoriasDe } from '../lib/planoContas'
 import SeletorLancamento from './components/SeletorLancamento'
+
+// Caixa de e-mail que recebe as notas. Vem do ambiente para não prender o
+// sistema a uma empresa só.
+const EMAIL_NOTAS = import.meta.env.VITE_EMAIL_NOTAS || ''
 
 // =====================================================================
 // CAIXA DE ENTRADA · NFs — tela de governança das NFs processadas pelo
@@ -38,11 +43,10 @@ export default function ImportarNFs() {
   const [confirmando, setConfirmando] = useState(null) // id do que está sendo processado
   const [rodandoCron, setRodandoCron] = useState(false)
   const [ultimoResultado, setUltimoResultado] = useState(null)
-  const [rodandoBackfill, setRodandoBackfill] = useState(false)
-  const [backfillMsg, setBackfillMsg] = useState(null)
-  const [rodandoReproc, setRodandoReproc] = useState(false)
-  const [reprocMsg, setReprocMsg] = useState(null)
   const [anexando, setAnexando] = useState(null) // nf_pending sendo anexada a lançamento existente
+  const [plano, setPlano] = useState([])
+
+  useEffect(() => { fetchPlanoContas().then(p => setPlano(p || [])) }, [])
 
   async function rodarCron() {
     setRodandoCron(true)
@@ -87,69 +91,6 @@ export default function ImportarNFs() {
 
   // Backfill one-time: relê anexos dos lançamentos antigos sem data de emissão
   // e preenche a competência. Roda em lotes até zerar.
-  async function rodarBackfill() {
-    if (!confirm('Reler os anexos das notas antigas que estão sem data de emissão e preencher a competência automaticamente? Pode levar até ~1 minuto.')) return
-    setRodandoBackfill(true)
-    setBackfillMsg('Lendo os anexos…')
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
-      let totalOk = 0, totalSemData = 0, restantes = 0
-      for (let i = 0; i < 12; i++) {
-        const r = await fetch('/api/backfill-competencia', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
-        })
-        const j = await r.json().catch(() => ({}))
-        if (!r.ok) { showToast('Erro no backfill: ' + (j?.error || `HTTP ${r.status}`), 'error'); break }
-        totalOk += j?.resumo?.ok || 0
-        totalSemData += (j?.resumo?.sem_data || 0) + (j?.resumo?.sem_anexo || 0)
-        restantes = j?.restantes ?? 0
-        setBackfillMsg(`${totalOk} recuperada(s)…${restantes > 0 ? ` (${restantes} restantes)` : ''}`)
-        if (restantes <= 0) break
-      }
-      setBackfillMsg(`Concluído: ${totalOk} competência(s) recuperada(s)${totalSemData ? ` · ${totalSemData} sem data legível no documento` : ''}.`)
-      showToast(`Backfill: ${totalOk} recuperada(s).`, 'success')
-      carregar()
-    } catch (e) {
-      showToast('Falha no backfill: ' + e.message, 'error')
-    } finally {
-      setRodandoBackfill(false)
-    }
-  }
-
-  // Reprocessa e-mails que o robô marcou como "lido" mas não conseguiu ler
-  // (durante a queda do modelo). Relê cada um pelo ID, com o modelo novo.
-  async function reprocessarFalhas() {
-    if (!confirm('Reprocessar os e-mails que o robô marcou como "lido" mas não conseguiu ler (durante a queda do modelo jun–ago)? Vai reler cada um com o modelo novo e colocar as NFs/guias na fila de aprovação.')) return
-    setRodandoReproc(true)
-    setReprocMsg('Relendo os e-mails que falharam…')
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { showToast('Sessão expirada — faça login novamente.', 'error'); return }
-      let totalNovas = 0
-      for (let i = 0; i < 15; i++) {
-        const r = await fetch('/api/email-cron?reprocess=1&max=3', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
-        })
-        const j = await r.json().catch(() => ({}))
-        if (!r.ok) { showToast('Erro ao reprocessar: ' + (j?.error || `HTTP ${r.status}`), 'error'); break }
-        const found = j?.found ?? 0
-        totalNovas += j?.processed ?? 0
-        setReprocMsg(`${totalNovas} recuperada(s)…${found > 0 ? ` (${found} nesta rodada)` : ''}`)
-        if (found === 0) break
-      }
-      setReprocMsg(`Concluído: ${totalNovas} NF(s)/guia(s) recuperada(s) e colocada(s) na fila.`)
-      showToast(`Reprocessamento: ${totalNovas} recuperada(s).`, 'success')
-      carregar()
-    } catch (e) {
-      showToast('Falha ao reprocessar: ' + e.message, 'error')
-    } finally {
-      setRodandoReproc(false)
-    }
-  }
-
   const carregar = useCallback(() => {
     if (!user) return
     setLoading(true)
@@ -221,6 +162,9 @@ export default function ImportarNFs() {
         tipoDoc: d.tipo_documento,
       })
       // 2. Cria lançamento
+      const cats = categoriasDe(plano, isSaida ? 'Entrada' : 'Saída')
+      const sugerida = String(d.categoria_sugerida || '').trim()
+      const catSugeridaValida = cats.find(c => c.toLowerCase() === sugerida.toLowerCase()) || ''
       const codigo = isSaida ? await proximoCodigoReceivable() : await proximoCodigoPayable()
       const novoLanc = {
         [isSaida ? 'client' : 'supplier']: d.parte || '(sem nome)',
@@ -231,7 +175,11 @@ export default function ImportarNFs() {
         data_pagamento: null,
         status: 'Pendente',
         forma: '',
-        cat: d.categoria_sugerida || '',
+        // Só aceita a sugestão se a categoria existir no plano de contas. Uma
+        // categoria inventada faz o lançamento sumir da DRE sem aviso — melhor
+        // nascer sem categoria e passar pela Escrituração.
+        cat: catSugeridaValida,
+        cat_sugerida: (!catSugeridaValida && d.categoria_sugerida) ? d.categoria_sugerida : undefined,
         subcat: '',
         notes: `NF importada via cron (origem: ${pending.origem || 'email'})`,
         doc_status: 'vinculado',
@@ -305,16 +253,12 @@ export default function ImportarNFs() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
-            Cron processa emails em <strong>financeiro@polimatagrc.com.br</strong> automaticamente.
-            Use o botão se quiser forçar verificação imediata.
+            {EMAIL_NOTAS
+              ? <>As notas enviadas para <strong>{EMAIL_NOTAS}</strong> chegam aqui sozinhas.</>
+              : <>As notas enviadas para a caixa de e-mail configurada chegam aqui sozinhas.</>}
+            {' '}Use o botão para verificar agora.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={rodarBackfill} disabled={rodandoBackfill} title="Relê os anexos das notas antigas que estão sem data de emissão e preenche a competência" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--gold-dark)', background: rodandoBackfill ? 'var(--cream)' : '#fff', color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoBackfill ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
-              {rodandoBackfill ? '⏳ Lendo…' : '📅 Recuperar competências'}
-            </button>
-            <button onClick={reprocessarFalhas} disabled={rodandoReproc} title="Relê os e-mails que o robô não conseguiu ler durante a queda do modelo (jun–ago) e coloca as NFs/guias na fila" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoReproc ? 'var(--cream)' : '#fff', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoReproc ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
-              {rodandoReproc ? '⏳ Relendo…' : '📥 Reprocessar falhas'}
-            </button>
             <button onClick={rodarCron} disabled={rodandoCron} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: '1.5px solid var(--navy)', background: rodandoCron ? 'var(--cream)' : 'var(--navy)', color: rodandoCron ? 'var(--text-mid)' : '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: rodandoCron ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>
               {rodandoCron ? '⏳ Verificando…' : '🔄 Verificar emails agora'}
             </button>
@@ -325,19 +269,9 @@ export default function ImportarNFs() {
             {ultimoResultado.ok ? '✓' : '⚠'} {ultimoResultado.msg}
           </div>
         )}
-        {backfillMsg && (
-          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: 'rgba(204,145,94,0.10)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontWeight: 600 }}>
-            📅 {backfillMsg}
-          </div>
-        )}
-        {reprocMsg && (
-          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, fontSize: 12, background: 'rgba(0,32,62,0.05)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)', fontWeight: 600 }}>
-            📥 {reprocMsg}
-          </div>
-        )}
         {pendentes.length === 0 ? (
           <div style={emptyState}>
-            ✨ Caixa de entrada vazia! O robô (rodando em <code>api/email-cron.js</code>) lê os e-mails de <strong>financeiro@polimatagrc.com.br</strong> e coloca aqui as NFs detectadas pra você decidir — aprovar, anexar ou rejeitar — antes de qualquer efeito nos lançamentos.
+            ✨ Nenhuma nota esperando. As notas que chegam por e-mail aparecem aqui para você decidir — aprovar, anexar a um lançamento que já existe, ou rejeitar. Nada entra nas suas contas antes dessa decisão.
           </div>
         ) : (
           <div style={lista}>
@@ -470,8 +404,9 @@ function UploadManualCard() {
       <div style={{ fontSize: 22, marginBottom: 12 }}>📤</div>
       <div style={{ fontSize: 14, color: 'var(--navy)', fontWeight: 600, marginBottom: 6 }}>Upload manual</div>
       <div style={{ fontSize: 12, color: 'var(--text-mid)', maxWidth: 480, margin: '0 auto', lineHeight: 1.5 }}>
-        O envio manual de PDFs/XMLs será habilitado num PR seguinte (usa o mesmo endpoint <code>api/anthropic.js</code>).
-        Por enquanto, encaminhe a NF pro email <strong>financeiro@polimatagrc.com.br</strong> e o cron processa em segundos.
+        Em preparação. Por enquanto, encaminhe a nota
+        {EMAIL_NOTAS ? <> para <strong>{EMAIL_NOTAS}</strong></> : <> para a caixa de e-mail configurada</>}
+        {' '}— em segundos ela aparece na caixa de entrada.
       </div>
     </div>
   )

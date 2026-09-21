@@ -16,20 +16,23 @@ import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoCon
 // (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
 // nada de diferença sumindo. natureza: 'reduz' = recebi/paguei menos que a nota;
 // 'acresce' = veio a mais. tabela = onde o ajuste é postado.
+// cat + subcat vêm do plano de contas: sem a SUBCATEGORIA o ajuste entrava com
+// classificação genérica e a DRE não conseguia separar retenção de tarifa
+// (revisão contábil set/26).
 const AJUSTES_ENTRADA = [
-  { key: 'irrf', label: 'IRRF retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
-  { key: 'iss', label: 'ISS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
-  { key: 'inss', label: 'INSS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
-  { key: 'pcc', label: 'PIS/COFINS/CSLL retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte' },
-  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'reduz', tabela: 'payable', cat: 'Despesas Financeiras' },
-  { key: 'desc', label: 'Desconto concedido', natureza: 'reduz', tabela: 'payable', cat: 'Descontos concedidos' },
-  { key: 'juros', label: 'Juros/Multa recebidos', natureza: 'acresce', tabela: 'receivable', cat: 'Receita Financeira' },
+  { key: 'irrf', label: 'IRRF retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte', subcat: 'IRRF' },
+  { key: 'iss', label: 'ISS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte', subcat: 'ISS' },
+  { key: 'inss', label: 'INSS retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte', subcat: 'INSS' },
+  { key: 'pcc', label: 'PIS/COFINS/CSLL retido', natureza: 'reduz', tabela: 'payable', cat: 'Impostos retidos na fonte', subcat: 'PIS/COFINS/CSLL' },
+  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'reduz', tabela: 'payable', cat: 'Despesas Financeiras', subcat: 'Tarifas bancárias' },
+  { key: 'desc', label: 'Desconto concedido', natureza: 'reduz', tabela: 'payable', cat: 'Descontos concedidos', subcat: '' },
+  { key: 'juros', label: 'Juros/Multa recebidos', natureza: 'acresce', tabela: 'receivable', cat: 'Receita Financeira', subcat: 'Juros recebidos' },
 ]
 const AJUSTES_SAIDA = [
-  { key: 'juros', label: 'Juros/Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
-  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
-  { key: 'multa', label: 'Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras' },
-  { key: 'desc', label: 'Desconto obtido', natureza: 'reduz', tabela: 'receivable', cat: 'Descontos obtidos' },
+  { key: 'juros', label: 'Juros/Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras', subcat: 'Juros pagos' },
+  { key: 'tarifa', label: 'Tarifa bancária', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras', subcat: 'Tarifas bancárias' },
+  { key: 'multa', label: 'Multa', natureza: 'acresce', tabela: 'payable', cat: 'Despesas Financeiras', subcat: 'Multas e encargos' },
+  { key: 'desc', label: 'Desconto obtido', natureza: 'reduz', tabela: 'receivable', cat: 'Receita Financeira', subcat: 'Descontos obtidos' },
 ]
 
 // =====================================================================
@@ -407,7 +410,7 @@ export default function Conciliacao() {
         .map(a => {
           const v = Number(a.valor || 0)
           if (a.key === 'suspense') {
-            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória (a esclarecer)', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
+            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória (a esclarecer)', subcat: '', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
           }
           return { def: tiposAjuste.find(t => t.key === a.key), v }
         })
@@ -435,7 +438,7 @@ export default function Conciliacao() {
             value: a.v,
             due: dataExt, data_competencia: dataExt, data_pagamento: dataExt,
             status: a.def.tabela === 'receivable' ? 'Recebido' : 'Pago',
-            cat: a.def.cat, subcat: '',
+            cat: a.def.cat, subcat: a.def.subcat || '',
             doc_status: 'dispensado', doc_motivo_dispensa: 'Ajuste de conciliação', sem_documento: false,
             escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'auto',
             criado_via_conciliacao_ajuste: true, ajuste_tipo: a.def.key, suspense: !!a.def.suspense,

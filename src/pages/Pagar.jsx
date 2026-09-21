@@ -6,14 +6,15 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import ModalLancamento from './components/ModalLancamento'
-import FiltrosAvancados from './components/FiltrosAvancados'
-import { resolveDateRange } from '../lib/dateRanges'
 import { showToast } from '../components/Toast'
-import { getDocStatus, isOverdue } from '../lib/finance'
+import { useConfirm } from '../components/ConfirmDialog'
+import { msgErro } from '../lib/erros'
+import { ehOperacional, getDocStatus, isOverdue } from '../lib/finance'
 import { calcDespesaRecorrente } from '../lib/indicadores'
 import { proximoCodigoPayable } from '../lib/codigos'
 import { promoverProvisao } from '../lib/gerarRecorrencias'
-import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../lib/fechamento'
+import { fetchPlanoContas, categoriasDe } from '../lib/planoContas'
+import { fetchFechamentos, competenciaDe, mesFechado, msgMesFechado } from '../lib/fechamento'
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function fmtMoeda(v) {
@@ -25,16 +26,42 @@ function fmtData(s) {
   const [y, m, d] = s.split('-')
   return `${d}/${m}/${y}`
 }
-function statusCfg(status) {
-  const s = (status || '').toLowerCase()
-  if (s === 'pago') return { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
-  if (s === 'provisão' || s === 'provisao') return { label: 'Provisão', bg: 'rgba(29,59,92,0.10)', color: 'var(--navy-light)' }
-  if (s === 'atrasado') return { label: 'Atrasado', bg: 'rgba(231,76,60,0.10)', color: 'var(--red)' }
-  return { label: 'Pendente', bg: 'rgba(230,126,34,0.10)', color: 'var(--orange)' }
+function hojeISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+// Vocabulário (uma palavra = um sentido só):
+//   Previsto  → status gravado 'Provisão' (ainda não é fato)
+//   Em aberto → não foi pago (engloba o legado 'Atrasado', que era a MESMA coisa)
+//   Vencido   → em aberto E passou do vencimento — SEMPRE calculado pela data
+//   Pago      → liquidado
+// Os valores gravados no banco não mudam: só o que a usuária lê.
+function ehPago(d) { return (d?.status || '').toLowerCase() === 'pago' }
+function ehPrevisto(d) {
+  const s = (d?.status || '').toLowerCase()
+  return s === 'provisão' || s === 'provisao'
+}
+function emAberto(d) { return !ehPago(d) && !ehPrevisto(d) }
+function estaVencido(d) { return emAberto(d) && isOverdue(d?.due) }
+
+function statusCfg(d) {
+  if (ehPago(d)) return { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
+  if (ehPrevisto(d)) return { label: 'Previsto', bg: 'rgba(29,59,92,0.10)', color: 'var(--navy-light)' }
+  if (isOverdue(d?.due)) return { label: 'Vencido', bg: 'rgba(231,76,60,0.10)', color: 'var(--red)' }
+  return { label: 'Em aberto', bg: 'rgba(230,126,34,0.10)', color: 'var(--orange)' }
+}
+
+// Situação fiscal — rótulo humano; o valor gravado continua vinculado/pendente/dispensado.
+const FISCAL = [
+  { valor: 'vinculado', label: 'Tenho a nota', chave: 'com_nf' },
+  { valor: 'pendente', label: 'A nota vai chegar', chave: 'pendente' },
+  { valor: 'dispensado', label: 'Não tem nota', chave: 'sem_nf' },
+]
 
 export default function Pagar() {
   const { user } = useAuth()
+  const [confirmar, dialogoConfirmacao] = useConfirm()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
@@ -42,15 +69,21 @@ export default function Pagar() {
   const [sortCol, setSortCol] = useState('due')
   const [sortDir, setSortDir] = useState('desc')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroFiscal, setFiltroFiscal] = useState('')
   const [dataDe, setDataDe] = useState('')
   const [dataAte, setDataAte] = useState('')
   const [tipoData, setTipoData] = useState('due') // due | data_pagamento | data_competencia
-  const [filtrosAvancados, setFiltrosAvancados] = useState({ periodo: '', dataDe: '', dataAte: '', categoria: '', vmin: '', vmax: '' })
-  const [filtrosExpanded, setFiltrosExpanded] = useState(false)
+  const [filtroCategoria, setFiltroCategoria] = useState('')
+  const [vmin, setVmin] = useState('')
+  const [vmax, setVmax] = useState('')
+  const [maisFiltros, setMaisFiltros] = useState(false)
+  const [categorias, setCategorias] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
   const [anoSel, setAnoSel] = useState(String(new Date().getFullYear()))
   const [recorrencias, setRecorrencias] = useState([])
+  const [popPagar, setPopPagar] = useState(null) // { row, data, top, left } — popover da data
+  const [salvandoPag, setSalvandoPag] = useState(false)
   const chartRef = useRef(null)
   const chartInst = useRef(null)
 
@@ -58,6 +91,12 @@ export default function Pagar() {
     if (!user) return
     supabase.from('recurring_masters').select('*').then(({ data }) => setRecorrencias(data || []))
   }, [user])
+
+  useEffect(() => {
+    fetchPlanoContas()
+      .then(plano => setCategorias(categoriasDe(plano, 'Saída')))
+      .catch(() => setCategorias([]))
+  }, [])
 
   // Meses fechados (portão): pré-checagem amigável antes do erro do banco.
   const [fechamentos, setFechamentos] = useState([])
@@ -94,23 +133,20 @@ export default function Pagar() {
   useEffect(() => {
     const f = searchParams.get('filtro')
     if (f === 'vencidos') setFiltroStatus('__vencidos__')
-    else if (f === 'sem_doc') setFiltroStatus('__sem_doc__')
+    else if (f === 'sem_doc') setFiltroFiscal('pendente')
   }, [searchParams])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
     let r = rows
     if (filtroStatus) {
-      if (filtroStatus === '__sem_doc__') r = r.filter(item => getDocStatus(item) === 'pendente')
-      else if (filtroStatus === '__com_nf__') r = r.filter(item => getDocStatus(item) === 'vinculado')
-      else if (filtroStatus === '__doc_dispensado__') r = r.filter(item => getDocStatus(item) === 'dispensado')
-      else if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && (item.data?.status !== 'Provisão'))
-      else if (filtroStatus === '__vencidos__') r = r.filter(item => {
-        const st = (item.data?.status || '').toLowerCase()
-        return st !== 'pago' && st !== 'provisão' && st !== 'provisao' && isOverdue(item.data?.due)
-      })
+      if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && !ehPrevisto(item.data))
+      else if (filtroStatus === '__vencidos__') r = r.filter(item => estaVencido(item.data))
+      else if (filtroStatus === 'Pendente') r = r.filter(item => emAberto(item.data)) // 'Em aberto' engloba o legado 'Atrasado'
+      else if (filtroStatus === 'Provisão') r = r.filter(item => ehPrevisto(item.data))
       else r = r.filter(item => (item.data?.status || '').toLowerCase() === filtroStatus.toLowerCase())
     }
+    if (filtroFiscal) r = r.filter(item => getDocStatus(item) === filtroFiscal)
     if (q) {
       r = r.filter(item => {
         const d = item.data || {}
@@ -127,20 +163,11 @@ export default function Pagar() {
         return true
       })
     }
-    const range = resolveDateRange(filtrosAvancados.periodo, filtrosAvancados.dataDe, filtrosAvancados.dataAte)
-    if (range) {
-      r = r.filter(item => {
-        const due = item.data?.due
-        return due && due >= range.from && due <= range.to
-      })
-    }
-    if (filtrosAvancados.categoria) {
-      r = r.filter(item => item.data?.cat === filtrosAvancados.categoria)
-    }
-    const vmin = parseFloat(filtrosAvancados.vmin)
-    const vmax = parseFloat(filtrosAvancados.vmax)
-    if (!isNaN(vmin)) r = r.filter(item => parseFloat(item.data?.value || 0) >= vmin)
-    if (!isNaN(vmax)) r = r.filter(item => parseFloat(item.data?.value || 0) <= vmax)
+    if (filtroCategoria) r = r.filter(item => item.data?.cat === filtroCategoria)
+    const min = parseFloat(vmin)
+    const max = parseFloat(vmax)
+    if (!isNaN(min)) r = r.filter(item => parseFloat(item.data?.value || 0) >= min)
+    if (!isNaN(max)) r = r.filter(item => parseFloat(item.data?.value || 0) <= max)
     return [...r].sort((a, b) => {
       const va = (a.data?.[sortCol] ?? a[sortCol] ?? '').toString()
       const vb = (b.data?.[sortCol] ?? b[sortCol] ?? '').toString()
@@ -149,19 +176,26 @@ export default function Pagar() {
       else cmp = va.localeCompare(vb)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rows, busca, filtroStatus, dataDe, dataAte, tipoData, filtrosAvancados, sortCol, sortDir])
+  }, [rows, busca, filtroStatus, filtroFiscal, dataDe, dataAte, tipoData, filtroCategoria, vmin, vmax, sortCol, sortDir])
 
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('asc') }
   }
 
-  // Resumo fiscal: quantos têm NF, quantos sem NF (dispensado), quantos pendentes,
-  // e quantos ainda faltam escriturar. Ignora provisões (ainda não são lançamento).
+  const algumFiltro = !!(busca || filtroStatus || filtroFiscal || dataDe || dataAte || filtroCategoria || vmin || vmax)
+  function limparFiltros() {
+    setBusca(''); setFiltroStatus(''); setFiltroFiscal('')
+    setDataDe(''); setDataAte(''); setTipoData('due')
+    setFiltroCategoria(''); setVmin(''); setVmax('')
+  }
+
+  // Resumo fiscal: quantas têm nota, quantas não têm, quantas ainda vão receber
+  // a nota, e quantas faltam escriturar. Ignora previstos (ainda não são fato).
   const resumoFiscal = useMemo(() => {
     const acc = { com_nf: 0, sem_nf: 0, pendente: 0, a_escriturar: 0 }
     for (const item of rows) {
-      if (item.data?.status === 'Provisão') continue
+      if (ehPrevisto(item.data)) continue
       if (item.data?.escriturado !== true) acc.a_escriturar++
       const ds = getDocStatus(item)
       if (ds === 'vinculado') acc.com_nf++
@@ -196,7 +230,7 @@ export default function Pagar() {
     const meses = MESES.map((_, m) => ({ mes: m, total: 0, pago: 0, aPagar: 0, itens: [] }))
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
+      if (!d || !ehOperacional(d)) continue // mesma regra do Início, da DRE e dos relatórios
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const m = parseInt(String(ref).slice(5, 7), 10) - 1
@@ -204,9 +238,9 @@ export default function Pagar() {
       const v = Number(d.value || 0)
       const g = meses[m]
       g.total += v
-      if ((d.status || '').toLowerCase() === 'pago') g.pago += v
+      if (ehPago(d)) g.pago += v
       else g.aPagar += v
-      g.itens.push({ nome: d.supplier || '—', value: v, status: d.status || 'Pendente', codigo: r.codigo })
+      g.itens.push({ nome: d.supplier || '—', value: v, status: statusCfg(d).label, codigo: r.codigo })
     }
     return meses
   }, [rows, anoSel])
@@ -218,8 +252,8 @@ export default function Pagar() {
     let vencido = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
-      if ((d.status || '').toLowerCase() === 'pago') continue
+      if (!d || !ehOperacional(d)) continue // mesma regra do Início, da DRE e dos relatórios
+      if (ehPago(d)) continue
       const ref = d.data_competencia || d.due
       if (ref && String(ref).startsWith(anoSel) && isOverdue(d.due)) vencido += Number(d.value || 0)
     }
@@ -232,7 +266,7 @@ export default function Pagar() {
     let nNotas = 0, gasto = 0
     for (const r of rows) {
       const d = r.data
-      if (!d || d.status === 'Provisão' || d.criado_via_emprestimo || d.criado_via_credito_fatura) continue // empréstimo = financiamento; crédito de fatura = abatimento de conciliação — nenhum é gasto operacional
+      if (!d || !ehOperacional(d)) continue // mesma regra do Início, da DRE e dos relatórios
       const ref = d.data_competencia || d.due
       if (!ref || !String(ref).startsWith(anoSel)) continue
       const v = Number(d.value || 0)
@@ -273,7 +307,7 @@ export default function Pagar() {
                 const m = items[0].dataIndex
                 const itens = porMes[m].itens.slice().sort((a, b) => b.value - a.value)
                 if (!itens.length) return ['(sem despesa neste mês)']
-                const lines = itens.slice(0, 12).map(it => `• ${String(it.nome).slice(0, 26)}  ${fmtMoeda(it.value)}${(it.status || '').toLowerCase() === 'pago' ? ' ✓' : ''}`)
+                const lines = itens.slice(0, 12).map(it => `• ${String(it.nome).slice(0, 26)}  ${fmtMoeda(it.value)}${it.status === 'Pago' ? ' ✓' : ''}`)
                 if (itens.length > 12) lines.push(`  … +${itens.length - 12} conta(s)`)
                 lines.push('────────────')
                 lines.push(`Total: ${fmtMoeda(porMes[m].total)}`)
@@ -295,26 +329,43 @@ export default function Pagar() {
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
-  async function marcarLiquidado(row, e) {
+  // ── Marcar como pago: popover ancorado na linha (nada de prompt) ─────
+  function abrirPopPagar(row, e) {
     e?.stopPropagation()
-    if (row.data?.status === 'Pago') {
-      showToast('Lançamento já está marcado como pago.', 'info')
+    if (ehPago(row.data)) {
+      showToast('Este lançamento já está marcado como pago.', 'info')
       return
     }
-    const hoje = new Date().toISOString().slice(0, 10)
-    const dataPag = prompt(`Data de pagamento (YYYY-MM-DD):`, hoje)
-    if (!dataPag) return
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPag)) {
-      showToast('Data inválida. Use AAAA-MM-DD.', 'warning')
+    const r = e?.currentTarget?.getBoundingClientRect?.()
+    const largura = 268
+    const left = r ? Math.max(12, Math.min(r.right - largura, window.innerWidth - largura - 12)) : 120
+    const abaixo = r ? r.bottom + 6 : 120
+    const top = r && abaixo + 160 > window.innerHeight ? Math.max(12, r.top - 166) : abaixo
+    setPopPagar({ row, data: hojeISO(), top, left })
+  }
+
+  async function confirmarPagamento() {
+    if (!popPagar) return
+    const { row, data: dataPag } = popPagar
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPag || '')) {
+      showToast('Escolha uma data de pagamento válida.', 'warning')
       return
     }
-    const merged = { ...(row.data || {}), status: 'Pago', data_pagamento: dataPag }
-    const updates = { data: merged }
-    if (!row.codigo) updates.codigo = await proximoCodigoPayable() // provisão realizada direto ganha código
-    const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
-    if (error) { showToast(traduzErroFechamento(error) || 'Erro: ' + error.message, 'error'); return }
-    showToast(`Marcado como pago.`, 'success')
-    recarregar()
+    setSalvandoPag(true)
+    try {
+      const merged = { ...(row.data || {}), status: 'Pago', data_pagamento: dataPag }
+      const updates = { data: merged }
+      if (!row.codigo) updates.codigo = await proximoCodigoPayable() // previsto realizado direto ganha código
+      const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
+      if (error) { showToast(msgErro(error, 'Não consegui marcar como pago.'), 'error'); return }
+      setPopPagar(null)
+      showToast(`Marcado como pago em ${fmtData(dataPag)}.`, 'success')
+      recarregar()
+    } catch (err) {
+      showToast(msgErro(err, 'Não consegui marcar como pago.'), 'error')
+    } finally {
+      setSalvandoPag(false)
+    }
   }
 
   async function confirmarProvisao(row, e) {
@@ -322,29 +373,66 @@ export default function Pagar() {
     if (bloqueadoPorFechamento(row)) return // muda status + código: travado em mês fechado
     try {
       const codigo = await promoverProvisao(row, 'payable')
-      showToast(`Provisão confirmada (${codigo}) — agora é Pendente.`, 'success')
+      showToast(`Previsto confirmado (${codigo}) — agora está Em aberto.`, 'success')
       recarregar()
-    } catch (err) { showToast(traduzErroFechamento(err) || 'Erro: ' + (err?.message || err), 'error') }
+    } catch (err) { showToast(msgErro(err, 'Não consegui confirmar este lançamento previsto.'), 'error') }
+  }
+
+  // ── Excluir: UM diálogo com todas as consequências + "Desfazer" no aviso ──
+  async function desfazerExclusao(registro, filhos) {
+    const { error } = await supabase.from('payable').insert(registro)
+    if (error) { showToast(msgErro(error, 'Não consegui trazer o lançamento de volta.'), 'error'); return }
+    if (filhos?.length) {
+      const { error: erroFilhos } = await supabase.from('payable').insert(filhos)
+      if (erroFilhos) {
+        showToast(msgErro(erroFilhos, 'O lançamento voltou, mas as outras parcelas da série não.'), 'error')
+        recarregar()
+        return
+      }
+    }
+    showToast('Lançamento restaurado.', 'success')
+    recarregar()
   }
 
   async function excluir(row, e) {
     e?.stopPropagation()
     if (bloqueadoPorFechamento(row)) return // DELETE recusado em mês fechado
     const desc = row.data?.desc || row.codigo || 'este lançamento'
-    // Proteções (bloco 1): conciliado não se apaga; parcela avisa (a 1ª parcela é a
-    // "mãe" — apagá-la leva as filhas por cascata); provisão de recorrência avisa.
-    const { data: atual } = await supabase.from('payable').select('conciliado_em, parent_id, recurring_id').eq('id', row.id).single()
-    if (atual?.conciliado_em) { showToast('Este lançamento está conciliado com o extrato. Desconcilie na Conciliação antes de excluir.', 'warning'); return }
-    if (atual?.parent_id && !confirm(`"${desc}" é uma parcela de uma série. Excluir só esta parcela?`)) return
-    if (!atual?.parent_id) {
-      const { count } = await supabase.from('payable').select('id', { count: 'exact', head: true }).eq('parent_id', row.id)
-      if (count > 0 && !confirm(`"${desc}" é a 1ª parcela de uma série: excluir apaga TAMBÉM as outras ${count} parcela(s). Continuar?`)) return
+    // Lemos a linha INTEIRA antes de apagar: é o que permite o "Desfazer".
+    const { data: atual, error: erroLeitura } = await supabase.from('payable').select('*').eq('id', row.id).single()
+    if (erroLeitura) { showToast(msgErro(erroLeitura, 'Não consegui ler o lançamento antes de excluir.'), 'error'); return }
+    if (atual?.conciliado_em) {
+      showToast('Este lançamento está conciliado com o extrato. Desconcilie na Conciliação antes de excluir.', 'warning')
+      return
     }
-    if (atual?.recurring_id && !confirm(`"${desc}" é uma provisão de recorrência — se você excluir, ela pode ser gerada de novo no mês. Excluir mesmo assim?`)) return
-    if (!confirm(`Excluir "${desc}"?`)) return
+    let filhos = []
+    if (!atual?.parent_id) {
+      const { data: parcelas } = await supabase.from('payable').select('*').eq('parent_id', row.id)
+      filhos = parcelas || []
+    }
+    // Um diálogo só, com TUDO que vai acontecer (antes eram até 4 confirm seguidos).
+    const consequencias = []
+    if (atual?.parent_id) consequencias.push('É uma parcela de uma série — as outras parcelas continuam como estão.')
+    if (filhos.length) consequencias.push(`É a 1ª parcela de uma série: as outras ${filhos.length} parcela(s) também serão excluídas.`)
+    if (atual?.recurring_id) consequencias.push('Veio de uma recorrência — o sistema pode gerar este lançamento de novo no mês.')
+    if (ehPrevisto(atual?.data)) consequencias.push('Está como Previsto: nada de caixa é afetado.')
+    else if (ehPago(atual?.data)) consequencias.push('Já está pago: sai dos relatórios e do DRE da competência.')
+    consequencias.push('Logo depois de excluir, o aviso na tela oferece "Desfazer".')
+
+    const ok = await confirmar({
+      titulo: 'Excluir lançamento?',
+      texto: `"${desc}" será excluído das Contas a Pagar.`,
+      consequencias,
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!ok) return
+
     const { error } = await supabase.from('payable').delete().eq('id', row.id)
-    if (error) { showToast(traduzErroFechamento(error) || 'Erro ao excluir: ' + error.message, 'error'); return }
-    showToast('Lançamento excluído.', 'info')
+    if (error) { showToast(msgErro(error, 'Não consegui excluir o lançamento.'), 'error'); return }
+    showToast('Lançamento excluído.', 'info', {
+      acao: { label: 'Desfazer', onClick: () => desfazerExclusao(atual, filhos) },
+    })
     recarregar()
   }
 
@@ -367,100 +455,92 @@ export default function Pagar() {
       title="Contas a Pagar"
       stickyTop={(
         <>
-          {/* Topo: chips + botão novo */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[
-                { key: '', label: 'Todos', color: 'var(--navy)', bg: 'rgba(0,32,62,0.06)' },
-                { key: 'Provisão', label: 'Provisão', color: 'var(--navy-light)', bg: 'rgba(29,59,92,0.10)' },
-                { key: 'Pendente', label: 'Pendente', color: 'var(--orange)', bg: 'rgba(230,126,34,0.10)' },
-                { key: 'Pago', label: 'Pago', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
-                { key: 'Atrasado', label: 'Atrasado', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
-                { key: '__vencidos__', label: '🔴 Em atraso', color: 'var(--red)', bg: 'rgba(231,76,60,0.10)' },
-                { key: '__a_escriturar__', label: '📋 A escriturar', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
-                { key: '__com_nf__', label: '🧾 Com NF', color: 'var(--green)', bg: 'rgba(39,174,96,0.10)' },
-                { key: '__doc_dispensado__', label: '⊘ Sem NF', color: 'var(--navy)', bg: 'rgba(0,32,62,0.08)' },
-                { key: '__sem_doc__', label: '📎 NF pendente', color: 'var(--gold-dark)', bg: 'rgba(204,145,94,0.10)' },
-              ].map(opt => {
-                const active = filtroStatus === opt.key
-                return (
-                  <button
-                    key={opt.key || 'all'}
-                    onClick={() => setFiltroStatus(opt.key)}
-                    style={{
-                      padding: '7px 14px', borderRadius: 999,
-                      fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                      cursor: 'pointer', transition: 'all .15s',
-                      border: `1.5px solid ${active ? opt.color : 'var(--cream-dark)'}`,
-                      background: active ? opt.bg : 'var(--white)',
-                      color: active ? opt.color : 'var(--text-mid)',
-                      textTransform: 'uppercase',
-                    }}
-                  >{opt.label}</button>
-                )
-              })}
+          {/* UMA barra de filtros: busca · período (com o seletor de qual data) ·
+              status · situação fiscal. Antes eram chips + barra fiscal repetida +
+              dois filtros de data com semânticas diferentes. */}
+          <div style={barraFiltros}>
+            <div style={linhaFiltros}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 220, maxWidth: 420 }}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+                  style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  value={busca} onChange={e => setBusca(e.target.value)}
+                  placeholder="Buscar por fornecedor, descrição, código..."
+                  style={searchInput}
+                  aria-label="Buscar"
+                />
+              </div>
+              <div style={resumo}>
+                <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'lançamento' : 'lançamentos'}</span>
+                <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
+                <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
+              </div>
+              <button onClick={abrirNovo} style={btnNovo}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Nova conta
+              </button>
             </div>
-            <button onClick={abrirNovo} style={btnNovo}>
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Nova conta
-            </button>
-          </div>
 
-          {/* Barra de busca + resumo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-            <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
-                style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mid)' }}>
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              <input
-                value={busca} onChange={e => setBusca(e.target.value)}
-                placeholder="Buscar por fornecedor, descrição, código..."
-                style={searchInput}
-              />
-            </div>
-            <div style={resumo}>
-              <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'lançamento' : 'lançamentos'}</span>
-              <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
-              <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
-            </div>
-          </div>
+            <div style={linhaFiltros}>
+              <Campo label="Período">
+                <select value={tipoData} onChange={e => setTipoData(e.target.value)} style={selectFiltro} aria-label="Qual data usar no período">
+                  <option value="due">Vencimento</option>
+                  <option value="data_pagamento">Pagamento</option>
+                  <option value="data_competencia">Competência</option>
+                </select>
+                <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} aria-label="De" />
+                <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+                <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} aria-label="Até" />
+                {(dataDe || dataAte) && (
+                  <button onClick={() => { setDataDe(''); setDataAte('') }} style={btnLimparCampo} title="Limpar período" aria-label="Limpar período">×</button>
+                )}
+              </Campo>
 
-          {/* Resumo fiscal — controle de documento (o que tem NF, o que não tem) */}
-          <div style={resumoFiscalBar}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }}>Situação fiscal:</span>
-            <button onClick={() => setFiltroStatus('__com_nf__')} style={fiscalPill('var(--green)')} title="Com nota fiscal">🧾 Com NF: <strong>{resumoFiscal.com_nf}</strong></button>
-            <button onClick={() => setFiltroStatus('__doc_dispensado__')} style={fiscalPill('var(--navy)')} title="Sem NF (dispensado, com motivo)">⊘ Sem NF: <strong>{resumoFiscal.sem_nf}</strong></button>
-            <button onClick={() => setFiltroStatus('__sem_doc__')} style={fiscalPill('var(--gold-dark)')} title="NF pendente">📎 Pendente: <strong>{resumoFiscal.pendente}</strong></button>
-            {resumoFiscal.a_escriturar > 0 && (
-              <button onClick={() => setFiltroStatus('__a_escriturar__')} style={fiscalPill('var(--gold-dark)')} title="Ainda não escrituradas">📋 A escriturar: <strong>{resumoFiscal.a_escriturar}</strong></button>
+              <Campo label="Status">
+                <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} style={selectFiltro} aria-label="Status">
+                  <option value="">Todos</option>
+                  <option value="Pendente">Em aberto</option>
+                  <option value="__vencidos__">Vencido</option>
+                  <option value="Pago">Pago</option>
+                  <option value="Provisão">Previsto</option>
+                  <option value="__a_escriturar__">A escriturar{resumoFiscal.a_escriturar ? ` (${resumoFiscal.a_escriturar})` : ''}</option>
+                </select>
+              </Campo>
+
+              <Campo label="Situação fiscal">
+                <select value={filtroFiscal} onChange={e => setFiltroFiscal(e.target.value)} style={selectFiltro} aria-label="Situação fiscal">
+                  <option value="">Todas</option>
+                  {FISCAL.map(f => (
+                    <option key={f.valor} value={f.valor}>{f.label} ({resumoFiscal[f.chave]})</option>
+                  ))}
+                </select>
+              </Campo>
+
+              <button onClick={() => setMaisFiltros(v => !v)} style={btnMais} aria-expanded={maisFiltros}>
+                {maisFiltros ? '▾' : '▸'} Mais filtros
+              </button>
+              {algumFiltro && (
+                <button onClick={limparFiltros} style={btnLimparTudo}>Limpar filtros</button>
+              )}
+            </div>
+
+            {maisFiltros && (
+              <div style={linhaFiltros}>
+                <Campo label="Categoria">
+                  <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} style={selectFiltro} aria-label="Categoria">
+                    <option value="">Todas categorias</option>
+                    {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Campo>
+                <Campo label="Valor (R$)">
+                  <input type="number" step="0.01" value={vmin} onChange={e => setVmin(e.target.value)} placeholder="mínimo" style={inputValor} aria-label="Valor mínimo" />
+                  <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
+                  <input type="number" step="0.01" value={vmax} onChange={e => setVmax(e.target.value)} placeholder="máximo" style={inputValor} aria-label="Valor máximo" />
+                </Campo>
+              </div>
             )}
           </div>
-
-          {/* Filtro por data: De/Até + seletor de tipo */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }}>
-            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
-            <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
-            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
-            {(dataDe || dataAte) && (
-              <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar período">×</button>
-            )}
-            <div style={{ width: 1, height: 22, background: 'var(--cream-dark)', margin: '0 4px' }} />
-            <select value={tipoData} onChange={e => setTipoData(e.target.value)} style={selectTipoData} title="Tipo de data">
-              <option value="due">Vencimento</option>
-              <option value="data_pagamento">Pagamento</option>
-              <option value="data_competencia">Competência</option>
-            </select>
-          </div>
-
-          {/* Filtros avançados */}
-          <FiltrosAvancados
-            tipo="pay"
-            filtros={filtrosAvancados}
-            setFiltros={setFiltrosAvancados}
-            expanded={filtrosExpanded}
-            setExpanded={setFiltrosExpanded}
-          />
-
         </>
       )}
     >
@@ -542,7 +622,7 @@ export default function Pagar() {
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
-                const cfg = statusCfg(d.status)
+                const cfg = statusCfg(d)
                 return (
                   <tr
                     key={item.id}
@@ -568,19 +648,19 @@ export default function Pagar() {
                       }}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
-                      {d.status === 'Provisão' && (
+                      {ehPrevisto(d) && (
                         <button
                           onClick={e => confirmarProvisao(item, e)}
-                          title="Confirmar provisão (vira Pendente — ex: conta recebida)"
+                          title="Confirmar o previsto (passa a Em aberto — ex: conta recebida)"
                           style={{ ...btnExcluir, color: 'var(--gold)', fontSize: 15, fontWeight: 700 }}
-                          aria-label="Confirmar provisão"
+                          aria-label="Confirmar lançamento previsto"
                         >⬆</button>
                       )}
                       <button
-                        onClick={e => marcarLiquidado(item, e)}
+                        onClick={e => abrirPopPagar(item, e)}
                         title="Marcar como pago"
-                        style={{ ...btnExcluir, color: d.status === 'Pago' ? 'var(--green)' : 'var(--text-mid)', fontSize: 14, fontWeight: 700 }}
-                        disabled={d.status === 'Pago'}
+                        style={{ ...btnExcluir, color: ehPago(d) ? 'var(--green)' : 'var(--text-mid)', fontSize: 14, fontWeight: 700 }}
+                        disabled={ehPago(d)}
                         aria-label="Marcar como pago"
                       >✓</button>
                       <button
@@ -598,6 +678,45 @@ export default function Pagar() {
         )}
       </div>
 
+      {/* Popover da data de pagamento — ancorado na linha; Enter confirma, ESC fecha */}
+      {popPagar && (
+        <>
+          <div style={popOverlay} onClick={() => setPopPagar(null)} role="presentation" />
+          <div
+            style={{ ...popCard, top: popPagar.top, left: popPagar.left }}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-label="Data do pagamento"
+          >
+            <div style={popTitulo}>Data do pagamento</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="date"
+                value={popPagar.data}
+                autoFocus
+                onChange={e => setPopPagar(p => (p ? { ...p, data: e.target.value } : p))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); confirmarPagamento() }
+                  if (e.key === 'Escape') { e.preventDefault(); setPopPagar(null) }
+                }}
+                style={{ ...inputData, flex: 1 }}
+                aria-label="Data do pagamento"
+              />
+              <button onClick={() => setPopPagar(p => (p ? { ...p, data: hojeISO() } : p))} style={btnHoje} type="button">Hoje</button>
+            </div>
+            <div style={popRodape}>
+              <button onClick={() => setPopPagar(null)} style={btnPopCancelar} type="button">Cancelar</button>
+              <button
+                onClick={confirmarPagamento}
+                disabled={salvandoPag}
+                style={{ ...btnPopOk, ...(salvandoPag ? { opacity: 0.6, cursor: 'wait' } : null) }}
+                type="button"
+              >{salvandoPag ? 'Salvando…' : 'Marcar como pago'}</button>
+            </div>
+          </div>
+        </>
+      )}
+
       <ModalLancamento
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -605,6 +724,8 @@ export default function Pagar() {
         registro={edicao}
         onSaved={recarregar}
       />
+
+      {dialogoConfirmacao}
     </AppLayout>
   )
 }
@@ -619,6 +740,15 @@ function Th({ children, onClick, active, dir, align = 'left', width }) {
       {children}
       <span style={{ fontSize: 9, marginLeft: 4, opacity: active ? 1 : 0.4 }}>{active && dir === 'asc' ? '▲' : '▼'}</span>
     </th>
+  )
+}
+
+function Campo({ label, children }) {
+  return (
+    <div style={campoWrap}>
+      <span style={campoLabel}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>{children}</div>
+    </div>
   )
 }
 
@@ -638,8 +768,21 @@ const chartHeader = { display: 'flex', justifyContent: 'space-between', alignIte
 const chartTitle = { fontSize: 14, fontWeight: 600, color: 'var(--navy)', fontFamily: 'var(--body)' }
 const chartSub = { fontSize: 11, color: 'var(--text-mid)', marginTop: 2 }
 const anoSelect = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer' }
+const barraFiltros = {
+  display: 'flex', flexDirection: 'column', gap: 10,
+  marginBottom: 14, padding: '12px 14px',
+  background: 'var(--white)', borderRadius: 10,
+  border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)',
+}
+const linhaFiltros = { display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }
+const campoWrap = { display: 'flex', flexDirection: 'column', gap: 4 }
+const campoLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }
 const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
-const selectTipoData = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
+const inputValor = { width: 110, padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const selectFiltro = { padding: '7px 28px 7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', cursor: 'pointer', appearance: 'none', backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%2300203E' stroke-width='1.5' fill='none'/></svg>\")", backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }
+const btnLimparCampo = { background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }
+const btnMais = { background: 'none', border: 'none', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', cursor: 'pointer', padding: '7px 4px' }
+const btnLimparTudo = { background: 'var(--cream)', border: '1px solid var(--cream-dark)', borderRadius: 6, color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '7px 12px' }
 const btnNovo = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
   padding: '8px 16px', borderRadius: 6,
@@ -658,6 +801,7 @@ const searchInput = {
   border: '1.5px solid var(--cream-dark)', borderRadius: 6,
   fontFamily: 'var(--body)', fontSize: 12,
   color: 'var(--navy)', background: 'var(--white)', outline: 'none',
+  boxSizing: 'border-box',
 }
 const resumo = {
   display: 'flex', alignItems: 'center', gap: 12,
@@ -665,8 +809,20 @@ const resumo = {
   padding: '8px 14px', background: 'var(--white)',
   border: '1px solid var(--cream-dark)', borderRadius: 6,
 }
-const resumoFiscalBar = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, padding: '8px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
-const fiscalPill = (color) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 999, border: `1px solid var(--cream-dark)`, background: 'var(--white)', color, fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' })
+const popOverlay = { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' }
+const popCard = {
+  position: 'fixed', zIndex: 91, width: 268,
+  background: 'var(--white)', borderRadius: 10,
+  border: '1px solid var(--cream-dark)',
+  boxShadow: '0 12px 32px rgba(0,0,0,0.20)',
+  padding: 14, fontFamily: 'var(--body)',
+  display: 'flex', flexDirection: 'column', gap: 10,
+}
+const popTitulo = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }
+const popRodape = { display: 'flex', justifyContent: 'flex-end', gap: 6 }
+const btnHoje = { padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--cream)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const btnPopCancelar = { padding: '7px 12px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const btnPopOk = { padding: '7px 12px', borderRadius: 6, border: 'none', background: 'var(--green)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const tableWrap = {
   background: 'var(--white)', borderRadius: 12,
   border: '1px solid var(--cream-dark)',

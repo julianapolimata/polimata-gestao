@@ -16,7 +16,9 @@ export default function RedefinirSenha() {
   async function handleSubmit(e) {
     e.preventDefault()
     setErro('')
-    if (senha.length < 6) { setErro('Senha precisa ter pelo menos 6 caracteres.'); return }
+    // 12 caracteres: senha de sistema financeiro. A trava definitiva é a do
+    // Supabase (Authentication › Policies) — esta aqui é só o aviso amigável.
+    if (senha.length < 12) { setErro('A senha precisa ter pelo menos 12 caracteres. Uma frase fácil de lembrar funciona bem.'); return }
     if (senha !== confirma) { setErro('As senhas não coincidem.'); return }
     setSalvando(true)
     const { error } = await updatePassword(senha)

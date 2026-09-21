@@ -109,11 +109,13 @@ export function escriturarAuto(data, regra, agoraISO) {
 }
 
 // Rótulos e opções da situação fiscal — reusa doc_status (campo que já existe).
+// Um conceito, um nome: estes três textos são os mesmos em toda a interface
+// (Escrituração, lançamento, listas). Os valores gravados no banco não mudam.
 export const SITUACOES_FISCAIS = [
-  { value: 'vinculado', label: 'Com nota fiscal' },
-  { value: 'dispensado', label: 'Sem nota fiscal' },
-  { value: 'pendente', label: 'NF pendente' },
+  { value: 'vinculado', label: 'Tenho a nota' },
+  { value: 'pendente', label: 'A nota vai chegar' },
+  { value: 'dispensado', label: 'Não tem nota' },
 ]
 export const rotuloSituacaoFiscal = v => ({
-  vinculado: 'Com NF', dispensado: 'Sem NF', pendente: 'NF pendente',
+  vinculado: 'Tenho a nota', pendente: 'A nota vai chegar', dispensado: 'Não tem nota',
 }[v] || '—')

@@ -27,6 +27,21 @@ const FREQUENCIAS = [
   { value: 'semestral', label: 'Semestral' },
   { value: 'anual', label: 'Anual' },
 ]
+// Situação fiscal (doc_status) — os VALORES gravados no banco continuam os mesmos
+// ('vinculado' | 'pendente' | 'dispensado'); só os rótulos foram padronizados para
+// a linguagem das outras telas.
+// ⚠️ lib/escrituracao.js exporta SITUACOES_FISCAIS com outros textos ("Com nota
+// fiscal" / "Sem nota fiscal" / "NF pendente") — divergência a alinhar lá.
+const SITUACOES_FISCAIS_LABELS = [
+  { value: 'vinculado', label: '✓ Tenho a nota' },
+  { value: 'pendente', label: '📎 A nota vai chegar' },
+  { value: 'dispensado', label: '✓ Não tem nota' },
+]
+
+// Campos que a conciliação "congela": mexer neles quebra em silêncio a igualdade
+// com o extrato do banco já conferido.
+const MSG_CONCILIADO = 'Este lançamento já foi conferido com o extrato do banco. Para mudar valor, data ou categoria, desfaça a conferência na Conciliação primeiro.'
+
 const MOTIVOS_DISPENSA = [
   'Tarifa bancária', 'Anuidade de cartão', 'IOF / Imposto sobre operação',
   'Juros / Multa', 'Rendimento de aplicação',
@@ -76,6 +91,10 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [plano, setPlano] = useState([])
   const [fechamentos, setFechamentos] = useState([]) // meses fechados (portão)
   const [saving, setSaving] = useState(false)
+
+  // Lançamento já conferido com o extrato: valor/datas/categoria/parte/cartão
+  // ficam travados (a conciliação garante que banco e livro batem).
+  const conciliado = isEdit && !!registro?.conciliado_em
 
   // ── Carregar listas auxiliares (pessoas para autocomplete + plano de contas) ──
   useEffect(() => {
@@ -173,6 +192,22 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     if (liquidado && !dataPagamento) {
       showToast(`Status "${statusV}" exige a data de ${isRec ? 'recebimento' : 'pagamento'}.`, 'warning')
       return
+    }
+    // ── Portão da conciliação: o que foi conferido com o extrato não muda ──
+    // Livres: descrição, observações, situação fiscal e anexo. Travados: valor,
+    // vencimento, competência, categoria, subcategoria, parte e cartão — mexer
+    // neles desfaz em silêncio a igualdade com o extrato do banco.
+    if (conciliado) {
+      const dC = registro.data || {}
+      const mudouConferido =
+        Number(dC.value) !== Number(valor) ||
+        (dC.due || '') !== venc ||
+        (dC.data_competencia || '') !== (dataCompetencia || '') ||
+        (dC.cat || '') !== cat ||
+        (dC.subcat || '') !== subcat ||
+        (dC.client || dC.supplier || '') !== parte.trim() ||
+        (!isRec && (registro.cartao_id || '') !== (cartaoId || ''))
+      if (mudouConferido) { showToast(MSG_CONCILIADO, 'warning'); return }
     }
     // ── Portão do mês fechado (mensagem amigável ANTES do erro do banco) ──
     // Novo lançamento em mês fechado: não salva. Edição em mês fechado: só passa
@@ -329,6 +364,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     if (!isEdit || !registro) return
     const destino = isRec ? 'payable' : 'receivable'
     const nomeDestino = isRec ? 'Contas a Pagar' : 'Contas a Receber'
+    // Mover = insert + delete: apagaria um lançamento já conferido com o extrato.
+    if (conciliado) { showToast(MSG_CONCILIADO, 'warning'); return }
     // Mover = insert + delete: ambos recusados em mês fechado.
     const compMov = competenciaDe(registro.data)
     if (mesFechado(fechamentos, compMov)) { showToast(msgMesFechado(compMov), 'warning'); return }
@@ -407,9 +444,20 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         </>
       }
     >
+      {conciliado && (
+        <div style={boxConciliado}>
+          <div style={boxLabel}>🔒 Conferido com o extrato do banco</div>
+          <div style={{ fontSize: 11, color: 'var(--navy)', lineHeight: 1.6 }}>
+            Este lançamento já foi conferido com o extrato do banco, então <strong>valor, datas, categoria, {isRec ? 'cliente' : 'fornecedor'} e cartão ficam travados</strong> — mudar qualquer um deles desfaria a igualdade com o banco. Para alterá-los, desfaça a conferência na{' '}
+            <a href="/conciliacao" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold)', textDecoration: 'underline', fontWeight: 700 }}>Conciliação</a> primeiro.
+            Descrição, observações, situação fiscal e anexo continuam livres.
+          </div>
+        </div>
+      )}
+
       <Row cols={2}>
         <Field label={`${isRec ? 'Cliente' : 'Fornecedor'} *`}>
-          <select value={parteTipo} onChange={e => setParteTipo(e.target.value)} style={input}>
+          <select value={parteTipo} onChange={e => setParteTipo(e.target.value)} style={input} disabled={conciliado}>
             {tiposParte.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <input
@@ -418,13 +466,14 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
             placeholder={isRec ? 'Nome do cliente' : 'Nome do fornecedor'}
             style={{ ...input, marginTop: 6 }}
             autoComplete="off"
+            disabled={conciliado}
           />
           <datalist id={datalistId}>
             {partesFiltradas.map(n => <option key={n} value={n} />)}
           </datalist>
         </Field>
         <Field label="Valor (R$) *">
-          <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} />
+          <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} disabled={conciliado} />
         </Field>
       </Row>
 
@@ -437,10 +486,10 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       {/* Datas e status */}
       <Row cols={3}>
         <Field label="Data de Emissão (Competência)">
-          <input type="date" value={dataCompetencia} onChange={e => setDataCompetencia(e.target.value)} style={input} title="Data de emissão da NF — usada no DRE (regime de competência)" />
+          <input type="date" value={dataCompetencia} onChange={e => setDataCompetencia(e.target.value)} style={input} title="Data de emissão da NF — usada no DRE (regime de competência)" disabled={conciliado} />
         </Field>
         <Field label="Vencimento *">
-          <input type="date" value={venc} onChange={e => setVenc(e.target.value)} style={input} />
+          <input type="date" value={venc} onChange={e => setVenc(e.target.value)} style={input} disabled={conciliado} />
         </Field>
         <Field label={`Data de ${isRec ? 'Recebimento' : 'Pagamento'}${(statusV === 'Recebido' || statusV === 'Pago') ? ' *' : ''}`}>
           <input
@@ -468,13 +517,13 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
 
       <Row cols={2}>
         <Field label="Categoria *">
-          <select value={cat} onChange={e => setCat(e.target.value)} style={input}>
+          <select value={cat} onChange={e => setCat(e.target.value)} style={input} disabled={conciliado}>
             <option value="">Selecione…</option>
             {categorias.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
         <Field label="Subcategoria *">
-          <select value={subcat} onChange={e => setSubcat(e.target.value)} style={input} disabled={!cat}>
+          <select value={subcat} onChange={e => setSubcat(e.target.value)} style={input} disabled={!cat || conciliado}>
             <option value="">{cat ? 'Selecione…' : 'Selecione a categoria primeiro'}</option>
             {subcategorias.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -492,9 +541,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         <div style={boxLabel}>📎 Documento Fiscal</div>
         <Row cols={2} gap={10}>
           <select value={docStatus} onChange={e => setDocStatus(e.target.value)} style={input}>
-            <option value="vinculado">✓ Documento vinculado / não se aplica</option>
-            <option value="pendente">📎 NF pendente (vai chegar)</option>
-            <option value="dispensado">✓ Doc fiscal dispensado (sem NF possível)</option>
+            {SITUACOES_FISCAIS_LABELS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
           {docStatus === 'dispensado' ? (
             <select value={docMotivo} onChange={e => setDocMotivo(e.target.value)} style={input}>
@@ -543,7 +590,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
                   Nenhum cartão cadastrado. Cadastre em <a href="/contas-bancarias" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--gold)', textDecoration: 'underline' }}>Contas e Cartões</a>.
                 </div>
               ) : (
-                <select value={cartaoId} onChange={e => setCartaoId(e.target.value)} style={input}>
+                <select value={cartaoId} onChange={e => setCartaoId(e.target.value)} style={input} disabled={conciliado}>
                   <option value="">— selecione —</option>
                   {cartoes.map(c => <option key={c.id} value={c.id}>{c.data?.nome} ({c.data?.bandeira})</option>)}
                 </select>
@@ -650,6 +697,12 @@ const boxNavy = {
   marginTop: 6, padding: 14,
   background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)',
   borderRadius: 6, marginBottom: 14,
+}
+// Mesmo padrão visual dos demais avisos do modal, na cor de atenção (cobre).
+const boxConciliado = {
+  padding: 14, marginBottom: 14,
+  background: 'rgba(204,145,94,0.10)', borderLeft: '3px solid var(--gold)',
+  borderRadius: 6, fontFamily: 'var(--body)',
 }
 const boxGold = {
   padding: 14,
