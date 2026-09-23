@@ -4,6 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
+import { lerXmlFiscal } from '../lib/xmlFiscal.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 const POLIMATA_CNPJ = '48948776000164';
@@ -129,6 +130,9 @@ const PRECOS_IA = {
 const PRECO_IA_FALLBACK = 'claude-sonnet-5';
 // Modelo usado para ler os documentos.
 const MODELO_IA = 'claude-sonnet-5';
+// Registrado como "modelo" das leituras feitas direto do XML: aparecem no
+// histórico com zero token e custo zero, que é o ponto.
+const LEITOR_XML = 'leitor-xml';
 
 // Teto de gasto do mês, em reais. Chegou no teto, a varredura para: melhor
 // deixar e-mail para a próxima do que gastar sem limite. 0 (ou negativo)
@@ -971,7 +975,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
 
       let leitura;
       try {
-        leitura = await parseDocumentWithAI(base64, att.mimeType);
+        leitura = await lerDocumento(base64, att.mimeType);
         leituraInfo = {
           modelo: leitura?.modelo || MODELO_IA,
           usage: leitura?.usage || null,
@@ -1088,6 +1092,36 @@ async function fetchAnthropicWithRetry(url, options, maxAttempts = 4) {
     }
   }
   throw lastErr || new Error('Anthropic falhou após múltiplas tentativas');
+}
+
+// Lê o documento — XML primeiro, IA depois.
+//
+// Nota fiscal em XML já traz cada dado em um campo com nome próprio. Ler
+// direto é exato e não custa nada; mandar para a IA é pagar para ela adivinhar
+// o que já está escrito. A IA continua entrando quando o arquivo não é XML, ou
+// quando o XML não entrega tudo com segurança — aí lerXmlFiscal devolve null
+// de propósito, e nada muda em relação a antes.
+async function lerDocumento(base64, mimeType) {
+  if (/xml/i.test(mimeType || '')) {
+    let texto = '';
+    try {
+      const bytes = Buffer.from(base64, 'base64');
+      texto = bytes.toString('utf8');
+      // O XML diz no cabeçalho em que codificação foi escrito. Ler um arquivo
+      // ISO-8859-1 como UTF-8 estraga todo acento — e é assim que nome de
+      // fornecedor chega picotado no sistema.
+      if (/encoding=["']?(iso-8859-1|latin1|windows-1252)/i.test(texto.slice(0, 300))) {
+        texto = bytes.toString('latin1');
+      }
+    } catch { texto = ''; }
+    const parsed = texto ? lerXmlFiscal(texto, { cnpjEmpresa: POLIMATA_CNPJ }) : null;
+    if (parsed) {
+      console.log(`[xml] ${parsed.tipo_documento} ${parsed.numero_nf} lida direto do XML — sem IA, custo zero`);
+      return { parsed, usage: null, modelo: LEITOR_XML };
+    }
+    console.log('[xml] o XML não entregou todos os campos com segurança — lendo com IA');
+  }
+  return parseDocumentWithAI(base64, mimeType);
 }
 
 async function parseDocumentWithAI(base64, mimeType) {
@@ -1212,7 +1246,10 @@ async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessage
     const { custoUsd, precoEstimado } = calcularCustoUSD(modeloUsado, inputTokens, outputTokens);
 
     const metaFinal = { ...(meta || {}) };
-    if (precoEstimado) metaFinal.preco_estimado = true;
+    // Sem token não houve cobrança: não há preço a estimar (é o caso do XML
+    // lido direto, que entra no histórico com custo zero de verdade).
+    const houveTokens = inputTokens > 0 || outputTokens > 0;
+    if (precoEstimado && houveTokens) metaFinal.preco_estimado = true;
 
     // Dólar do dia pela PTAX (mesma função das notas em moeda estrangeira, com
     // cache). Gasto nosso é despesa → taxa de VENDA.
