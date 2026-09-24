@@ -3,23 +3,48 @@ name: Email Cron — Polímata Gestão
 on:
   schedule:
     # A cada 15 minutos. A janela de 365 dias faz o robô descer o histórico
-    # sozinho, 8 documentos por rodada (o que cabe nos 60 s da função); o que
+    # sozinho, 8 documentos por rodada (o que cabe no tempo da função); o que
     # já foi lido fica etiquetado no Gmail e não volta.
     - cron: '*/15 * * * *'
-  workflow_dispatch:  # permite acionamento manual
+  workflow_dispatch:
+    # Acionamento manual. O "reprocessar" existe para recuperar e-mails que
+    # ficaram para trás — por exemplo quando o serviço de leitura esteve fora.
+    # Ele ignora a etiqueta e relê os e-mails marcados como falhos.
+    inputs:
+      reprocess:
+        description: 'Reler os e-mails que falharam (em vez de procurar e-mails novos)'
+        type: boolean
+        default: false
+      days:
+        description: 'Quantos dias para trás procurar'
+        default: '365'
+      max:
+        description: 'Quantos e-mails por rodada (máximo 10)'
+        default: '8'
 
 jobs:
   trigger-cron:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Acionar /api/email-cron na Vercel
+        env:
+          DAYS: ${{ inputs.days || '365' }}
+          MAX: ${{ inputs.max || '8' }}
+          REPROCESS: ${{ inputs.reprocess && '1' || '0' }}
         run: |
-          response=$(curl -sS -X POST "https://polimata-gestao.vercel.app/api/email-cron?days=365&max=8" \
+          url="https://polimata-gestao.vercel.app/api/email-cron?days=${DAYS}&max=${MAX}"
+          if [ "$REPROCESS" = "1" ]; then
+            url="${url}&reprocess=1"
+            echo "Modo: RELENDO os e-mails que falharam"
+          else
+            echo "Modo: procurando e-mails novos"
+          fi
+          response=$(curl -sS -X POST "$url" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             -w "\n---HTTP_CODE---\n%{http_code}" \
-            --max-time 90)
+            --max-time 310)
           status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
           body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
           echo "Status: $status"

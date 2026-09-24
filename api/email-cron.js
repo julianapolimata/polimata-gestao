@@ -957,6 +957,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
   // Processa cada anexo
   let lancamentosCount = 0;
   let descartadosCount = 0;
+  let falhaTemporaria = false;
   const lancamentoIds = [];
 
   for (const att of attachments) {
@@ -1041,6 +1042,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
         leituraInfo.meta = { motivo: 'duplicata_ou_ja_vinculado' };
       }
     } catch (e) {
+      if (ehFalhaTemporaria(e.message)) falhaTemporaria = true;
       console.warn(`Falha em anexo ${att.filename}:`, e.message);
     } finally {
       // Houve chamada de IA → o gasto entra na conta, deu certo ou não.
@@ -1048,13 +1050,23 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
     }
   }
 
-  await applyLabel(accessToken, messageId, labelId);
+  // Só falhou porque o serviço de leitura estava fora: nada foi concluído
+  // sobre este e-mail. Sem etiqueta, ele volta na próxima rodada por conta
+  // própria — em vez de ficar parado esperando alguém mandar reprocessar.
+  const soFalhouPorServico = falhaTemporaria && lancamentosCount === 0 && descartadosCount === 0;
+  if (soFalhouPorServico) {
+    console.log(`[tentar de novo] ${messageId} fica sem etiqueta: a leitura falhou por indisponibilidade, não pelo documento`);
+  } else {
+    await applyLabel(accessToken, messageId, labelId);
+  }
 
   // Nada criado MAS houve descarte legítimo → 'descartado', não 'sem_lancamento'
   // (que está na lista de FALHOS e voltaria a cada reprocessamento).
-  const statusMsg = lancamentosCount > 0
-    ? 'ok'
-    : (descartadosCount || anexosIgnorados.length) ? 'descartado' : 'sem_lancamento';
+  const statusMsg = soFalhouPorServico
+    ? 'error'
+    : lancamentosCount > 0
+      ? 'ok'
+      : (descartadosCount || anexosIgnorados.length) ? 'descartado' : 'sem_lancamento';
 
   await persistEmailHistory({
     gmail_message_id: messageId, subject, from, date,
@@ -1083,6 +1095,15 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
 // ============================================================================
 // Anthropic — parse do documento (com retry em overload)
 // ============================================================================
+// A falha foi do SERVIÇO, não do documento? Sem saldo, sobrecarga, limite de
+// uso, tempo esgotado ou rede caída — em todos esses casos o documento nunca
+// chegou a ser lido, e desistir dele seria perder a nota por um problema que
+// já passou.
+function ehFalhaTemporaria(mensagem) {
+  const m = String(mensagem || '').toLowerCase();
+  return /credit balance|insufficient|overloaded|rate.?limit|too many requests|timeout|timed out|socket|econn|enotfound|fetch failed|502|503|504|529/.test(m);
+}
+
 async function fetchAnthropicWithRetry(url, options, maxAttempts = 4) {
   const backoffs = [0, 2000, 5000, 10000];
   let lastErr = null;
