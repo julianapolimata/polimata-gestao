@@ -730,19 +730,28 @@ async function baixarAnexoDeLink(linkUrl, nomeSugerido) {
 // ============================================================================
 // Triagem de anexos — antes de gastar leitura de IA
 // ============================================================================
+// XML de verdade: "text/xml", "application/xml" ou um tipo que TERMINA em
+// "+xml" (que é como se declaram os formatos derivados). Não basta conter
+// "xml" no meio — é assim que planilha e documento do Word se disfarçavam.
+const MIME_XML = /^(?:text|application)\/(?:xml|[\w.+-]*\+xml)$/i;
+function ehTipoXml(mimeType, filename) {
+  if (String(filename || '').toLowerCase().endsWith('.xml')) return true;
+  const mime = String(mimeType || '').toLowerCase().split(';')[0].trim();
+  return MIME_XML.test(mime);
+}
+
 function ehPdfOuXml(att) {
   const nome = String(att.filename || '').toLowerCase();
   const mime = String(att.mimeType || '').toLowerCase();
   return mime === 'application/pdf' || nome.endsWith('.pdf')
-      || /xml/.test(mime) || nome.endsWith('.xml');
+      || ehTipoXml(mime, nome);
 }
 
 // Um anexo é XML pelo tipo declarado OU pela extensão. Vale a extensão porque
 // vários emissores mandam a nota como "application/octet-stream" — e era por
 // isso que a nota da prefeitura ia parar na IA mesmo tendo XML.
 function ehAnexoXml(att) {
-  return /xml/.test(String(att.mimeType || '').toLowerCase())
-      || String(att.filename || '').toLowerCase().endsWith('.xml');
+  return ehTipoXml(att.mimeType, att.filename);
 }
 
 function ehImagem(att) {
@@ -867,7 +876,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
       if (p.parts) walk(p.parts);
       const filename = p.filename || '';
       const mimeType = p.mimeType || '';
-      const ehXml = /xml/i.test(mimeType) || filename.toLowerCase().endsWith('.xml');
+      const ehXml = ehTipoXml(mimeType, filename);
       if (p.body?.attachmentId &&
           (mimeType === 'application/pdf' || mimeType.startsWith('image/') || ehXml)) {
         // O tamanho vem no próprio índice da mensagem: dá para descartar a
@@ -881,7 +890,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
   if (!brutos.length && msg.payload?.body?.attachmentId) {
     const mt = msg.payload.mimeType || '';
     const fn = msg.payload.filename || '';
-    if (mt === 'application/pdf' || mt.startsWith('image/') || /xml/i.test(mt) || fn.toLowerCase().endsWith('.xml')) {
+    if (mt === 'application/pdf' || mt.startsWith('image/') || ehTipoXml(mt, fn)) {
       brutos.push({
         attachmentId: msg.payload.body.attachmentId,
         filename: fn || 'anexo',
@@ -1165,7 +1174,7 @@ async function lerDocumento(base64, att) {
 }
 
 async function parseDocumentWithAI(base64, mimeType) {
-  const isXml = /xml/i.test(mimeType || '');
+  const isXml = ehTipoXml(mimeType, '');
   const isPdf = mimeType === 'application/pdf';
   // NFS-e/NF-e chegam em XML — mandar como TEXTO (não como imagem, que a IA não lê).
   let docBlock;
@@ -1325,9 +1334,11 @@ async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessage
       arquivo: arquivo || null,
       gmail_message_id: gmailMessageId || null,
       resultado,
-      meta: Object.keys(metaFinal).length ? metaFinal : null,
+      // Sempre objeto: a coluna não aceita vazio e recusava a linha inteira.
+      meta: metaFinal,
     });
-    if (error) console.warn('[custo-ia] não consegui gravar a leitura:', error.message);
+    // Falhar aqui significa gasto invisível — é erro, não aviso de rodapé.
+    if (error) console.error(`[custo-ia] GASTO NÃO REGISTRADO (${arquivo || 'sem arquivo'}, ${resultado}): ${error.message}`);
 
     // Mesmo se a gravação falhou, o gasto EXISTIU: devolve para o teto contar.
     return { custoUsd, custoBrl };
