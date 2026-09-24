@@ -9,10 +9,11 @@ on:
   workflow_dispatch:
     # Acionamento manual. O "reprocessar" existe para recuperar e-mails que
     # ficaram para trás — por exemplo quando o serviço de leitura esteve fora.
-    # Ele ignora a etiqueta e relê os e-mails marcados como falhos.
+    # Ele ignora a etiqueta e relê os e-mails marcados como falhos, repetindo
+    # até acabar a lista (cada chamada lê um lote pequeno).
     inputs:
       reprocess:
-        description: 'Reler os e-mails que falharam (em vez de procurar e-mails novos)'
+        description: 'Reler os e-mails que ficaram para trás (em vez de procurar e-mails novos)'
         type: boolean
         default: false
       days:
@@ -25,7 +26,7 @@ on:
 jobs:
   trigger-cron:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Acionar /api/email-cron na Vercel
         env:
@@ -34,22 +35,41 @@ jobs:
           REPROCESS: ${{ inputs.reprocess && '1' || '0' }}
         run: |
           url="https://polimata-gestao.vercel.app/api/email-cron?days=${DAYS}&max=${MAX}"
+          rodadas=1
           if [ "$REPROCESS" = "1" ]; then
             url="${url}&reprocess=1"
-            echo "Modo: RELENDO os e-mails que falharam"
+            # Cada chamada relê um lote; repete até a lista acabar ou o tempo
+            # terminar, para não exigir um clique por lote.
+            rodadas=20
+            echo "Modo: RELENDO os e-mails que ficaram para trás"
           else
             echo "Modo: procurando e-mails novos"
           fi
-          response=$(curl -sS -X POST "$url" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -w "\n---HTTP_CODE---\n%{http_code}" \
-            --max-time 310)
-          status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
-          body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
-          echo "Status: $status"
-          echo "Body: $body"
-          if [ "$status" -ge 400 ] || [ -z "$status" ]; then
-            echo "::error::Cron falhou com HTTP $status"
-            exit 1
-          fi
+
+          inicio=$(date +%s)
+          for i in $(seq 1 $rodadas); do
+            echo "--- rodada $i"
+            response=$(curl -sS -X POST "$url" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -H "Content-Type: application/json" \
+              -w "\n---HTTP_CODE---\n%{http_code}" \
+              --max-time 310)
+            status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
+            body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
+            echo "Status: $status"
+            echo "Body: $body"
+            if [ "$status" -ge 400 ] || [ -z "$status" ]; then
+              echo "::error::Cron falhou com HTTP $status"
+              exit 1
+            fi
+            [ "$rodadas" -eq 1 ] && break
+            encontrados=$(echo "$body" | grep -o '"found":[0-9]*' | head -1 | cut -d: -f2)
+            if [ "${encontrados:-0}" -eq 0 ]; then
+              echo "Não sobrou e-mail para reler — terminando."
+              break
+            fi
+            if [ $(( $(date +%s) - inicio )) -gt 900 ]; then
+              echo "::warning::Tempo da rodada esgotado; o que faltou entra na próxima execução."
+              break
+            fi
+          done
