@@ -47,6 +47,7 @@ jobs:
           fi
 
           inicio=$(date +%s)
+          falhas=0
           for i in $(seq 1 $rodadas); do
             echo "--- rodada $i"
             response=$(curl -sS -X POST "$url" \
@@ -59,9 +60,22 @@ jobs:
             echo "Status: $status"
             echo "Body: $body"
             if [ "$status" -ge 400 ] || [ -z "$status" ]; then
-              echo "::error::Cron falhou com HTTP $status"
-              exit 1
+              # Numa releitura longa, uma rodada que estoura o tempo do servidor
+              # não é motivo para abandonar as outras: o lote seguinte continua
+              # de onde parou. Três seguidas, aí sim é problema de verdade.
+              if [ "$rodadas" -eq 1 ]; then
+                echo "::error::Cron falhou com HTTP $status"
+                exit 1
+              fi
+              falhas=$((falhas + 1))
+              echo "::warning::Rodada $i falhou com HTTP $status — seguindo para a próxima"
+              if [ "$falhas" -ge 3 ]; then
+                echo "::error::Três rodadas seguidas falharam"
+                exit 1
+              fi
+              continue
             fi
+            falhas=0
             [ "$rodadas" -eq 1 ] && break
             encontrados=$(echo "$body" | grep -o '"found":[0-9]*' | head -1 | cut -d: -f2)
             if [ "${encontrados:-0}" -eq 0 ]; then
