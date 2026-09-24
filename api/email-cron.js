@@ -64,6 +64,13 @@ const escopoDestino = alias => (GMAIL_SO_ALIAS && alias ? `to:${alias} ` : '');
 // Varrer tudo sem filtro encheria a fila de apresentação, contrato e foto. O
 // documento fiscal é PDF ou XML — o resto nem é lido (economiza leitura de IA).
 const EMAIL_TIPOS_ARQUIVO = listaDoEnv('EMAIL_TIPOS_ARQUIVO', 'pdf,xml');
+// Nota fiscal é documento curto: uma nota tem uma ou duas páginas, uma fatura
+// tem algumas. PDF de dezenas de megabytes é relatório, inventário ou
+// apresentação — e o preço da leitura é proporcional ao tamanho. Um inventário
+// de quase um milhão de tokens custou R$ 15,31 para a leitura concluir, no
+// fim, que não era nota fiscal. O tamanho vem no índice da mensagem, então
+// isso é decidido SEM baixar o arquivo e sem gastar nada.
+const EMAIL_DOC_MAXIMO_BYTES = Math.round((Number(process.env.EMAIL_DOC_MAXIMO_MB) || 4) * 1024 * 1024);
 const filtroArquivo = () => (EMAIL_TIPOS_ARQUIVO.length ? `(${EMAIL_TIPOS_ARQUIVO.map(t => `filename:${t}`).join(' OR ')}) ` : '');
 
 function numeroDoEnv(nome, padrao) {
@@ -773,7 +780,22 @@ function triarAnexos(brutos) {
   // O XML vem primeiro de propósito: quando o e-mail traz PDF e XML da mesma
   // nota, quem for lido primeiro cria a pendência e o outro é descartado como
   // duplicata. Lendo o XML antes, a leitura sai de graça e exata.
-  const docs = brutos.filter(ehPdfOuXml).sort((a, b) => (ehAnexoXml(b) ? 1 : 0) - (ehAnexoXml(a) ? 1 : 0));
+  const docs = [];
+  for (const a of brutos.filter(ehPdfOuXml)) {
+    const bytes = Number(a.bytes || 0);
+    // Grande demais para ser nota: não desce e não é lido. Fica registrado
+    // como ignorado, com o tamanho, para dar para conferir depois.
+    if (bytes > EMAIL_DOC_MAXIMO_BYTES && !ehAnexoXml(a)) {
+      ignorados.push({
+        filename: a.filename || '(sem nome)',
+        bytes,
+        motivo: 'arquivo_grande_demais',
+      });
+      continue;
+    }
+    docs.push(a);
+  }
+  docs.sort((a, b) => (ehAnexoXml(b) ? 1 : 0) - (ehAnexoXml(a) ? 1 : 0));
 
   // Tem documento de verdade: a imagem que veio junto é a assinatura.
   if (docs.length) {
