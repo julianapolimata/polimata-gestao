@@ -57,6 +57,9 @@ export default function ImportarNFs() {
   const [emailForm, setEmailForm] = useState('')
   const [salvandoEmail, setSalvandoEmail] = useState(false)
   const [confirmar, dialogoConfirmacao] = useConfirm()
+  // Quais notas estão marcadas, e o andamento quando se decide várias de uma vez.
+  const [selecionados, setSelecionados] = useState(() => new Set())
+  const [lote, setLote] = useState(null)
   // Quanto tempo para trás procurar no e-mail. 7 dias é o dia a dia; janelas
   // maiores servem para trazer o histórico (ex.: guias de imposto de meses
   // anteriores que nunca entraram).
@@ -122,11 +125,12 @@ export default function ImportarNFs() {
     if (!user) return
     setLoading(true)
     Promise.all([
-      supabase.from('nf_pending').select('*').eq('status', 'pendente').order('created_at', { ascending: false }),
+      // Visão sem o arquivo em base64: desenhar a lista não precisa dele.
+      supabase.from('nf_pending_lista').select('*').eq('status', 'pendente').order('created_at', { ascending: false }),
       supabase.from('nf_history').select('*').order('created_at', { ascending: false }).limit(200),
       supabase.rpc('custo_ia_do_mes'),
       // Decisões já tomadas: é onde vive o motivo de uma rejeição.
-      supabase.from('nf_pending').select('*').neq('status', 'pendente').order('created_at', { ascending: false }).limit(200),
+      supabase.from('nf_pending_lista').select('*').neq('status', 'pendente').order('created_at', { ascending: false }).limit(200),
       supabase.from('config_empresa').select('data').limit(1),
     ]).then(([rP, rH, rC, rD, rE]) => {
       setPendentes(rP.data || [])
@@ -139,6 +143,18 @@ export default function ImportarNFs() {
   }, [user])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Tira a nota da caixa de entrada e põe no histórico, na hora. Recarregar a
+  // tela inteira a cada decisão era o que fazia aprovar parecer lento: eram
+  // cinco consultas, duas delas trazendo todos os arquivos de novo.
+  function baixarDaLista(pending, status) {
+    const agora = new Date().toISOString()
+    setPendentes(prev => prev.filter(p => p.id !== pending.id))
+    setDecisoes(prev => [
+      { ...pending, status, [status === 'aprovado' ? 'approved_at' : 'rejected_at']: agora },
+      ...prev,
+    ])
+  }
 
   // ── Auto-cadastra pessoa via CNPJ (se não existir) ────────────────────
   async function ensurePessoaPorCnpj({ cnpj, nome, isSaida, tipoDoc }) {
@@ -181,7 +197,7 @@ export default function ImportarNFs() {
   }
 
   // ── Aprovar uma NF: gera lançamento em receivable/payable ─────────────
-  async function aprovar(pending) {
+  async function aprovar(pending, opcoes = {}) {
     if (!user) return
     setConfirmando(pending.id)
     try {
@@ -232,17 +248,27 @@ export default function ImportarNFs() {
       if (errAprovar) throw errAprovar
       // 4. O arquivo da nota (base64 do robô) vai pro Storage e vira a PROVA do
       //    lançamento. Antes o lançamento nascia "Com NF" sem o documento.
-      if (novoId && d.anexo) {
+      //    A lista não traz esse arquivo — ele é buscado agora, só deste
+      //    documento, que é quando ele realmente serve para alguma coisa.
+      let anexoB64 = null
+      try {
+        const { data: linha } = await supabase.from('nf_pending').select('data').eq('id', pending.id).maybeSingle()
+        anexoB64 = linha?.data?.anexo || null
+      } catch (eBusca) { console.warn('não consegui buscar o arquivo da nota:', eBusca) }
+      if (novoId && anexoB64) {
         try {
-          const path = await anexoDaNF(d, { tabela: target, lancamentoId: novoId, userId: user.id })
+          const path = await anexoDaNF({ ...d, anexo: anexoB64 }, { tabela: target, lancamentoId: novoId, userId: user.id })
           if (path) await supabase.from(target).update({ anexo_path: path }).eq('id', novoId)
         } catch (eAnx) { console.warn('anexo da NF não subiu:', eAnx); showToast('Lançado, mas o arquivo da nota não foi anexado — anexe pela edição.', 'warning') }
       }
 
-      showToast(`${codigo} aprovado e lançado.`, 'success')
-      carregar()
+      if (!opcoes.emLote) showToast(`${codigo} aprovado e lançado.`, 'success')
+      baixarDaLista(pending, 'aprovado')
+      return codigo
     } catch (e) {
       console.error(e)
+      // Em lote, quem conta as falhas é o laço — aqui só repassa.
+      if (opcoes.emLote) throw e
       showToast('Erro ao aprovar: ' + e.message, 'error')
     } finally {
       setConfirmando(null)
@@ -271,9 +297,11 @@ export default function ImportarNFs() {
     } finally { setSalvandoEmail(false) }
   }
 
-  async function rejeitar(pending) {
+  async function rejeitar(pending, opcoes = {}) {
     const d = pending.data || {}
     const quem = d.parte || d.emitente_nome || 'documento sem nome'
+    // No lote o motivo é perguntado uma vez só, para todas.
+    if (opcoes.motivo) return rejeitarComMotivo(pending, opcoes.motivo, opcoes)
     // Rejeitar é uma decisão: fica registrada com o motivo, que é o que explica
     // a escolha meses depois (e para quem audita).
     const motivo = await confirmar({
@@ -293,6 +321,12 @@ export default function ImportarNFs() {
       variante: 'perigo',
     })
     if (!motivo) return
+    return rejeitarComMotivo(pending, motivo)
+  }
+
+  // A rejeição em si, já com o motivo em mãos.
+  async function rejeitarComMotivo(pending, motivo, opcoes = {}) {
+    const d = pending.data || {}
     try {
       const { error } = await supabase.from('nf_pending').update({
         status: 'rejeitado',
@@ -300,11 +334,90 @@ export default function ImportarNFs() {
         data: { ...d, motivo_rejeicao: motivo },
       }).eq('id', pending.id)
       if (error) throw error
-      showToast('Documento rejeitado. O motivo ficou no histórico.', 'info')
-      carregar()
+      if (!opcoes.emLote) showToast('Documento rejeitado. O motivo ficou no histórico.', 'info')
+      baixarDaLista({ ...pending, data: { ...d, motivo_rejeicao: motivo } }, 'rejeitado')
     } catch (e) {
+      if (opcoes.emLote) throw e
       showToast(msgErro(e, 'Não consegui rejeitar o documento.'), 'error')
     }
+  }
+
+  // ── Decidir várias de uma vez ────────────────────────────────────────────
+  const marcadas = pendentes.filter(p => selecionados.has(p.id))
+  const totalMarcado = marcadas.reduce((soma, p) => soma + (Number(p.data?.valor) || 0), 0)
+
+  function alternarSelecao(id) {
+    setSelecionados(prev => {
+      const novo = new Set(prev)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
+  }
+
+  function alternarTodas(marcar) {
+    setSelecionados(marcar ? new Set(pendentes.map(p => p.id)) : new Set())
+  }
+
+  // Percorre as marcadas uma a uma. Uma que falhe não derruba as outras: ela
+  // continua na caixa de entrada e aparece no aviso do final.
+  async function decidirEmLote(alvos, acao, executar) {
+    const falhas = []
+    let feitas = 0
+    setLote({ feitas: 0, total: alvos.length, acao })
+    for (const p of alvos) {
+      try {
+        await executar(p)
+        feitas++
+      } catch (e) {
+        falhas.push(`${p.data?.parte || 'documento'}: ${msgErro(e, 'falhou')}`)
+      }
+      setLote({ feitas: feitas + falhas.length, total: alvos.length, acao })
+    }
+    setLote(null)
+    setSelecionados(new Set())
+    if (falhas.length) {
+      showToast(`${feitas} ${acao}(s), ${falhas.length} com erro — ${falhas[0]}`, 'warning')
+    } else {
+      showToast(`${feitas} documento(s) ${acao}(s).`, 'success')
+    }
+  }
+
+  async function aprovarMarcadas() {
+    if (!marcadas.length) return
+    const ok = await confirmar({
+      titulo: `Aprovar ${marcadas.length} documento(s)?`,
+      texto: `Somam ${fmtMoney(totalMarcado)}`,
+      consequencias: [
+        'Cada um vira um lançamento novo nas suas contas.',
+        'A categoria vem só como sugestão — a Escrituração continua sendo sua.',
+        'Se algum falhar, ele fica na caixa de entrada e você é avisada.',
+      ],
+      confirmarLabel: `Aprovar ${marcadas.length}`,
+    })
+    if (!ok) return
+    await decidirEmLote(marcadas, 'aprovado', p => aprovar(p, { emLote: true }))
+  }
+
+  async function rejeitarMarcadas() {
+    if (!marcadas.length) return
+    const motivo = await confirmar({
+      titulo: `Rejeitar ${marcadas.length} documento(s)?`,
+      texto: `Somam ${fmtMoney(totalMarcado)}`,
+      consequencias: [
+        'Todos saem da caixa de entrada e vão para o histórico.',
+        'Nenhum lançamento é criado.',
+        'O mesmo motivo fica registrado em todos.',
+      ],
+      exigeTexto: {
+        label: 'Por que está rejeitando?',
+        minimo: 3,
+        placeholder: 'Ex.: não são documentos fiscais · já lançados · de outra empresa',
+      },
+      confirmarLabel: `Rejeitar ${marcadas.length}`,
+      variante: 'perigo',
+    })
+    if (!motivo) return
+    await decidirEmLote(marcadas, 'rejeitado', p => rejeitarComMotivo(p, motivo, { emLote: true }))
   }
 
   return (
@@ -395,11 +508,34 @@ export default function ImportarNFs() {
             ✨ Nenhuma nota esperando. As notas que chegam por e-mail aparecem aqui para você decidir — aprovar, anexar a um lançamento que já existe, ou rejeitar. Nada entra nas suas contas antes dessa decisão.
           </div>
         ) : (
-          <div style={lista}>
-            {pendentes.map(p => (
-              <PendingCard key={p.id} pending={p} processando={confirmando === p.id} onAprovar={() => aprovar(p)} onRejeitar={() => rejeitar(p)} onAnexar={() => setAnexando(p)} />
-            ))}
-          </div>
+          <>
+            {selecionados.size > 0 && (
+              <div style={barraLote}>
+                <span><strong>{selecionados.size}</strong> de {pendentes.length} marcada(s) · somam <strong>{fmtMoney(totalMarcado)}</strong></span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <button onClick={() => alternarTodas(false)} disabled={!!lote} style={btnMiniGhost}>Limpar</button>
+                  <button onClick={rejeitarMarcadas} disabled={!!lote} style={btnMiniPerigo}>Rejeitar marcadas</button>
+                  <button onClick={aprovarMarcadas} disabled={!!lote} style={btnMini}>✓ Aprovar marcadas</button>
+                </span>
+              </div>
+            )}
+            {lote && (
+              <div style={avisoLote}>
+                {lote.acao === 'rejeitado' ? 'Rejeitando' : 'Aprovando'} {lote.feitas} de {lote.total}…
+              </div>
+            )}
+            <PendingTable
+              pendentes={pendentes}
+              selecionados={selecionados}
+              processando={confirmando}
+              emLote={!!lote}
+              onAlternar={alternarSelecao}
+              onAlternarTodas={alternarTodas}
+              onAprovar={p => aprovar(p)}
+              onRejeitar={p => rejeitar(p)}
+              onAnexar={p => setAnexando(p)}
+            />
+          </>
         )}
         {dialogoConfirmacao}
       <SeletorLancamento
@@ -407,7 +543,7 @@ export default function ImportarNFs() {
           nf={anexando}
           user={user}
           onClose={() => setAnexando(null)}
-          onVinculado={() => { setAnexando(null); carregar() }}
+          onVinculado={() => { const nf = anexando; setAnexando(null); if (nf) baixarDaLista(nf, 'aprovado') }}
         />
         </>
       ) : aba === 'historico' ? (
@@ -423,47 +559,82 @@ export default function ImportarNFs() {
   )
 }
 
-function PendingCard({ pending, processando, onAprovar, onRejeitar, onAnexar }) {
-  const d = pending.data || {}
-  const isSaida = d.is_saida || d.tipo === 'saida'
-  const corLeft = isSaida ? 'var(--green)' : 'var(--red)'
+// A caixa de entrada é uma FILA DE TRABALHO: o que importa é ver muitas de uma
+// vez e decidir. Em cards, cada nota ocupava meia tela e obrigava a rolar; em
+// linha, as mesmas informações cabem numa olhada — e dá para marcar várias.
+function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar, onAlternarTodas, onAprovar, onRejeitar, onAnexar }) {
+  const todasMarcadas = pendentes.length > 0 && pendentes.every(p => selecionados.has(p.id))
   return (
-    <div style={{ ...card, borderLeft: `3px solid ${corLeft}` }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold)', letterSpacing: 1, textTransform: 'uppercase', background: 'rgba(204,145,94,0.10)', padding: '3px 8px', borderRadius: 999 }}>
-              {d.tipo_documento || 'NF'}
-            </span>
-            {d.numero && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-mid)', fontFamily: 'monospace' }}>nº {d.numero}</span>}
-            <span style={{ fontSize: 10, color: 'var(--text-mid)' }}>{d.fileName}</span>
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', marginBottom: 4 }}>{d.parte || '(parte não identificada)'}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>{d.descricao || '(sem descrição)'}</div>
-          <div style={{ display: 'flex', gap: 18, marginTop: 10, fontSize: 11, color: 'var(--text-mid)', flexWrap: 'wrap' }}>
-            <div>📄 Emissão: <strong>{fmtData(d.data_emissao)}</strong></div>
-            <div>📅 Vencimento: <strong>{fmtData(d.data_vencimento)}</strong></div>
-            {(isSaida ? d.destinatario_cnpj : d.emitente_cnpj) && <div style={{ fontFamily: 'monospace' }}>CNPJ {isSaida ? d.destinatario_cnpj : d.emitente_cnpj}</div>}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: corLeft }}>{isSaida ? '+' : '−'} {fmtMoney(d.valor)}</div>
-          {d.moeda && d.moeda !== 'BRL' && (
-            <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 2 }}>
-              orig {d.moeda} {Number(d.valor_original || 0).toFixed(2)} · PTAX {Number(d.cotacao_ptax || 0).toFixed(4)}
-            </div>
-          )}
-        </div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--cream-dark)' }}>
-        <button onClick={onRejeitar} disabled={processando} style={btnGhost}>Rejeitar</button>
-        <button onClick={onAnexar} disabled={processando} style={btnAnexar} title="A nota vira a prova de um lançamento que já existe — o valor não é lançado de novo">
-          🔗 Anexar a lançamento existente
-        </button>
-        <button onClick={onAprovar} disabled={processando} style={btnPrimary}>
-          {processando ? 'Processando…' : '✓ Aprovar e lançar'}
-        </button>
-      </div>
+    <div style={{ background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 8, overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, width: 36, textAlign: 'center' }}>
+              <input
+                type="checkbox"
+                checked={todasMarcadas}
+                onChange={e => onAlternarTodas(e.target.checked)}
+                title={todasMarcadas ? 'Desmarcar todas' : 'Marcar todas'}
+                style={caixaSelecao}
+              />
+            </th>
+            <th style={{ ...th, width: 86 }}>Tipo</th>
+            <th style={{ ...th, width: 92 }}>Nº</th>
+            <th style={th}>Quem · o quê</th>
+            <th style={{ ...th, width: 84 }}>Emissão</th>
+            <th style={{ ...th, width: 92 }}>Vencimento</th>
+            <th style={{ ...th, width: 118, textAlign: 'right' }}>Valor</th>
+            <th style={{ ...th, width: 176, textAlign: 'right' }}>Decisão</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pendentes.map(p => {
+            const d = p.data || {}
+            const isSaida = d.is_saida || d.tipo === 'saida'
+            const cor = isSaida ? 'var(--green)' : 'var(--red)'
+            const marcada = selecionados.has(p.id)
+            const ocupada = processando === p.id
+            return (
+              <tr key={p.id} style={{ background: marcada ? 'rgba(204,145,94,0.08)' : 'transparent' }}>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <input type="checkbox" checked={marcada} onChange={() => onAlternar(p.id)} style={caixaSelecao} />
+                </td>
+                <td style={td}>
+                  <span style={chipTipo} title={isSaida ? 'Receita — nota emitida pela empresa' : 'Despesa — nota recebida'}>
+                    {d.tipo_documento || 'NF'}
+                  </span>
+                </td>
+                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{d.numero || '—'}</td>
+                <td style={td}>
+                  <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{d.parte || '(parte não identificada)'}</div>
+                  <div style={linhaSecundaria} title={d.descricao || d.fileName}>{d.descricao || d.fileName || '—'}</div>
+                </td>
+                <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
+                <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: cor, whiteSpace: 'nowrap' }}>
+                  {isSaida ? '+' : '−'} {fmtMoney(d.valor)}
+                  {d.moeda && d.moeda !== 'BRL' && (
+                    <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--text-mid)' }}>
+                      orig {d.moeda} {Number(d.valor_original || 0).toFixed(2)}
+                    </div>
+                  )}
+                </td>
+                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinha} title="Aprovar e lançar">
+                    {ocupada ? '…' : '✓ Aprovar'}
+                  </button>
+                  <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Anexar a um lançamento que já existe — o valor não é lançado de novo">
+                    🔗
+                  </button>
+                  <button onClick={() => onRejeitar(p)} disabled={ocupada || emLote} style={btnLinhaPerigo} title="Rejeitar (pede o motivo)">
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -574,6 +745,15 @@ function UploadManualCard({ emailEntrada }) {
   )
 }
 
+const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
+const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
+const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const btnLinha = { padding: '4px 10px', marginLeft: 4, borderRadius: 5, border: 'none', background: 'var(--gold-dark)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const btnLinhaGhost = { padding: '4px 8px', marginLeft: 4, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontSize: 11, cursor: 'pointer' }
+const btnLinhaPerigo = { padding: '4px 8px', marginLeft: 4, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--red)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const barraLote = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 10, borderRadius: 7, background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', fontSize: 12, color: 'var(--navy)' }
+const avisoLote = { padding: '8px 14px', marginBottom: 10, borderRadius: 7, background: 'var(--cream)', fontSize: 12, fontWeight: 600, color: 'var(--text-mid)' }
+const btnMiniPerigo = { padding: '5px 12px', borderRadius: 6, border: '1.5px solid var(--red)', background: 'var(--white)', color: 'var(--red)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const inputEmail = { padding: '5px 9px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none', minWidth: 240 }
 const btnMini = { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const btnMiniGhost = { padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
@@ -586,11 +766,6 @@ const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const chip = { padding: '2px 7px', borderRadius: 999, fontSize: 10, background: 'rgba(0,0,0,0.10)' }
 const inputDataNF = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
-const lista = { display: 'flex', flexDirection: 'column', gap: 10 }
-const card = { background: 'var(--white)', borderRadius: 10, padding: 16, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }
-const btnGhost = { padding: '7px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase' }
-const btnPrimary = { padding: '7px 14px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5, textTransform: 'uppercase' }
-const btnAnexar = { ...btnGhost, border: '1.5px solid var(--navy)', color: 'var(--navy)', fontWeight: 700 }
 const ajudaBox = { marginBottom: 14, padding: '10px 14px', borderRadius: 6, fontSize: 12, lineHeight: 1.55, background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)' }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
