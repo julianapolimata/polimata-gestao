@@ -5,9 +5,25 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
+import { peneirarPdf } from '../lib/peneiraPdf.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
-const POLIMATA_CNPJ = '48948776000164';
+// CNPJ da empresa dona do sistema. A verdade é a configuração dela
+// (config_empresa.data.cnpj); a constante fica como valor inicial.
+const CNPJ_PADRAO = String(process.env.EMPRESA_CNPJ || '48948776000164').replace(/\D/g, '');
+let cnpjEmpresa = CNPJ_PADRAO;
+async function carregarCnpjEmpresa() {
+  try {
+    const { data } = await getSupabase()
+      .from('config_empresa').select('data')
+      .eq('user_id', process.env.POLIMATA_USER_ID).maybeSingle();
+    const doBanco = String(data?.data?.cnpj || '').replace(/\D/g, '');
+    return doBanco.length === 14 ? doBanco : CNPJ_PADRAO;
+  } catch (e) {
+    console.warn('Não consegui ler o CNPJ da configuração:', e.message);
+    return CNPJ_PADRAO;
+  }
+}
 // Endereço que recebe as notas. A verdade é a configuração DA EMPRESA
 // (config_empresa.data.email_entrada) — cada empresa tem o seu. A variável de
 // ambiente fica só como valor inicial/emergência.
@@ -71,6 +87,8 @@ const EMAIL_TIPOS_ARQUIVO = listaDoEnv('EMAIL_TIPOS_ARQUIVO', 'pdf,xml');
 // fim, que não era nota fiscal. O tamanho vem no índice da mensagem, então
 // isso é decidido SEM baixar o arquivo e sem gastar nada.
 const EMAIL_DOC_MAXIMO_BYTES = Math.round((Number(process.env.EMAIL_DOC_MAXIMO_MB) || 4) * 1024 * 1024);
+// Nota fiscal, guia, boleto e fatura cabem com folga em 15 páginas.
+const EMAIL_DOC_MAXIMO_PAGINAS = Number(process.env.EMAIL_DOC_MAXIMO_PAGINAS) || 15;
 const filtroArquivo = () => (EMAIL_TIPOS_ARQUIVO.length ? `(${EMAIL_TIPOS_ARQUIVO.map(t => `filename:${t}`).join(' OR ')}) ` : '');
 
 function numeroDoEnv(nome, padrao) {
@@ -290,6 +308,7 @@ async function processEmails(opts) {
     tetoAtingido: false,
   };
 
+  cnpjEmpresa = await carregarCnpjEmpresa();
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
 
@@ -1016,6 +1035,26 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
         base64 = data.replace(/-/g, '+').replace(/_/g, '/');
       }
 
+      // Vale pagar para ler isto? Decidido com o arquivo em mãos (baixar é de
+      // graça) e sem nenhuma chamada de IA: documento fiscal é curto e traz o
+      // CNPJ da empresa. Um inventário de 379 páginas custou R$ 15,31 para a
+      // leitura concluir, no fim, que não era nota.
+      const peneira = peneirarPdf(Buffer.from(base64, 'base64'), {
+        cnpjEmpresa,
+        maximoPaginas: EMAIL_DOC_MAXIMO_PAGINAS,
+      });
+      if (!peneira.ler) {
+        descartadosCount++;
+        console.log(`[não vale ler] ${att.filename}: ${peneira.detalhe}`);
+        await registrarDescarte({
+          att, parsed: null,
+          status: 'descartado',
+          motivo: peneira.motivo,
+          detalhe: peneira.detalhe,
+        });
+        continue;
+      }
+
       let leitura;
       try {
         leitura = await lerDocumento(base64, att);
@@ -1182,7 +1221,7 @@ async function lerDocumento(base64, att) {
       console.log('[xml] nota CANCELADA — não vira lançamento e não vai para a IA');
       return { parsed: null, usage: null, modelo: LEITOR_XML, motivo: 'nota_cancelada' };
     }
-    const parsed = texto ? lerXmlFiscal(texto, { cnpjEmpresa: POLIMATA_CNPJ }) : null;
+    const parsed = texto ? lerXmlFiscal(texto, { cnpjEmpresa }) : null;
     if (parsed) {
       console.log(`[xml] ${parsed.tipo_documento} ${parsed.numero_nf} lida direto do XML — sem IA, custo zero`);
       return { parsed, usage: null, modelo: LEITOR_XML };
@@ -1215,12 +1254,12 @@ async function parseDocumentWithAI(base64, mimeType) {
         type: 'text',
         text: `Você é um leitor especialista em documentos fiscais e financeiros brasileiros. Identifique se este documento é NF-e, NFS-e, DAS, DARF, GPS, GNRE, Boleto ou Fatura.
 
-CNPJ da Polímata: ${POLIMATA_CNPJ}
+CNPJ da empresa: ${cnpjEmpresa}
 
 REGRAS PARA DETERMINAR O TIPO:
 - DAS, DARF, GPS, GNRE, ou guias de imposto → tipo "entrada" (Conta a Pagar) e parte = nome do órgão emissor
-- NF/NFS com EMITENTE = ${POLIMATA_CNPJ} → "saida" (Conta a Receber)
-- NF/NFS com DESTINATÁRIO = ${POLIMATA_CNPJ} → "entrada" (Conta a Pagar)
+- NF/NFS com EMITENTE = ${cnpjEmpresa} → "saida" (Conta a Receber)
+- NF/NFS com DESTINATÁRIO = ${cnpjEmpresa} → "entrada" (Conta a Pagar)
 - Boleto/Fatura recebido → "entrada"
 
 CAMPOS OBRIGATÓRIOS (extraia com muito cuidado, mesmo se aparecem em rodapé/cabeçalho):
@@ -1447,15 +1486,15 @@ async function createLancamento(parsed, att, base64) {
   const ehGuia = ['DAS', 'DARF', 'GPS', 'GNRE'].includes(tipoDocUp);
   const numeroDoc = String(parsed.numero_documento || '').trim();
   const periodoApuracao = normalizarPeriodo(parsed.periodo_apuracao);
-  // Direção DETERMINÍSTICA pelo CNPJ da Polímata — não confia só no "tipo" da IA
+  // Direção DETERMINÍSTICA pelo CNPJ da empresa — não confia só no "tipo" da IA
   // (que às vezes erra, ex.: NFS-e de compra classificada como receita).
-  // Emitente = Polímata → saída (receita/Receber); destinatário = Polímata →
+  // Emitente = a empresa → saída (receita/Receber); destinatário = a empresa →
   // entrada (despesa/Pagar). Sem CNPJ reconhecível, cai no palpite da IA.
   const emitCnpjDir = String(parsed.emitente_cnpj || '').replace(/\D/g, '');
   const destCnpjDir = String(parsed.destinatario_cnpj || '').replace(/\D/g, '');
   let isSaida;
-  if (emitCnpjDir === POLIMATA_CNPJ) isSaida = true;
-  else if (destCnpjDir === POLIMATA_CNPJ) isSaida = false;
+  if (emitCnpjDir === cnpjEmpresa) isSaida = true;
+  else if (destCnpjDir === cnpjEmpresa) isSaida = false;
   else isSaida = parsed.tipo === 'saida';
   let val = parseFloat(parsed.valor_total) || 0;
   const moeda = (parsed.moeda || 'BRL').toUpperCase();
