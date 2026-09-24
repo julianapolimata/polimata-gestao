@@ -737,6 +737,14 @@ function ehPdfOuXml(att) {
       || /xml/.test(mime) || nome.endsWith('.xml');
 }
 
+// Um anexo é XML pelo tipo declarado OU pela extensão. Vale a extensão porque
+// vários emissores mandam a nota como "application/octet-stream" — e era por
+// isso que a nota da prefeitura ia parar na IA mesmo tendo XML.
+function ehAnexoXml(att) {
+  return /xml/.test(String(att.mimeType || '').toLowerCase())
+      || String(att.filename || '').toLowerCase().endsWith('.xml');
+}
+
 function ehImagem(att) {
   const nome = String(att.filename || '').toLowerCase();
   const mime = String(att.mimeType || '').toLowerCase();
@@ -753,7 +761,10 @@ function pareceAssinatura(nome) {
 // poder conferir depois o que o robô deixou de lado e por quê.
 function triarAnexos(brutos) {
   const ignorados = [];
-  const docs = brutos.filter(ehPdfOuXml);
+  // O XML vem primeiro de propósito: quando o e-mail traz PDF e XML da mesma
+  // nota, quem for lido primeiro cria a pendência e o outro é descartado como
+  // duplicata. Lendo o XML antes, a leitura sai de graça e exata.
+  const docs = brutos.filter(ehPdfOuXml).sort((a, b) => (ehAnexoXml(b) ? 1 : 0) - (ehAnexoXml(a) ? 1 : 0));
 
   // Tem documento de verdade: a imagem que veio junto é a assinatura.
   if (docs.length) {
@@ -975,7 +986,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
 
       let leitura;
       try {
-        leitura = await lerDocumento(base64, att.mimeType);
+        leitura = await lerDocumento(base64, att);
         leituraInfo = {
           modelo: leitura?.modelo || MODELO_IA,
           usage: leitura?.usage || null,
@@ -1101,8 +1112,9 @@ async function fetchAnthropicWithRetry(url, options, maxAttempts = 4) {
 // o que já está escrito. A IA continua entrando quando o arquivo não é XML, ou
 // quando o XML não entrega tudo com segurança — aí lerXmlFiscal devolve null
 // de propósito, e nada muda em relação a antes.
-async function lerDocumento(base64, mimeType) {
-  if (/xml/i.test(mimeType || '')) {
+async function lerDocumento(base64, att) {
+  const mimeType = att?.mimeType || '';
+  if (ehAnexoXml(att || {})) {
     let texto = '';
     try {
       const bytes = Buffer.from(base64, 'base64');
@@ -1120,6 +1132,9 @@ async function lerDocumento(base64, mimeType) {
       return { parsed, usage: null, modelo: LEITOR_XML };
     }
     console.log('[xml] o XML não entregou todos os campos com segurança — lendo com IA');
+    // Vai para a IA como texto, mesmo que o emissor tenha declarado o arquivo
+    // como binário — senão ela recebe um borrão em vez do conteúdo.
+    return parseDocumentWithAI(base64, 'application/xml');
   }
   return parseDocumentWithAI(base64, mimeType);
 }
@@ -1339,6 +1354,28 @@ async function gastoIADoMes() {
 // lançamento direto em receivable/payable; agora passa por fila de aprovação
 // pra evitar fornecedores fragmentados, categoria errada, número faltando.
 // ============================================================================
+// Troca o XML guardado pelo PDF do mesmo documento. O XML é ótimo para ler
+// e péssimo para olhar; o PDF é a cara da nota. Só acontece quando a pendência
+// ainda não foi decidida e o arquivo que chegou é mesmo um PDF.
+async function preferirPdfNoAnexo(pendente, att, base64) {
+  const atual = String(pendente?.data?.anexoNome || '').toLowerCase();
+  const chegouPdf = String(att.mimeType || '').toLowerCase() === 'application/pdf'
+    || String(att.filename || '').toLowerCase().endsWith('.pdf');
+  if (!chegouPdf || !atual.endsWith('.xml')) return;
+  const { error } = await getSupabase().from('nf_pending').update({
+    data: {
+      ...(pendente.data || {}),
+      anexo: base64,
+      anexoNome: att.filename,
+      anexoTipo: att.mimeType,
+      // Fica registrado de onde saíram os dados, que não é o arquivo guardado.
+      lido_do_xml: pendente.data?.anexoNome || null,
+    },
+  }).eq('id', pendente.id);
+  if (error) console.warn('[anexo] não consegui trocar o XML pelo PDF:', error.message);
+  else console.log(`[anexo] ${att.filename} passou a ser o anexo da pendência ${pendente.id} (leitura veio do XML)`);
+}
+
 async function createLancamento(parsed, att, base64) {
   const today = new Date().toISOString().slice(0, 10);
   const due = (parsed.data_vencimento || parsed.data_emissao || today).slice(0, 10);
@@ -1532,6 +1569,8 @@ async function createLancamento(parsed, att, base64) {
       return Math.abs(Number(item.value ?? item.valor ?? 0) - val) <= 0.02;
     });
     if (docPend || docLanc) {
+      // A leitura veio do XML, mas quem abre a pendência precisa VER a nota.
+      if (docPend) await preferirPdfNoAnexo(docPend, att, base64);
       const onde = docPend ? `nf_pending ${docPend.id}` : `${targetTable} ${docLanc.id}`;
       console.log(`[dedup-formato] ${tipoDoc} ${numero} (R$ ${val}) já registrada (${onde}) — pulando ${att.filename}`);
       await registrarDescarte({
