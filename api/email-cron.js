@@ -4,7 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
-import { lerXmlFiscal } from '../lib/xmlFiscal.js';
+import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 const POLIMATA_CNPJ = '48948776000164';
@@ -1012,7 +1012,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
 
       const parsed = leitura.parsed;
       if (!parsed) {
-        leituraInfo.meta = { motivo: 'resposta_nao_json' };
+        leituraInfo.meta = { motivo: leitura.motivo || 'resposta_nao_json' };
         continue;
       }
 
@@ -1126,6 +1126,10 @@ async function lerDocumento(base64, att) {
         texto = bytes.toString('latin1');
       }
     } catch { texto = ''; }
+    if (texto && notaCanceladaNoXml(texto)) {
+      console.log('[xml] nota CANCELADA — não vira lançamento e não vai para a IA');
+      return { parsed: null, usage: null, modelo: LEITOR_XML, motivo: 'nota_cancelada' };
+    }
     const parsed = texto ? lerXmlFiscal(texto, { cnpjEmpresa: POLIMATA_CNPJ }) : null;
     if (parsed) {
       console.log(`[xml] ${parsed.tipo_documento} ${parsed.numero_nf} lida direto do XML — sem IA, custo zero`);
