@@ -62,6 +62,9 @@ const FISCAL = [
 export default function Pagar() {
   const { user } = useAuth()
   const [confirmar, dialogoConfirmacao] = useConfirm()
+  // Quais linhas estão marcadas, e o andamento quando se dá baixa em várias.
+  const [marcados, setMarcados] = useState(() => new Set())
+  const [lote, setLote] = useState(null)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
@@ -337,6 +340,65 @@ export default function Pagar() {
     return data
   }
 
+  // Só conta o que está À VISTA: se um filtro esconde uma linha marcada, ela
+  // não entra na ação. Ninguém dá baixa no que não está vendo.
+  const marcadasVisiveis = filtrados.filter(i => marcados.has(i.id) && !ehPago(i.data))
+  const somaMarcadas = marcadasVisiveis.reduce((soma, i) => soma + (Number(i.data?.value) || 0), 0)
+  const todasMarcadas = filtrados.length > 0 && filtrados.every(i => marcados.has(i.id))
+
+  function alternarMarca(id) {
+    setMarcados(prev => {
+      const novo = new Set(prev)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
+  }
+
+  function alternarTodas(marcar) {
+    setMarcados(marcar ? new Set(filtrados.map(i => i.id)) : new Set())
+  }
+
+  // Dá baixa em todas as marcadas com UMA data. Uma que falhe não derruba as
+  // outras: continua em aberto e aparece no aviso do fim.
+  async function baixarMarcadas() {
+    if (!marcadasVisiveis.length) return
+    const quando = await confirmar({
+      titulo: `${'Marcar como pagas'} — ${marcadasVisiveis.length} lançamento(s)`,
+      texto: `Somam ${fmtMoeda(somaMarcadas)}`,
+      consequencias: [
+        'Todas recebem a mesma data — use quando a baixa foi no mesmo dia.',
+        'Lançamento previsto que ainda não tem código ganha um ao ser paga.',
+        'Se alguma falhar, ela continua em aberto e você é avisada.',
+      ],
+      exigeData: { label: 'Data do pagamento (vale para todas)' },
+      confirmarLabel: `Marcar ${marcadasVisiveis.length} como pagas`,
+      width: 520,
+    })
+    if (!quando) return
+
+    const falhas = []
+    let feitas = 0
+    setLote({ feitas: 0, total: marcadasVisiveis.length })
+    for (const row of marcadasVisiveis) {
+      try {
+        const inteira = await linhaCompleta(row.id)
+        const updates = { data: { ...(inteira.data || {}), status: 'Pago', data_pagamento: quando } }
+        if (!row.codigo) updates.codigo = await proximoCodigoPayable()
+        const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
+        if (error) throw error
+        feitas++
+      } catch (e) {
+        falhas.push(`${row.data?.supplier || row.codigo || 'lançamento'}: ${msgErro(e, 'falhou')}`)
+      }
+      setLote({ feitas: feitas + falhas.length, total: marcadasVisiveis.length })
+    }
+    setLote(null)
+    setMarcados(new Set())
+    if (falhas.length) showToast(`${feitas} pagas, ${falhas.length} com erro — ${falhas[0]}`, 'warning')
+    else showToast(`${feitas} lançamento(s) pagas em ${fmtData(quando)}.`, 'success')
+    recarregar()
+  }
+
   async function abrirEdicao(row) {
     try {
       setEdicao(await linhaCompleta(row.id))
@@ -458,6 +520,7 @@ export default function Pagar() {
 
   const colgroup = (
     <colgroup>
+      <col style={{ width: 38 }} />
       <col style={{ width: 90 }} />
       <col />
       <col />
@@ -625,10 +688,30 @@ export default function Pagar() {
             {rows.length === 0 ? 'Nenhuma conta a pagar cadastrada. Clique em "Nova conta" pra começar.' : 'Nenhum resultado para os filtros.'}
           </div>
         ) : (
+          <>
+          {marcadasVisiveis.length > 0 && (
+            <div style={barraMarcadas}>
+              <span><strong>{marcadasVisiveis.length}</strong> marcada(s) em aberto · somam <strong>{fmtMoeda(somaMarcadas)}</strong></span>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                <button onClick={() => alternarTodas(false)} disabled={!!lote} style={btnMarcadasGhost}>Limpar</button>
+                <button onClick={baixarMarcadas} disabled={!!lote} style={btnMarcadas}>✓ Marcar como pagas</button>
+              </span>
+            </div>
+          )}
+          {lote && <div style={avisoMarcadas}>Dando baixa em {lote.feitas} de {lote.total}…</div>}
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}
             <thead>
               <tr>
+                <th style={{ ...th, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={todasMarcadas}
+                    onChange={e => alternarTodas(e.target.checked)}
+                    title={todasMarcadas ? 'Desmarcar todas' : 'Marcar todas as que estão à vista'}
+                    style={caixaMarca}
+                  />
+                </th>
                 <Th onClick={() => toggleSort('codigo')} active={sortCol === 'codigo'} dir={sortDir}>Cód.</Th>
                 <Th onClick={() => toggleSort('supplier')} active={sortCol === 'supplier'} dir={sortDir}>Fornecedor</Th>
                 <th style={th}>Descrição</th>
@@ -650,6 +733,19 @@ export default function Pagar() {
                     style={trStyle}
                     title="Clique para editar"
                   >
+                    <td
+                      style={{ ...td, textAlign: 'center' }}
+                      onClick={e => e.stopPropagation()}
+                      role="presentation"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={marcados.has(item.id)}
+                        onChange={() => alternarMarca(item.id)}
+                        style={caixaMarca}
+                        aria-label={`Marcar ${item.codigo || 'lançamento'}`}
+                      />
+                    </td>
                     <td style={tdMono}>{item.codigo || '—'}{item.anexo_path && <span style={{ marginLeft: 6, color: 'var(--gold)' }} title="Anexo fiscal">📎</span>}</td>
                     <td style={td}>{d.supplier || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.desc || '—'}</td>
@@ -695,6 +791,7 @@ export default function Pagar() {
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
 
@@ -849,6 +946,11 @@ const tableWrap = {
   boxShadow: 'var(--shadow)',
   overflow: 'hidden',
 }
+const caixaMarca = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
+const barraMarcadas = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 10, borderRadius: 7, background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', fontSize: 12, color: 'var(--navy)' }
+const avisoMarcadas = { padding: '8px 14px', marginBottom: 10, borderRadius: 7, background: 'var(--cream)', fontSize: 12, fontWeight: 600, color: 'var(--text-mid)' }
+const btnMarcadas = { padding: '5px 12px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const btnMarcadasGhost = { padding: '5px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = {
   textAlign: 'left', padding: '12px 14px',

@@ -29,33 +29,38 @@ export default function ConfirmDialog({
   cancelarLabel = 'Cancelar',
   variante = 'normal',      // 'perigo' = ação destrutiva (botão vermelho)
   exigeTexto = null,        // { label, minimo, placeholder }
+  exigeData = null,         // { label, padrao } — devolve a data escolhida
   onConfirm,
   onCancel,
   width = 480,
 }) {
   const [valor, setValor] = useState('')
+  const [data, setData] = useState('')
   const refConfirmar = useRef(null)
   const refCancelar = useRef(null)
   const refCampo = useRef(null)
   const perigo = variante === 'perigo'
   const minimo = exigeTexto?.minimo ?? 0
-  const textoOk = !exigeTexto || valor.trim().length >= minimo
+  const dataOk = !exigeData || /^\d{4}-\d{2}-\d{2}$/.test(data)
+  const textoOk = (!exigeTexto || valor.trim().length >= minimo) && dataOk
 
   // Reabriu: limpa o campo e põe o foco no botão SEGURO (cancelar, quando é
   // destrutivo) — ninguém apaga nada só por apertar Enter sem ler.
   useEffect(() => {
     if (!open) return
     setValor('')
+    setData(exigeData?.padrao || new Date().toISOString().slice(0, 10))
     const t = setTimeout(() => {
-      if (exigeTexto) refCampo.current?.focus()
+      if (exigeTexto || exigeData) refCampo.current?.focus()
       else if (perigo) refCancelar.current?.focus()
       else refConfirmar.current?.focus()
     }, 0)
     return () => clearTimeout(t)
-  }, [open, perigo, exigeTexto])
+  }, [open, perigo, exigeTexto, exigeData])
 
   function confirmar() {
     if (!textoOk) return
+    if (exigeData) return onConfirm?.(data)
     onConfirm?.(exigeTexto ? valor.trim() : true)
   }
 
@@ -85,6 +90,20 @@ export default function ConfirmDialog({
         </div>
       )}
 
+      {exigeData && (
+        <label style={campoWrap}>
+          <span style={campoLabel}>{exigeData.label || 'Data'}</span>
+          <input
+            ref={exigeTexto ? undefined : refCampo}
+            type="date"
+            value={data}
+            onChange={e => setData(e.target.value)}
+            style={{ ...campoInput, maxWidth: 200 }}
+          />
+          {!dataOk && <span style={{ ...campoAjuda, color: 'var(--orange)' }}>Escolha uma data válida.</span>}
+        </label>
+      )}
+
       {exigeTexto && (
         <label style={campoWrap}>
           <span style={campoLabel}>{exigeTexto.label || 'Justificativa'}</span>
@@ -110,7 +129,8 @@ export default function ConfirmDialog({
 /**
  * Hook: devolve [confirmar, elementoDoDialogo].
  * `confirmar(opcoes)` abre o diálogo e devolve uma Promise que resolve
- * `false` (cancelou), `true` (confirmou) ou o texto digitado (com exigeTexto).
+ * `false` (cancelou), `true` (confirmou), o texto digitado (com exigeTexto)
+ * ou a data escolhida (com exigeData).
  */
 export function useConfirm() {
   const [pedido, setPedido] = useState(null) // { opcoes }
