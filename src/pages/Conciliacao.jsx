@@ -7,6 +7,7 @@ import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { parseOFX, detectarTipoOFX } from '../lib/ofx'
 import { sugerirMatches, classificarLinha } from '../lib/matchExtrato'
+import { construirRegrasDeConciliacao, regraParaLinha, explicarRegra } from '../lib/regrasConciliacao'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable } from '../lib/codigos'
 import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } from '../lib/faturaCartao'
 import { rotuloFatura } from '../lib/fatura'
@@ -139,12 +140,20 @@ export default function Conciliacao() {
       supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
       supabase.from('transferencias').select('*'),
       supabase.from('pessoas').select('id, data'),
-    ]).then(([rE, rR, rP, rPer, rT, rPessoas]) => {
+      // O que já foi conciliado é o material de aprendizado: é dele que sai a
+      // proposta para a próxima vez que a mesma cobrança aparecer.
+      supabase.from('payable').select('id, extrato_id, data').not('extrato_id', 'is', null),
+      supabase.from('receivable').select('id, extrato_id, data').not('extrato_id', 'is', null),
+    ]).then(([rE, rR, rP, rPer, rT, rPessoas, rPagos, rRecebidos]) => {
       const err = rE.error || rR.error || rP.error
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
       setExtratos(rE.data || [])
       setPessoas((rPessoas?.data || []).map(p => ({ nome: p.data?.nome, doc: p.data?.doc })))
+      setJaConciliados([
+        ...(rPagos?.data || []).map(l => ({ ...l, tabela: 'payable' })),
+        ...(rRecebidos?.data || []).map(l => ({ ...l, tabela: 'receivable' })),
+      ])
       // PORTÃO DA ESCRITURAÇÃO: só nota ESCRITURADA é candidata a conciliar. Uma nota
       // não revisada (escriturado != true) não sobe pra conciliação — é a 1ª camada da
       // metodologia (escrituração contábil antes do cruzamento financeiro).
@@ -252,6 +261,7 @@ export default function Conciliacao() {
   // ── Upload ───────────────────────────────────────────────────────────
   const [confirmar, dialogoConfirmacao] = useConfirm()
   const [pessoas, setPessoas] = useState([])
+  const [jaConciliados, setJaConciliados] = useState([])
 
   async function handleUpload(e) {
     const file = e.target.files?.[0]
@@ -499,13 +509,20 @@ export default function Conciliacao() {
     finally { setConciliando(false) }
   }
 
+  useEffect(() => {
+    if (!propostaDaLinha) return
+    setNCat(propostaDaLinha.cat || '')
+    setNSubcat(propostaDaLinha.subcat || '')
+  }, [propostaDaLinha])
+
   async function criarLancamento(extrato) {
     if (!user) return
     if (!nCat) { showToast('Escolha a categoria do lançamento.', 'warning'); return }
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
     const dataExt = extrato.data?.data
     const novoLanc = {
-      [tipoTabela === 'receivable' ? 'client' : 'supplier']: (extrato.data?.descricao || '').substring(0, 80),
+      [tipoTabela === 'receivable' ? 'client' : 'supplier']:
+        (propostaDaLinha?.parte || extrato.data?.descricao || '').substring(0, 80),
       desc: extrato.data?.descricao,
       value: Number(extrato.data?.valor || 0),
       due: dataExt, data_pagamento: dataExt,
@@ -731,6 +748,16 @@ export default function Conciliacao() {
   const naturezaDaLinha = useMemo(
     () => classificarLinha(selecionadoExt?.data || {}),
     [selecionadoExt],
+  )
+
+  // O que já foi decidido à mão para cobranças iguais a esta.
+  const regras = useMemo(
+    () => construirRegrasDeConciliacao(extratos, jaConciliados),
+    [extratos, jaConciliados],
+  )
+  const propostaDaLinha = useMemo(
+    () => regraParaLinha(selecionadoExt?.data?.descricao, regras),
+    [selecionadoExt, regras],
   )
 
   const lancsRank = useMemo(() => {
@@ -1016,6 +1043,12 @@ export default function Conciliacao() {
                       <input type="checkbox" checked={notasNoPeriodo} onChange={e => setNotasNoPeriodo(e.target.checked)} /> só do período
                     </label>
                   </div>
+                  {propostaDaLinha && (
+                    <div style={avisoProposta}>
+                      <strong>Já vi esta cobrança antes.</strong> {explicarRegra(propostaDaLinha)}{' '}
+                      Deixei a classificação preenchida abaixo — confira e mude se for o caso.
+                    </div>
+                  )}
                   {naturezaDaLinha.tipo !== 'comum' && (
                     <div style={avisoNatureza}>
                       <strong>{naturezaDaLinha.rotulo}.</strong> {naturezaDaLinha.explicacao}
@@ -1155,6 +1188,7 @@ const extRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 
 const extRowSel = { background: 'var(--cream)', borderLeftColor: 'var(--gold)' }
 const dicaVazia = { padding: '30px 18px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 13, lineHeight: 1.6 }
 const acoesBar = { display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 4px 12px', borderBottom: '1px dashed var(--cream-dark)', marginBottom: 10 }
+const avisoProposta = { margin: '0 4px 10px', padding: '9px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--navy)' }
 const avisoNatureza = { margin: '0 4px 10px', padding: '9px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, background: 'rgba(0,32,62,0.05)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)' }
 const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '8px 4px 6px' }
 const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
