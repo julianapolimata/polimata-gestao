@@ -12,6 +12,7 @@ import {
 } from '../lib/escrituracao'
 import SeletorNF from './components/SeletorNF'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento } from '../lib/fechamento'
+import { useConfirm } from '../components/ConfirmDialog'
 
 // =====================================================================
 // ESCRITURAÇÃO — 1ª camada da conciliação. Mostra tudo que está
@@ -211,14 +212,23 @@ export default function ClassificarLancamentos() {
   }
 
   // Escritura em lote todos os grupos que têm regra aprendida (recorrentes).
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function escriturarAutomaticas() {
     const alvo = gruposComRegra
     if (!alvo.length) { showToast('Nenhuma recorrente reconhecida agora.', 'info'); return }
-    if (!window.confirm(
-      `${alvo.length} grupo(s) recorrente(s) reconhecido(s) pelo histórico.\n\n` +
-      'Escriturar automaticamente, copiando fielmente a classificação já aprovada por você? ' +
-      'Fica tudo marcado como automático e você pode reverter.'
-    )) return
+    const ok = await confirmar({
+      titulo: `Escriturar ${alvo.length} grupo(s) reconhecido(s)?`,
+      texto: 'São despesas e receitas que se repetem e que você já classificou antes.',
+      consequencias: [
+        'A classificação copiada é exatamente a que você aprovou da última vez — nada é inventado.',
+        'Cada lançamento fica marcado como escriturado automaticamente.',
+        'Lançamento em mês fechado fica de fora, e você é avisada.',
+        'Dá para reverter depois, um a um.',
+      ],
+      confirmarLabel: 'Escriturar automaticamente',
+    })
+    if (!ok) return
     setAutoRodando(true)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
@@ -255,7 +265,18 @@ export default function ClassificarLancamentos() {
   // Escritura de uma vez tudo que está pronto — transforma a fila numa sessão de minutos.
   async function escriturarProntos() {
     if (!totalProntos) { showToast('Nada pronto ainda — preencha categoria e situação fiscal (e anexe a nota nos "Tenho a nota").', 'info'); return }
-    if (!window.confirm(`Escriturar ${totalProntos} lançamento(s) em ${gruposProntos.length} grupo(s) com a classificação pré-carregada?\n\nConfira os grupos antes: o que estiver desmarcado ou sem a nota anexada fica na fila.`)) return
+    const ok = await confirmar({
+      titulo: `Escriturar ${totalProntos} lançamento(s)?`,
+      texto: `Estão em ${gruposProntos.length} grupo(s), com a classificação já preenchida.`,
+      consequencias: [
+        'Só entra o que está marcado e com a nota anexada.',
+        'O que estiver desmarcado, ou sem nota, continua na fila esperando.',
+        'Depois de escriturado, o lançamento passa a contar na DRE e libera a conciliação.',
+      ],
+      confirmarLabel: `Escriturar ${totalProntos}`,
+      width: 520,
+    })
+    if (!ok) return
     setAutoRodando(true)
     const table = aba === 'Saída' ? 'payable' : 'receivable'
     const agora = new Date().toISOString()
@@ -289,7 +310,19 @@ export default function ClassificarLancamentos() {
     const itens = grupo.itens.filter(it => !emMesFechado(it))
     const pulados = grupo.itens.length - itens.length
     if (!itens.length) { avisarPulados(pulados); return }
-    if (!window.confirm(`"${grupo.nome}" (${itens.length} lançamento(s)${pulados ? `, ${pulados} em mês fechado ficam de fora` : ''}) é ${aba === 'Saída' ? 'receita' : 'despesa'}?\n\nMover para ${nomeDest}. Valores e anexos preservados; a escrituração continua pendente lá.`)) return
+    const ok = await confirmar({
+      titulo: `"${grupo.nome}" é ${aba === 'Saída' ? 'receita' : 'despesa'}?`,
+      texto: `${itens.length} lançamento(s) sairiam de ${aba === 'Saída' ? 'Despesas' : 'Receitas'} e iriam para ${nomeDest}.`,
+      consequencias: [
+        'Valor, data e anexos são preservados — muda o lado, não o conteúdo.',
+        'A escrituração continua pendente no destino: a classificação é refeita lá.',
+        ...(pulados ? [`${pulados} lançamento(s) em mês fechado ficam onde estão.`] : []),
+      ],
+      confirmarLabel: `Mover para ${nomeDest}`,
+      variante: 'perigo',
+      width: 520,
+    })
+    if (!ok) return
     avisarPulados(pulados)
     setSalvando(grupo.key)
     try {
@@ -475,6 +508,7 @@ export default function ClassificarLancamentos() {
         onClose={() => setSeletorNF(null)}
         onVinculado={() => { setSeletorNF(null); carregar() }}
       />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

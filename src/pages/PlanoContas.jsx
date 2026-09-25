@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import { CLASSIFICACOES, invalidarPlanoContas } from '../lib/planoContas'
 import { construirRegras, chaveRecorrente, rotuloSituacaoFiscal } from '../lib/escrituracao'
 
@@ -147,6 +148,8 @@ export default function PlanoContas() {
     if (ok) { setNovaCatAberta(false); setNovaCat({ nome: '', classificacao: '', primeiraSub: '', na_dre: true }); carregar() }
   }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function confirmarRenomearCat() {
     const { categoria, valor } = renomeandoCat
     const novo = valor.trim()
@@ -155,11 +158,19 @@ export default function PlanoContas() {
       showToast('Já existe uma categoria com esse nome neste tipo.', 'warning'); return
     }
     const n = usoCat(categoria)
-    const msg = `Renomear a categoria "${categoria}" para "${novo}"?\n\n`
-      + (n > 0
-        ? `Os ${n} lançamentos já classificados continuam com o nome antigo ("${categoria}"); use a Escrituração para reclassificar.`
-        : 'Nenhum lançamento usa esta categoria.')
-    if (!window.confirm(msg)) return
+    const confirmado = await confirmar({
+      titulo: `Renomear "${categoria}" para "${novo}"?`,
+      consequencias: n > 0
+        ? [
+          `${n} lançamento(s) já classificados CONTINUAM com o nome antigo ("${categoria}").`,
+          'O nome novo vale só para as classificações daqui em diante.',
+          'Para trazer os antigos, reclassifique pela Escrituração.',
+        ]
+        : ['Nenhum lançamento usa esta categoria hoje — nada muda no que já existe.'],
+      confirmarLabel: 'Renomear',
+      width: 520,
+    })
+    if (!confirmado) return
     const ok = await gravar(async () => {
       const { error } = await supabase.from('plano_contas').update({ categoria: novo }).eq('tipo', aba).eq('categoria', categoria)
       if (error) throw error
@@ -175,11 +186,19 @@ export default function PlanoContas() {
       showToast('Já existe uma subcategoria com esse nome nesta categoria.', 'warning'); return
     }
     const n = usoSub(linha.categoria, linha.subcategoria)
-    const msg = `Renomear a subcategoria "${linha.subcategoria}" para "${novo}"?\n\n`
-      + (n > 0
-        ? `Os ${n} lançamentos já classificados continuam com o nome antigo ("${linha.subcategoria}"); use a Escrituração para reclassificar.`
-        : 'Nenhum lançamento usa esta subcategoria.')
-    if (!window.confirm(msg)) return
+    const confirmado = await confirmar({
+      titulo: `Renomear "${linha.subcategoria}" para "${novo}"?`,
+      consequencias: n > 0
+        ? [
+          `${n} lançamento(s) já classificados CONTINUAM com o nome antigo ("${linha.subcategoria}").`,
+          'O nome novo vale só para as classificações daqui em diante.',
+          'Para trazer os antigos, reclassifique pela Escrituração.',
+        ]
+        : ['Nenhum lançamento usa esta subcategoria hoje — nada muda no que já existe.'],
+      confirmarLabel: 'Renomear',
+      width: 520,
+    })
+    if (!confirmado) return
     const ok = await gravar(async () => {
       const { error } = await supabase.from('plano_contas').update({ subcategoria: novo }).eq('id', linha.id)
       if (error) throw error
@@ -190,9 +209,17 @@ export default function PlanoContas() {
   async function excluirSub(linha) {
     if (usoSub(linha.categoria, linha.subcategoria) > 0) return
     const ultima = plano.filter(p => p.tipo === aba && p.categoria === linha.categoria).length === 1
-    const msg = `Excluir a subcategoria "${linha.subcategoria}" de ${linha.categoria}?`
-      + (ultima ? `\n\nÉ a última subcategoria: a categoria "${linha.categoria}" também some do plano de contas.` : '')
-    if (!window.confirm(msg)) return
+    const confirmado = await confirmar({
+      titulo: `Excluir "${linha.subcategoria}"?`,
+      texto: `Ela está em ${linha.categoria}.`,
+      consequencias: [
+        'Nenhum lançamento usa esta subcategoria — por isso a exclusão é permitida.',
+        ...(ultima ? [`É a última subcategoria: a categoria "${linha.categoria}" também sai do plano de contas.`] : []),
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!confirmado) return
     const ok = await gravar(async () => {
       const { error } = await supabase.from('plano_contas').delete().eq('id', linha.id)
       if (error) throw error
@@ -414,6 +441,7 @@ export default function PlanoContas() {
           </table>
         )}
       </div>
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

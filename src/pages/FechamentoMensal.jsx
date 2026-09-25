@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { fmtMoney } from '../lib/finance'
 import { invalidarFechamentos, mesFechado, mesLabel, traduzErroFechamento } from '../lib/fechamento'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 
@@ -244,12 +245,25 @@ export default function FechamentoMensal() {
   const revisarCount = useMemo(() => (extratos || []).filter(e => e.rev === 'true' || e.rev === true).length, [extratos])
 
   // ── Ações ────────────────────────────────────────────────────────────
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function fechar(m) {
     const excecoes = m.avisosFalta.map(i => ({ key: i.key, label: i.label, detalhe: i.detalhe }))
-    const msg = excecoes.length
-      ? `Fechar ${mesLabel(m.comp)} com ${excecoes.length} exceção(ões) que ficarão registradas?\n\n` + excecoes.map(x => `• ${x.label} — ${x.detalhe}`).join('\n') + '\n\nDepois de fechado, só baixa de pagamento/recebimento e prova fiscal podem mudar neste mês.'
-      : `Fechar ${mesLabel(m.comp)}?\n\nDepois de fechado, só baixa de pagamento/recebimento e prova fiscal podem mudar neste mês.`
-    if (!window.confirm(msg)) return
+    const ok = await confirmar({
+      titulo: `Fechar ${mesLabel(m.comp)}?`,
+      texto: excecoes.length
+        ? `Há ${excecoes.length} pendência(s) que ficarão registradas como exceção do fechamento.`
+        : 'O mês está sem pendências.',
+      consequencias: [
+        ...excecoes.map(x => `Exceção registrada: ${x.label} — ${x.detalhe}`),
+        'Depois de fechado, o mês é travado no banco: nem o sistema consegue alterar lançamento dele.',
+        'Só continuam liberadas a baixa de pagamento ou recebimento e a prova fiscal.',
+        'Reabrir depois é possível, mas exige justificativa e fica no registro.',
+      ],
+      confirmarLabel: `Fechar ${mesLabel(m.comp)}`,
+      width: 560,
+    })
+    if (!ok) return
     setAgindo(m.comp)
     try {
       const { error } = await supabase.rpc('fechar_mes', {
@@ -267,9 +281,24 @@ export default function FechamentoMensal() {
   }
 
   async function reabrir(m) {
-    const just = window.prompt(`Reabrir ${mesLabel(m.comp)} — informe o motivo (mínimo 10 caracteres). Fica registrado no log.`)
-    if (just === null) return
-    if (String(just).trim().length < 10) { showToast('Justificativa muito curta (mínimo 10 caracteres).', 'warning'); return }
+    const just = await confirmar({
+      titulo: `Reabrir ${mesLabel(m.comp)}?`,
+      texto: 'O mês volta a aceitar alterações.',
+      consequencias: [
+        'A trava do banco sai: lançamentos daquele mês voltam a poder mudar.',
+        'Números já apurados a partir dele (DRE, impostos) podem mudar junto.',
+        'A justificativa abaixo fica registrada com a data e quem reabriu.',
+      ],
+      exigeTexto: {
+        label: 'Por que precisa reabrir?',
+        minimo: 10,
+        placeholder: 'Ex.: nota de setembro chegou depois do fechamento e precisa entrar na competência certa',
+      },
+      confirmarLabel: 'Reabrir o mês',
+      variante: 'perigo',
+      width: 560,
+    })
+    if (!just) return
     setAgindo(m.comp)
     try {
       const { error } = await supabase.rpc('reabrir_mes', { p_competencia: m.comp, p_justificativa: just.trim() })
@@ -443,6 +472,7 @@ export default function FechamentoMensal() {
         <em> DAS / impostos</em> = guias que a empresa recolhe (DAS, INSS/FGTS, taxas) já pagas · <em>Caixa de entrada</em> = NFs lidas do e-mail até o fim do mês já revisadas ·
         <em> Mês anterior fechado</em> = ordem cronológica. Provisões não contam. Obrigatórios travam o botão; avisos viram exceção registrada.
       </div>
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }
