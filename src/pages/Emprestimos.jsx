@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import { fmtMoney } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
 
@@ -127,9 +128,22 @@ export default function Emprestimos() {
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluir(row, e) {
     e.stopPropagation()
-    if (!confirm(`Excluir "${row.nome || row.credor}"? As parcelas em Contas a Pagar NÃO serão excluídas.`)) return
+    const ok = await confirmar({
+      titulo: `Excluir "${row.nome || row.credor}"?`,
+      consequencias: [
+        'As parcelas já lançadas em Contas a Pagar CONTINUAM lá — elas não são apagadas.',
+        'O que se perde é o vínculo: o sistema deixa de saber que aquelas parcelas são deste empréstimo.',
+        'O saldo devedor deixa de ser acompanhado.',
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+      width: 520,
+    })
+    if (!ok) return
     const { error } = await supabase.from('emprestimos_financiamentos').delete().eq('id', row.id)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast('Excluído.', 'info')
@@ -253,6 +267,7 @@ export default function Emprestimos() {
       </div>
 
       <ModalEmprestimo open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} reais={edicao ? (reais[edicao.id] || null) : null} onSaved={recarregar} />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
+import { useConfirm } from '../../components/ConfirmDialog'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable } from '../../lib/codigos'
@@ -360,6 +361,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   // Corrige lançamento que entrou na direção errada (ex.: uma compra que caiu
   // em Receber). Troca client⇄supplier, limpa categoria (as do plano de contas
   // diferem entre receita e despesa) e gera código na tabela de destino.
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function moverEntreContas() {
     if (!isEdit || !registro) return
     const destino = isRec ? 'payable' : 'receivable'
@@ -369,7 +372,18 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     // Mover = insert + delete: ambos recusados em mês fechado.
     const compMov = competenciaDe(registro.data)
     if (mesFechado(fechamentos, compMov)) { showToast(msgMesFechado(compMov), 'warning'); return }
-    if (!window.confirm(`Mover este lançamento para ${nomeDestino}?\n\nA categoria será limpa (as categorias de receita e despesa são diferentes) — você reclassifica depois. O anexo e os valores são preservados.`)) return
+    const ok = await confirmar({
+      titulo: `Mover este lançamento para ${nomeDestino}?`,
+      consequencias: [
+        'O valor, as datas e o anexo são preservados.',
+        'A categoria é limpa: as categorias de receita e de despesa são listas diferentes.',
+        'Ele volta para a fila da Escrituração, para você classificar do lado novo.',
+      ],
+      confirmarLabel: `Mover para ${nomeDestino}`,
+      variante: 'perigo',
+      width: 520,
+    })
+    if (!ok) return
     setSaving(true)
     try {
       const orig = { ...(registro.data || {}) }
@@ -654,6 +668,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         onClose={() => setVincOpen(false)}
         onVinculado={() => { setVincOpen(false); showToast('NF vinculada ao lançamento.', 'success'); onSaved?.(); onClose?.() }}
       />
+    {dialogoConfirmacao}
     </Modal>
   )
 }

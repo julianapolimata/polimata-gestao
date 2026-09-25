@@ -6,6 +6,7 @@ import AppLayout from '../components/AppLayout'
 
 import { fmtMoney, flatten, ehOperacional } from '../lib/finance'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import { proximoCodigoPayable } from '../lib/codigos'
 import { fetchPlanoContas } from '../lib/planoContas'
 import {
@@ -375,21 +376,29 @@ export default function SimplesNacional() {
   // Conta a pagar do DAS já gerada para este período? (uma por período: periodo_apuracao + criado_via_simples)
   const dasLancado = useMemo(() => payable.find(p => p.data?.criado_via_simples === true && p.data?.periodo_apuracao === mesSelecionado) || null, [payable, mesSelecionado])
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function gerarContaDAS() {
     if (!user || dasLancado || gerandoDAS) return
     const valor = Math.round(projecao.dasLiquido * 100) / 100
     if (valor <= 0) return
-    const ok = window.confirm(
-      `Gerar conta a pagar do DAS de ${labelMes}?\n\n`
-      + `Valor: ${fmtMoney(valor)}\n`
-      + `Anexo ${anexoEfetivo} · Faixa ${faixaInfo.faixa} · alíquota efetiva ${fmtPct(aliquotaEf)}\n`
-      + (issInfo.receitaComRetencao > 0
-        ? `Receita com ISS retido: ${fmtMoney(issInfo.receitaComRetencao)} — já sem a parcela de ISS (${fmtPct(pctIssFaixa)} da alíquota)\n`
-        : '')
-      + (issInfo.estimado > 0 ? `Abatimento estimado (ISS retido sem vínculo): ${fmtMoney(issInfo.estimado)}\n` : '')
-      + `Vencimento: ${fmtDataBR(vencimento)}\n\n`
-      + 'Entra em Contas a Pagar como Pendente, já escriturada (guia DAS, sem NF). Se o PGDAS-D fechar outro valor, ajuste a conta lá.'
-    )
+    const ok = await confirmar({
+      titulo: `Gerar a conta a pagar do DAS de ${labelMes}?`,
+      texto: `${fmtMoney(valor)} · vence em ${fmtDataBR(vencimento)}`,
+      consequencias: [
+        `Anexo ${anexoEfetivo}, faixa ${faixaInfo.faixa}, alíquota efetiva de ${fmtPct(aliquotaEf)}.`,
+        ...(issInfo.receitaComRetencao > 0
+          ? [`Receita com ISS retido: ${fmtMoney(issInfo.receitaComRetencao)} — já sem a parcela de ISS (${fmtPct(pctIssFaixa)} da alíquota).`]
+          : []),
+        ...(issInfo.estimado > 0
+          ? [`Abatimento estimado de ISS retido sem vínculo: ${fmtMoney(issInfo.estimado)}.`]
+          : []),
+        'Entra em Contas a Pagar como Pendente, já escriturada como guia (sem nota fiscal).',
+        'Se o PGDAS-D fechar outro valor, o certo é ajustar a conta lá — este cálculo é uma estimativa do sistema.',
+      ],
+      confirmarLabel: 'Gerar a conta',
+      width: 580,
+    })
     if (!ok) return
     setGerandoDAS(true)
     try {
@@ -786,6 +795,7 @@ export default function SimplesNacional() {
           </table>
         </div>
       )}
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import ModalRecorrencia from './components/ModalRecorrencia'
 import { fmtMoney, fmtDate } from '../lib/finance'
 import { FREQUENCIAS, proximaOcorrencia, valorMensalEquivalente } from '../lib/recorrencias'
@@ -68,8 +69,20 @@ export default function Recorrencias() {
 
   function nova() { setEdicao(null); setModalOpen(true) }
   function editar(r) { setEdicao(r); setModalOpen(true) }
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluir(r) {
-    if (!confirm(`Excluir a recorrência "${r.data?.descricao || ''}"? A projeção dela some do Fluxo. Lançamentos já criados não são afetados.`)) return
+    const ok = await confirmar({
+      titulo: `Excluir a recorrência "${r.data?.descricao || ''}"?`,
+      consequencias: [
+        'A projeção dela some do Fluxo de Caixa.',
+        'Os lançamentos que ela já gerou continuam onde estão.',
+        'Nada é gerado por ela daqui em diante.',
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!ok) return
     const { error } = await supabase.from('recurring_masters').delete().eq('id', r.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
     showToast('Recorrência excluída.', 'info')
@@ -162,6 +175,7 @@ export default function Recorrencias() {
       </div>
 
       <ModalRecorrencia open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={carregar} />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

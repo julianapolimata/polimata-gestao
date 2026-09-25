@@ -2,16 +2,30 @@ import { useEffect } from 'react'
 
 // Modal genérico — overlay + container + ESC + click off + scroll lock.
 // Inclui slot title (string), corpo (children) e footer (nó React) opcionais.
+// Modais abertos, do mais antigo ao mais recente. Quando um diálogo abre em
+// cima de outro (confirmar uma ação dentro de um cadastro, por exemplo), só o de
+// CIMA responde ao Esc — senão uma tecla fecharia os dois e levaria junto tudo
+// que estava sendo digitado embaixo.
+const pilhaDeModais = []
+
 export default function Modal({ open, onClose, title, children, footer, width = 640 }) {
   useEffect(() => {
     if (!open) return undefined
-    const handler = e => { if (e.key === 'Escape') onClose() }
+    const marca = {}
+    pilhaDeModais.push(marca)
+    const handler = e => {
+      if (e.key !== 'Escape') return
+      if (pilhaDeModais[pilhaDeModais.length - 1] !== marca) return
+      onClose()
+    }
     window.addEventListener('keydown', handler)
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', handler)
       document.body.style.overflow = prevOverflow
+      const i = pilhaDeModais.indexOf(marca)
+      if (i >= 0) pilhaDeModais.splice(i, 1)
     }
   }, [open, onClose])
   if (!open) return null

@@ -6,6 +6,7 @@ import EstadoErro from '../components/EstadoErro'
 import ModalContrato from './components/ModalContrato'
 import ModalProjeto from './components/ModalProjeto'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 
 function fmtMoeda(v) {
   const n = parseFloat(v) || 0
@@ -80,10 +81,21 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluir(row, e) {
     e?.stopPropagation()
     const nome = row.data?.name || row.data?.party || row.codigo || `este ${novoLabel}`
-    if (!confirm(`Excluir "${nome}"?`)) return
+    const ok = await confirmar({
+      titulo: `Excluir "${nome}"?`,
+      consequencias: [
+        'O item sai do catálogo e deixa de ser oferecido nos lançamentos novos.',
+        'O que já foi lançado com ele continua como está.',
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!ok) return
     const { error } = await supabase.from(tabela).delete().eq('id', row.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
     showToast(`${isContrato ? 'Contrato' : 'Projeto'} excluído.`, 'info')
@@ -199,6 +211,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
       ) : (
         <ModalProjeto open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} />
       )}
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

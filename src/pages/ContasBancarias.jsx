@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import ModalContaBancaria from './components/ModalContaBancaria'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import { fmtMoney } from '../lib/finance'
 
 // Cartão de crédito é uma conta própria (data.tipo === 'cartao', saldo negativo)
@@ -57,13 +58,29 @@ export default function ContasBancarias() {
   function abrirNovo(tipo = 'corrente') { setEdicao(null); setTipoInicial(tipo); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluir(row, e) {
     e?.stopPropagation()
     const nome = row.data?.nome || ''
-    const msg = isCartao(row)
-      ? `Excluir o cartão "${nome}"? As compras já lançadas continuam registradas, mas perdem o vínculo com o cartão.`
-      : `Excluir conta "${nome}"?`
-    if (!confirm(msg)) return
+    const ok = await confirmar({
+      titulo: isCartao(row) ? `Excluir o cartão "${nome}"?` : `Excluir a conta "${nome}"?`,
+      consequencias: isCartao(row)
+        ? [
+          'As compras já lançadas continuam registradas.',
+          'Elas perdem o vínculo com o cartão: a fatura deixa de se formar.',
+          'O saldo do cartão some do Início.',
+        ]
+        : [
+          'Os lançamentos ligados a esta conta continuam existindo.',
+          'O extrato importado e as conciliações dela deixam de ter conta.',
+          'O saldo dela some do Início.',
+        ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+      width: 520,
+    })
+    if (!ok) return
     const { error } = await supabase.from('contas_bancarias').delete().eq('id', row.id)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast(isCartao(row) ? 'Cartão excluído.' : 'Conta excluída.', 'info'); recarregar()
@@ -164,6 +181,7 @@ export default function ContasBancarias() {
       </div>
 
       <ModalContaBancaria open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} onSaved={recarregar} tipoInicial={tipoInicial} />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

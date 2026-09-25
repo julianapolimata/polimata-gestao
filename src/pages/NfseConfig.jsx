@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 import ModalNfseModelo from './components/ModalNfseModelo'
 import { preencherModelo, EXEMPLO_MODELO } from '../lib/nfseModelos'
 
@@ -113,8 +114,19 @@ export default function NfseConfig() {
 
   function novoModelo() { setModeloEdicao(null); setModalOpen(true) }
   function editarModelo(m) { setModeloEdicao(m); setModalOpen(true) }
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluirModelo(m) {
-    if (!confirm(`Excluir o modelo "${m.data?.nome || ''}"?`)) return
+    const ok = await confirmar({
+      titulo: `Excluir o modelo "${m.data?.nome || ''}"?`,
+      consequencias: [
+        'Ele deixa de aparecer na hora de emitir a nota.',
+        'Notas já emitidas com este modelo não mudam.',
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!ok) return
     const { error } = await supabase.from('nfse_modelos').delete().eq('id', m.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
     showToast('Modelo excluído.', 'info')
@@ -327,6 +339,7 @@ export default function NfseConfig() {
       </div>
 
       <ModalNfseModelo open={modalOpen} onClose={() => setModalOpen(false)} registro={modeloEdicao} onSaved={carregar} />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

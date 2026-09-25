@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 
 const TIPO_LABEL = {
   ofx_extrato: '🏦 OFX Extrato bancário',
@@ -95,9 +96,28 @@ export default function Importacoes() {
     window.open(data.signedUrl, '_blank')
   }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function reverter(imp) {
     if (imp.status === 'revertida') { showToast('Já revertida.', 'info'); return }
-    if (!confirm(`Reverter "${imp.arquivo_nome}"? Vai DELETAR os ${imp.qtd_registros} lançamentos vinculados. Esta ação não pode ser desfeita.`)) return
+    const motivo = await confirmar({
+      titulo: `Reverter a importação de "${imp.arquivo_nome}"?`,
+      texto: `${imp.qtd_registros} lançamento(s) foram criados por ela.`,
+      consequencias: [
+        `Os ${imp.qtd_registros} lançamentos vinculados serão APAGADOS do sistema.`,
+        'O que foi conciliado ou escriturado a partir deles se desfaz junto.',
+        'Não dá para desfazer esta ação: para ter os lançamentos de volta, é importar o arquivo outra vez.',
+      ],
+      exigeTexto: {
+        label: 'Por que está revertendo?',
+        minimo: 5,
+        placeholder: 'Ex.: arquivo do mês errado · importei duas vezes',
+      },
+      confirmarLabel: 'Reverter e apagar',
+      variante: 'perigo',
+      width: 560,
+    })
+    if (!motivo) return
     try {
       // Reversão atômica no banco: apaga os lançamentos vinculados nas 3 tabelas
       // e marca a importação como revertida numa única transação (RPC). Antes,
@@ -240,6 +260,7 @@ export default function Importacoes() {
           </table>
         )}
       </div>
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }

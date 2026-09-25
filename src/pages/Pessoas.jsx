@@ -5,6 +5,7 @@ import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import ModalPessoa from './components/ModalPessoa'
 import { showToast } from '../components/Toast'
+import { useConfirm } from '../components/ConfirmDialog'
 
 function fmtDoc(s) {
   if (!s) return '—'
@@ -54,10 +55,22 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function excluir(row, e) {
     e?.stopPropagation()
     const nome = row.data?.nome || row.codigo || 'este cadastro'
-    if (!confirm(`Excluir "${nome}"? Esta ação não pode ser desfeita.`)) return
+    const ok = await confirmar({
+      titulo: `Excluir "${nome}"?`,
+      consequencias: [
+        'O cadastro sai da lista de pessoas e empresas.',
+        'Lançamentos já feitos no nome dela continuam existindo, com o nome gravado.',
+        'Não dá para desfazer: para ter de volta, é cadastrar de novo.',
+      ],
+      confirmarLabel: 'Excluir',
+      variante: 'perigo',
+    })
+    if (!ok) return
     const { error } = await supabase.from('pessoas').delete().eq('id', row.id)
     if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return }
     showToast('Cadastro excluído.', 'info')
@@ -175,6 +188,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
         registro={edicao}
         onSaved={recarregar}
       />
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }
