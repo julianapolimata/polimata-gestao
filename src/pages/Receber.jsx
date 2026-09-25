@@ -45,8 +45,25 @@ function ehPrevisto(d) {
 function emAberto(d) { return !ehRecebido(d) && !ehPrevisto(d) }
 function estaVencido(d) { return emAberto(d) && isOverdue(d?.due) }
 
-function statusCfg(d) {
-  if (ehRecebido(d)) return { label: 'Recebido', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
+// Tem prova bancária? A linha do extrato conciliada é a prova de que o
+// dinheiro saiu (ou entrou). Sem ela, "recebido" é uma afirmação — legítima em
+// vários casos (dinheiro, conta que não se importa, extrato que ainda não
+// chegou), mas que não pode aparecer igual ao que foi conferido.
+function temConferenciaBancaria(row) {
+  return !!(row?.conciliado_em || row?.data?.conciliado_em)
+}
+
+function statusCfg(d, row) {
+  if (ehRecebido(d)) {
+    return temConferenciaBancaria(row)
+      ? { label: 'Recebido', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)', ajuda: 'Conferido no extrato bancário.' }
+      : {
+        label: 'Recebido · a conferir',
+        bg: 'rgba(230,126,34,0.10)',
+        color: 'var(--orange)',
+        ajuda: 'Baixa registrada à mão: ainda não foi conferida no extrato. Concilie para virar recebido com prova.',
+      }
+  }
   if (ehPrevisto(d)) return { label: 'Previsto', bg: 'rgba(29,59,92,0.10)', color: 'var(--navy-light)' }
   if (isOverdue(d?.due)) return { label: 'Vencido', bg: 'rgba(231,76,60,0.10)', color: 'var(--red)' }
   return { label: 'Em aberto', bg: 'rgba(230,126,34,0.10)', color: 'var(--orange)' }
@@ -146,7 +163,8 @@ export default function Receber() {
     // Captação de empréstimo é financiamento — não é conta a receber. Fica no Fluxo/Empréstimos.
     let r = rows.filter(item => !ehPrincipalDeDivida(item.data))
     if (filtroStatus) {
-      if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && !ehPrevisto(item.data))
+      if (filtroStatus === '__sem_conferencia__') r = r.filter(item => ehRecebido(item.data) && !temConferenciaBancaria(item))
+      else if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && !ehPrevisto(item.data))
       else if (filtroStatus === '__vencidos__') r = r.filter(item => estaVencido(item.data))
       else if (filtroStatus === 'Pendente') r = r.filter(item => emAberto(item.data)) // 'Em aberto' engloba o legado 'Atrasado'
       else if (filtroStatus === 'Provisão') r = r.filter(item => ehPrevisto(item.data))
@@ -246,7 +264,7 @@ export default function Receber() {
       g.total += v
       if (ehRecebido(d)) g.recebido += v
       else g.aReceber += v
-      g.itens.push({ nome: d.client || '—', value: v, status: statusCfg(d).label, codigo: r.codigo })
+      g.itens.push({ nome: d.client || '—', value: v, status: statusCfg(d, r).label, codigo: r.codigo })
     }
     return meses
   }, [rows, anoSel])
@@ -370,6 +388,7 @@ export default function Receber() {
         'Todas recebem a mesma data — use quando a baixa foi no mesmo dia.',
         'Lançamento previsto que ainda não tem código ganha um ao ser recebida.',
         'Se alguma falhar, ela continua em aberto e você é avisada.',
+        'Esta baixa é uma afirmação sua, não uma conferência: elas ficam como "a conferir" até aparecerem no extrato conciliado.',
       ],
       exigeData: { label: 'Data do recebimento (vale para todas)' },
       confirmarLabel: `Marcar ${marcadasVisiveis.length} como recebidas`,
@@ -383,7 +402,7 @@ export default function Receber() {
     for (const row of marcadasVisiveis) {
       try {
         const inteira = await linhaCompleta(row.id)
-        const updates = { data: { ...(inteira.data || {}), status: 'Recebido', data_pagamento: quando } }
+        const updates = { data: { ...(inteira.data || {}), baixa_manual: true, baixa_manual_em: new Date().toISOString().slice(0, 10), status: 'Recebido', data_pagamento: quando } }
         if (!row.codigo) updates.codigo = await proximoCodigoReceivable()
         const { error } = await supabase.from('receivable').update(updates).eq('id', row.id)
         if (error) throw error
@@ -436,7 +455,7 @@ export default function Receber() {
       // O arquivo da nota não vem na lista: sem reler a linha inteira aqui, o
       // salvamento gravaria o lançamento SEM o anexo.
       const inteira = await linhaCompleta(row.id)
-      const merged = { ...(inteira.data || {}), status: 'Recebido', data_pagamento: dataRec }
+      const merged = { ...(inteira.data || {}), baixa_manual: true, baixa_manual_em: new Date().toISOString().slice(0, 10), status: 'Recebido', data_pagamento: dataRec }
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoReceivable() // previsto realizado direto ganha código
       const { error } = await supabase.from('receivable').update(updates).eq('id', row.id)
@@ -588,6 +607,7 @@ export default function Receber() {
                   <option value="__vencidos__">Vencido</option>
                   <option value="Recebido">Recebido</option>
                   <option value="Provisão">Previsto</option>
+                  <option value="__sem_conferencia__">Recebido sem conferência bancária</option>
                   <option value="__a_escriturar__">A escriturar{resumoFiscal.a_escriturar ? ` (${resumoFiscal.a_escriturar})` : ''}</option>
                 </select>
               </Campo>
@@ -726,7 +746,7 @@ export default function Receber() {
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
-                const cfg = statusCfg(d)
+                const cfg = statusCfg(d, item)
                 return (
                   <tr
                     key={item.id}
@@ -762,7 +782,7 @@ export default function Receber() {
                         display: 'inline-block', padding: '3px 9px', borderRadius: 999,
                         fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
                         background: cfg.bg, color: cfg.color, textTransform: 'uppercase',
-                      }}>{cfg.label}</span>
+                      }} title={cfg.ajuda || ''}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       {ehPrevisto(d) && (

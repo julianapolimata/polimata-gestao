@@ -115,6 +115,28 @@ function montarChecklist(comp, ctx) {
     })
   }
 
+  // 6b. Baixas com prova no extrato (aviso)
+  //
+  // "Pago" pode ter dois significados: apareceu no extrato, ou alguém afirmou
+  // que pagou. O primeiro é constatação, o segundo é declaração — e fechar o
+  // mês sem saber a diferença é fechar em cima de afirmação.
+  {
+    const semProva = lancs.filter(l => ym(l.due) === comp
+      && (l.st === 'Pago' || l.st === 'Recebido')
+      && !l.conciliado_em)
+    const total = semProva.reduce((s, l) => s + Number(l.val || 0), 0)
+    items.push({
+      key: 'conferencia_bancaria',
+      label: 'Baixas conferidas no extrato',
+      obrigatorio: false,
+      ok: semProva.length === 0,
+      detalhe: semProva.length
+        ? `${semProva.length} baixa(s) sem conferência · ${fmtMoney(total)}`
+        : 'toda baixa do mês tem prova no extrato',
+      link: '/conciliacao',
+    })
+  }
+
   // 7. Fatura do cartão paga (aviso; só se houver cartão)
   if (cartoes.length) {
     const partes = cartoes.map(c => {
@@ -183,8 +205,8 @@ export default function FechamentoMensal() {
     // Selects leves (nada de anexos base64). status do extrato é COLUNA.
     Promise.all([
       supabase.from('transacoes_extrato').select('id, conta_id, status, dt:data->>data, tipo:data->>tipo, valor:data->>valor, rev:data->>revisar, fv:data->>fatura_vencimento'),
-      supabase.from('receivable').select('id, codigo, due:data->>due, comp:data->>data_competencia, st:data->>status, esc:data->>escriturado, doc:data->>doc_status, sus:data->>suspense, val:data->>value'),
-      supabase.from('payable').select('id, codigo, due:data->>due, comp:data->>data_competencia, st:data->>status, esc:data->>escriturado, doc:data->>doc_status, sus:data->>suspense, val:data->>value, cat:data->>cat, cartao_id, fat:data->>criado_via_import_fatura'),
+      supabase.from('receivable').select('id, codigo, conciliado_em, due:data->>due, comp:data->>data_competencia, st:data->>status, esc:data->>escriturado, doc:data->>doc_status, sus:data->>suspense, val:data->>value'),
+      supabase.from('payable').select('id, codigo, conciliado_em, due:data->>due, comp:data->>data_competencia, st:data->>status, esc:data->>escriturado, doc:data->>doc_status, sus:data->>suspense, val:data->>value, cat:data->>cat, cartao_id, fat:data->>criado_via_import_fatura'),
       supabase.from('contas_bancarias').select('id,data'),
       supabase.from('transferencias').select('*'),
       supabase.from('fechamentos').select('*'),

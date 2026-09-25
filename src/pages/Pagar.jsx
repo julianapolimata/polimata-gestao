@@ -45,8 +45,25 @@ function ehPrevisto(d) {
 function emAberto(d) { return !ehPago(d) && !ehPrevisto(d) }
 function estaVencido(d) { return emAberto(d) && isOverdue(d?.due) }
 
-function statusCfg(d) {
-  if (ehPago(d)) return { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)' }
+// Tem prova bancária? A linha do extrato conciliada é a prova de que o
+// dinheiro saiu (ou entrou). Sem ela, "pago" é uma afirmação — legítima em
+// vários casos (dinheiro, conta que não se importa, extrato que ainda não
+// chegou), mas que não pode aparecer igual ao que foi conferido.
+function temConferenciaBancaria(row) {
+  return !!(row?.conciliado_em || row?.data?.conciliado_em)
+}
+
+function statusCfg(d, row) {
+  if (ehPago(d)) {
+    return temConferenciaBancaria(row)
+      ? { label: 'Pago', bg: 'rgba(39,174,96,0.10)', color: 'var(--green)', ajuda: 'Conferido no extrato bancário.' }
+      : {
+        label: 'Pago · a conferir',
+        bg: 'rgba(230,126,34,0.10)',
+        color: 'var(--orange)',
+        ajuda: 'Baixa registrada à mão: ainda não foi conferida no extrato. Concilie para virar pago com prova.',
+      }
+  }
   if (ehPrevisto(d)) return { label: 'Previsto', bg: 'rgba(29,59,92,0.10)', color: 'var(--navy-light)' }
   if (isOverdue(d?.due)) return { label: 'Vencido', bg: 'rgba(231,76,60,0.10)', color: 'var(--red)' }
   return { label: 'Em aberto', bg: 'rgba(230,126,34,0.10)', color: 'var(--orange)' }
@@ -145,7 +162,8 @@ export default function Pagar() {
     const q = busca.trim().toLowerCase()
     let r = rows
     if (filtroStatus) {
-      if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && !ehPrevisto(item.data))
+      if (filtroStatus === '__sem_conferencia__') r = r.filter(item => ehPago(item.data) && !temConferenciaBancaria(item))
+      else if (filtroStatus === '__a_escriturar__') r = r.filter(item => item.data?.escriturado !== true && !ehPrevisto(item.data))
       else if (filtroStatus === '__vencidos__') r = r.filter(item => estaVencido(item.data))
       else if (filtroStatus === 'Pendente') r = r.filter(item => emAberto(item.data)) // 'Em aberto' engloba o legado 'Atrasado'
       else if (filtroStatus === 'Provisão') r = r.filter(item => ehPrevisto(item.data))
@@ -245,7 +263,7 @@ export default function Pagar() {
       g.total += v
       if (ehPago(d)) g.pago += v
       else g.aPagar += v
-      g.itens.push({ nome: d.supplier || '—', value: v, status: statusCfg(d).label, codigo: r.codigo })
+      g.itens.push({ nome: d.supplier || '—', value: v, status: statusCfg(d, r).label, codigo: r.codigo })
     }
     return meses
   }, [rows, anoSel])
@@ -369,6 +387,7 @@ export default function Pagar() {
         'Todas recebem a mesma data — use quando a baixa foi no mesmo dia.',
         'Lançamento previsto que ainda não tem código ganha um ao ser paga.',
         'Se alguma falhar, ela continua em aberto e você é avisada.',
+        'Esta baixa é uma afirmação sua, não uma conferência: elas ficam como "a conferir" até aparecerem no extrato conciliado.',
       ],
       exigeData: { label: 'Data do pagamento (vale para todas)' },
       confirmarLabel: `Marcar ${marcadasVisiveis.length} como pagas`,
@@ -382,7 +401,7 @@ export default function Pagar() {
     for (const row of marcadasVisiveis) {
       try {
         const inteira = await linhaCompleta(row.id)
-        const updates = { data: { ...(inteira.data || {}), status: 'Pago', data_pagamento: quando } }
+        const updates = { data: { ...(inteira.data || {}), baixa_manual: true, baixa_manual_em: new Date().toISOString().slice(0, 10), status: 'Pago', data_pagamento: quando } }
         if (!row.codigo) updates.codigo = await proximoCodigoPayable()
         const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
         if (error) throw error
@@ -435,7 +454,7 @@ export default function Pagar() {
       // O arquivo da nota não vem na lista: sem reler a linha inteira aqui, o
       // salvamento gravaria o lançamento SEM o anexo.
       const inteira = await linhaCompleta(row.id)
-      const merged = { ...(inteira.data || {}), status: 'Pago', data_pagamento: dataPag }
+      const merged = { ...(inteira.data || {}), baixa_manual: true, baixa_manual_em: new Date().toISOString().slice(0, 10), status: 'Pago', data_pagamento: dataPag }
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoPayable() // previsto realizado direto ganha código
       const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
@@ -587,6 +606,7 @@ export default function Pagar() {
                   <option value="__vencidos__">Vencido</option>
                   <option value="Pago">Pago</option>
                   <option value="Provisão">Previsto</option>
+                  <option value="__sem_conferencia__">Pago sem conferência bancária</option>
                   <option value="__a_escriturar__">A escriturar{resumoFiscal.a_escriturar ? ` (${resumoFiscal.a_escriturar})` : ''}</option>
                 </select>
               </Campo>
@@ -725,7 +745,7 @@ export default function Pagar() {
             <tbody>
               {filtrados.map(item => {
                 const d = item.data || {}
-                const cfg = statusCfg(d)
+                const cfg = statusCfg(d, item)
                 return (
                   <tr
                     key={item.id}
@@ -761,7 +781,7 @@ export default function Pagar() {
                         display: 'inline-block', padding: '3px 9px', borderRadius: 999,
                         fontSize: 10, fontWeight: 700, letterSpacing: 0.5,
                         background: cfg.bg, color: cfg.color, textTransform: 'uppercase',
-                      }}>{cfg.label}</span>
+                      }} title={cfg.ajuda || ''}>{cfg.label}</span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       {ehPrevisto(d) && (
