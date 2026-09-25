@@ -9,6 +9,7 @@ import { anexoDaNF } from '../lib/vincularNF'
 import { fetchPlanoContas, categoriasDe } from '../lib/planoContas'
 import SeletorLancamento from './components/SeletorLancamento'
 import { useConfirm } from '../components/ConfirmDialog'
+import VisualizadorDocumento from '../components/VisualizadorDocumento'
 import { msgErro } from '../lib/erros'
 
 // O endereço que recebe as notas é configuração DA EMPRESA (tabela
@@ -60,6 +61,8 @@ export default function ImportarNFs() {
   // Quais notas estão marcadas, e o andamento quando se decide várias de uma vez.
   const [selecionados, setSelecionados] = useState(() => new Set())
   const [lote, setLote] = useState(null)
+  // Qual documento está aberto para ver. O arquivo é buscado só aqui.
+  const [vendo, setVendo] = useState(null)
   // Quanto tempo para trás procurar no e-mail. 7 dias é o dia a dia; janelas
   // maiores servem para trazer o histórico (ex.: guias de imposto de meses
   // anteriores que nunca entraram).
@@ -534,10 +537,18 @@ export default function ImportarNFs() {
               onAprovar={p => aprovar(p)}
               onRejeitar={p => rejeitar(p)}
               onAnexar={p => setAnexando(p)}
+              onVer={p => setVendo(p)}
             />
           </>
         )}
         {dialogoConfirmacao}
+      <VisualizadorDocumento
+          pendingId={vendo?.id}
+          nome={vendo?.data?.anexoNome || vendo?.data?.fileName}
+          tipoDeclarado={vendo?.data?.anexoTipo}
+          titulo={vendo ? `${vendo.data?.tipo_documento || 'Documento'} ${vendo.data?.numero || ''} · ${vendo.data?.parte || ''}`.trim() : ''}
+          onClose={() => setVendo(null)}
+        />
       <SeletorLancamento
           open={!!anexando}
           nf={anexando}
@@ -562,7 +573,7 @@ export default function ImportarNFs() {
 // A caixa de entrada é uma FILA DE TRABALHO: o que importa é ver muitas de uma
 // vez e decidir. Em cards, cada nota ocupava meia tela e obrigava a rolar; em
 // linha, as mesmas informações cabem numa olhada — e dá para marcar várias.
-function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar, onAlternarTodas, onAprovar, onRejeitar, onAnexar }) {
+function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar, onAlternarTodas, onAprovar, onRejeitar, onAnexar, onVer }) {
   const todasMarcadas = pendentes.length > 0 && pendentes.every(p => selecionados.has(p.id))
   return (
     <div style={{ background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 8, overflow: 'hidden' }}>
@@ -607,7 +618,13 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                 <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{d.numero || '—'}</td>
                 <td style={td}>
                   <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{d.parte || '(parte não identificada)'}</div>
-                  <div style={linhaSecundaria} title={d.descricao || d.fileName}>{d.descricao || d.fileName || '—'}</div>
+                  <div
+                    style={{ ...linhaSecundaria, cursor: 'pointer' }}
+                    title={`${d.descricao || d.fileName || ''} — clique para ver o documento`}
+                    onClick={() => onVer(p)}
+                  >
+                    {d.descricao || d.fileName || '—'}
+                  </div>
                 </td>
                 <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
                 <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
@@ -620,6 +637,9 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   )}
                 </td>
                 <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button onClick={() => onVer(p)} style={btnLinhaGhost} title="Ver o documento como ele chegou">
+                    👁
+                  </button>
                   <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinha} title="Aprovar e lançar">
                     {ocupada ? '…' : '✓ Aprovar'}
                   </button>
