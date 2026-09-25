@@ -12,6 +12,23 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.s
 // (config_empresa.data.cnpj); a constante fica como valor inicial.
 const CNPJ_PADRAO = String(process.env.EMPRESA_CNPJ || '48948776000164').replace(/\D/g, '');
 let cnpjEmpresa = CNPJ_PADRAO;
+// Documento anterior a esta data não interessa: não é procurado no e-mail e,
+// se chegar por outro caminho, não vira pendência. Vazio = sem corte.
+let inicioDocumentos = null;
+async function carregarInicioDocumentos() {
+  try {
+    const { data } = await getSupabase()
+      .from('config_empresa').select('data')
+      .eq('user_id', process.env.POLIMATA_USER_ID).maybeSingle();
+    const valor = String(data?.data?.documentos_desde || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(valor) ? valor : null;
+  } catch (e) {
+    console.warn('Não consegui ler a data de início dos documentos:', e.message);
+    return null;
+  }
+}
+// O Gmail entende "after:2026/01/01".
+const recorteDeData = () => (inicioDocumentos ? `after:${inicioDocumentos.replace(/-/g, '/')} ` : '');
 async function carregarCnpjEmpresa() {
   try {
     const { data } = await getSupabase()
@@ -309,6 +326,8 @@ async function processEmails(opts) {
   };
 
   cnpjEmpresa = await carregarCnpjEmpresa();
+  inicioDocumentos = await carregarInicioDocumentos();
+  if (inicioDocumentos) console.log(`[recorte] só documentos a partir de ${inicioDocumentos}`);
   const accessToken = await getGoogleAccessToken();
   const labelId = await getOrCreateLabel(accessToken, 'polimata-processado');
 
@@ -339,7 +358,7 @@ async function processEmails(opts) {
       .slice(0, maxMsgs);
   } else {
     const alias = await emailDeEntrada();
-    const query = `${escopoDestino(alias)}has:attachment ${filtroArquivo()}-label:polimata-processado newer_than:${days}d`;
+    const query = `${escopoDestino(alias)}has:attachment ${filtroArquivo()}${recorteDeData()}-label:polimata-processado newer_than:${days}d`;
     const messages = await listMessages(accessToken, query, maxMsgs);
     messageIds = messages.map(m => m.id);
 
@@ -351,7 +370,7 @@ async function processEmails(opts) {
     if (restante > 0 && EMAIL_REMETENTES_LINK.length) {
       try {
         const fromExpr = EMAIL_REMETENTES_LINK.map(d => `from:${d}`).join(' OR ');
-        const queryLink = `${escopoDestino(alias)}(${fromExpr}) -label:polimata-processado newer_than:${days}d`;
+        const queryLink = `${escopoDestino(alias)}(${fromExpr}) ${recorteDeData()}-label:polimata-processado newer_than:${days}d`;
         const msgsLink = await listMessages(accessToken, queryLink, restante);
         const vistos = new Set(messageIds);
         for (const m of msgsLink) {
@@ -371,7 +390,7 @@ async function processEmails(opts) {
     if (restante2 > 0 && EMAIL_REMETENTES_CONFIAVEIS.length) {
       try {
         const fromExpr2 = EMAIL_REMETENTES_CONFIAVEIS.map(d => `from:${d}`).join(' OR ');
-        const queryConf = `(${fromExpr2}) has:attachment -label:polimata-processado newer_than:${days}d`;
+        const queryConf = `(${fromExpr2}) has:attachment ${recorteDeData()}-label:polimata-processado newer_than:${days}d`;
         const msgsConf = await listMessages(accessToken, queryConf, restante2);
         const vistos2 = new Set(messageIds);
         for (const m of msgsConf) {
@@ -1084,6 +1103,23 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
       const parsed = leitura.parsed;
       if (!parsed) {
         leituraInfo.meta = { motivo: leitura.motivo || 'resposta_nao_json' };
+        continue;
+      }
+
+      // Documento anterior ao início do uso do sistema não entra na fila. O
+      // filtro do e-mail pega o que é antigo pela DATA DO E-MAIL; aqui vale a
+      // data de emissão, que é a que diz de quando o documento é.
+      const emissao = String(parsed?.data_emissao || '').slice(0, 10);
+      if (inicioDocumentos && emissao && emissao < inicioDocumentos) {
+        descartadosCount++;
+        console.log(`[antes do início] ${att.filename}: emitido em ${emissao}`);
+        leituraInfo.meta = { motivo: 'anterior_ao_inicio' };
+        await registrarDescarte({
+          att, parsed,
+          status: 'descartado',
+          motivo: 'anterior_ao_inicio',
+          detalhe: `emitido em ${emissao}, antes de ${inicioDocumentos}`,
+        });
         continue;
       }
 
