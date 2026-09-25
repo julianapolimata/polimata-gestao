@@ -11,6 +11,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable }
 import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } from '../lib/faturaCartao'
 import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
+import { useConfirm } from '../components/ConfirmDialog'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
 // (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
@@ -247,6 +248,8 @@ export default function Conciliacao() {
   const divergencia = saldoBancoFinal != null ? saldoBancoFinal - saldoSistema : null
 
   // ── Upload ───────────────────────────────────────────────────────────
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -262,10 +265,32 @@ export default function Conciliacao() {
       // na conta corrente. (Misturar foi o que inflou as "faturas" com Pix e boleto.)
       const tipoOFX = detectarTipoOFX(texto)
       if (ehCartao && tipoOFX === 'corrente') {
-        if (!window.confirm('Este arquivo parece um EXTRATO DE CONTA CORRENTE (Pix, boletos, débitos), não uma fatura de cartão.\n\nImportar mesmo assim na conta-cartão?')) { showToast('Importação cancelada. Selecione a conta corrente no seletor e importe lá.', 'info'); return }
+        const segueExtrato = await confirmar({
+          titulo: 'Este arquivo parece um extrato de conta corrente',
+          texto: 'Ele tem Pix, boletos e débitos — não compras de cartão. E você está importando na conta do cartão.',
+          consequencias: [
+            'Esses movimentos entrariam na fatura do cartão, onde não é o lugar deles.',
+            'A conciliação do cartão para de fechar, porque a fatura passa a ter o que não é dela.',
+            'O caminho certo é trocar a conta no seletor e importar na conta corrente.',
+          ],
+          confirmarLabel: 'Importar assim mesmo',
+          variante: 'perigo',
+        })
+        if (!segueExtrato) { showToast('Importação cancelada. Selecione a conta corrente no seletor e importe lá.', 'info'); return }
       }
       if (!ehCartao && tipoOFX === 'cartao') {
-        if (!window.confirm('Este arquivo parece uma FATURA DE CARTÃO. O lugar dela é a conta-cartão (escolha o cartão no seletor de conta).\n\nImportar mesmo assim como extrato desta conta?')) { showToast('Importação cancelada. Selecione o cartão no seletor de conta e importe lá.', 'info'); return }
+        const segueFatura = await confirmar({
+          titulo: 'Este arquivo parece uma fatura de cartão',
+          texto: 'Você está importando como extrato desta conta.',
+          consequencias: [
+            'As compras do cartão entrariam como movimento de conta corrente.',
+            'O saldo da conta fica errado, e as compras não aparecem na fatura.',
+            'O caminho certo é escolher o cartão no seletor de conta e importar lá.',
+          ],
+          confirmarLabel: 'Importar assim mesmo',
+          variante: 'perigo',
+        })
+        if (!segueFatura) { showToast('Importação cancelada. Selecione o cartão no seletor de conta e importe lá.', 'info'); return }
       }
       const { transacoes, saldoFinal, dataExtrato } = parseOFX(texto)
       if (!transacoes.length) { showToast('Nenhuma transação no OFX.', 'warning'); return }
@@ -360,7 +385,18 @@ export default function Conciliacao() {
       }
     }
     if (!pares.length) { if (!silencioso) showToast('Nenhum match automático seguro (valor + data, sem ambiguidade).', 'info'); return }
-    if (!silencioso && !confirm(`Conciliar automaticamente ${pares.length} transação(ões) que batem exato (mesmo valor e data próxima)? As ambíguas ficam pra você decidir uma a uma.`)) return
+    if (!silencioso) {
+      const ok = await confirmar({
+        titulo: `Conciliar ${pares.length} transação(ões) automaticamente?`,
+        texto: 'São as que batem exato: mesmo valor e data próxima.',
+        consequencias: [
+          'As que têm mais de um candidato ficam para você decidir uma a uma.',
+          'Cada uma pode ser desfeita depois, individualmente.',
+        ],
+        confirmarLabel: 'Conciliar',
+      })
+      if (!ok) return
+    }
     setAutoConc(true)
     let ok = 0
     try {
@@ -549,7 +585,18 @@ export default function Conciliacao() {
         showToast(plano.pagamentos.length ? 'Só sobraram pagamentos da fatura: concilie-os como ↔ Transferência.' : 'Nada a criar.', 'info')
         return
       }
-      if (!window.confirm(`Transformar as linhas da fatura em compras do cartão?\n\n${resumoPlano(plano)}\n\nAs compras nascem conciliadas com a fatura e vão para a Escrituração (classificar + situação fiscal).`)) return
+      const ok = await confirmar({
+        titulo: 'Transformar as linhas da fatura em compras do cartão?',
+        texto: resumoPlano(plano),
+        consequencias: [
+          'As compras nascem já conciliadas com a fatura.',
+          'Elas vão para a Escrituração, onde você classifica e define a situação fiscal.',
+          'Parcela futura de compra parcelada nasce pendente — o cartão ainda não cobrou.',
+        ],
+        confirmarLabel: 'Criar compras',
+        width: 560,
+      })
+      if (!ok) return
       const codigos = await proximosCodigosPayable(plano.criar.length)
       const p_criar = plano.criar.map((c, i) => ({ ...c, codigo: codigos[i] }))
       const { data: n, error } = await supabase.rpc('conciliar_fatura_cartao', { p_conta_id: contaId, p_criar, p_casar: plano.casar })
@@ -561,7 +608,16 @@ export default function Conciliacao() {
   }
 
   async function arquivar(extrato) {
-    if (!confirm('Arquivar esta linha? Ela não vira lançamento (ex.: movimento que não é da empresa). Dá pra restaurar depois.')) return
+    const ok = await confirmar({
+      titulo: 'Arquivar esta linha?',
+      texto: 'Use para movimento que não é da empresa.',
+      consequencias: [
+        'Ela não vira lançamento nenhum.',
+        'Sai da lista de pendentes, mas continua guardada — dá para restaurar depois.',
+      ],
+      confirmarLabel: 'Arquivar',
+    })
+    if (!ok) return
     await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
     showToast('Arquivada.', 'info'); setSelecionado(null); carregar()
   }
@@ -571,12 +627,32 @@ export default function Conciliacao() {
   }
   async function desconciliar(extrato) {
     if (extrato.lancamento_tipo === 'transferencia') {
-      if (!confirm('Desfazer a conciliação desta transferência? A linha volta pra pendente. Se a outra conta ainda estiver ligada a esta transferência, ela continua registrada; se não, a transferência é removida.')) return
+      const ok = await confirmar({
+        titulo: 'Desfazer a conciliação desta transferência?',
+        consequencias: [
+          'Esta linha do extrato volta para pendente.',
+          'Se a outra conta ainda estiver ligada à transferência, ela continua registrada.',
+          'Se não estiver, a transferência é removida.',
+        ],
+        confirmarLabel: 'Desfazer',
+        variante: 'perigo',
+      })
+      if (!ok) return
       const { error } = await supabase.rpc('desconciliar_transferencia', { p_extrato_id: extrato.id })
       if (error) { showToast('Erro: ' + error.message, 'error'); return }
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar(); return
     }
-    if (!confirm('Desconciliar? Os lançamentos vinculados voltam pra pendente e os ajustes (retenções/tarifas/juros) criados nesta conciliação são removidos.')) return
+    const ok = await confirmar({
+      titulo: 'Desfazer esta conciliação?',
+      consequencias: [
+        'Os lançamentos vinculados voltam para pendente.',
+        'Os ajustes criados aqui — retenções, tarifas, juros — são removidos.',
+        'A linha do extrato volta a esperar decisão.',
+      ],
+      confirmarLabel: 'Desconciliar',
+      variante: 'perigo',
+    })
+    if (!ok) return
     try {
       const d = extrato.data || {}
       const target = d.tipo === 'entrada' ? 'receivable' : 'payable'
@@ -614,13 +690,27 @@ export default function Conciliacao() {
   // ── Trava/fechamento de período ──────────────────────────────────────
   async function fecharPeriodo(comp) {
     if (!comp || !contaId) return
-    if (!confirm(`Fechar o período ${comp} desta conta? As linhas do extrato desse mês ficam TRAVADAS (não dá pra conciliar nem desconciliar) até você reabrir.`)) return
+    const ok = await confirmar({
+      titulo: `Fechar ${comp} nesta conta?`,
+      consequencias: [
+        'As linhas do extrato desse mês ficam travadas.',
+        'Não dá para conciliar nem desconciliar nada dele enquanto estiver fechado.',
+        'Você pode reabrir quando precisar.',
+      ],
+      confirmarLabel: 'Fechar período',
+    })
+    if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').insert({ conta_id: contaId, competencia: comp })
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast(`Período ${comp} fechado. 🔒`, 'success'); setSelecionado(null); carregar()
   }
   async function reabrirPeriodo(comp) {
-    if (!confirm(`Reabrir o período ${comp}? Ele volta a aceitar conciliação.`)) return
+    const ok = await confirmar({
+      titulo: `Reabrir ${comp}?`,
+      consequencias: ['O período volta a aceitar conciliação e desconciliação.'],
+      confirmarLabel: 'Reabrir',
+    })
+    if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').delete().eq('conta_id', contaId).eq('competencia', comp)
     if (error) { showToast('Erro: ' + error.message, 'error'); return }
     showToast(`Período ${comp} reaberto. 🔓`, 'info'); carregar()
@@ -974,6 +1064,7 @@ export default function Conciliacao() {
           </div>
         </div>
       )}
+    {dialogoConfirmacao}
     </AppLayout>
   )
 }
