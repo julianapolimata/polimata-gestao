@@ -576,11 +576,11 @@ export default function ImportarNFs() {
 function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar, onAlternarTodas, onAprovar, onRejeitar, onAnexar, onVer }) {
   const todasMarcadas = pendentes.length > 0 && pendentes.every(p => selecionados.has(p.id))
   return (
-    <div style={{ background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 8, overflow: 'hidden' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div style={{ background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 8, overflowX: 'auto' }}>
+      <table style={{ width: '100%', minWidth: 880, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
         <thead>
           <tr>
-            <th style={{ ...th, width: 36, textAlign: 'center' }}>
+            <th style={{ ...thFila, width: 34, textAlign: 'center' }}>
               <input
                 type="checkbox"
                 checked={todasMarcadas}
@@ -589,13 +589,13 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                 style={caixaSelecao}
               />
             </th>
-            <th style={{ ...th, width: 86 }}>Tipo</th>
-            <th style={{ ...th, width: 92 }}>Nº</th>
-            <th style={th}>Quem · o quê</th>
-            <th style={{ ...th, width: 84 }}>Emissão</th>
-            <th style={{ ...th, width: 92 }}>Vencimento</th>
-            <th style={{ ...th, width: 118, textAlign: 'right' }}>Valor</th>
-            <th style={{ ...th, width: 176, textAlign: 'right' }}>Decisão</th>
+            <th style={{ ...thFila, width: 72 }}>Tipo</th>
+            <th style={{ ...thFila, width: 84 }}>N<span aria-hidden="true">º</span></th>
+            <th style={thFila}>Quem · o quê</th>
+            <th style={{ ...thFila, width: 80 }}>Emissão</th>
+            <th style={{ ...thFila, width: 86 }}>Vencimento</th>
+            <th style={{ ...thFila, width: 118, textAlign: 'right' }}>Valor</th>
+            <th style={{ ...thFila, width: 200, textAlign: 'right' }}>Decisão</th>
           </tr>
         </thead>
         <tbody>
@@ -607,17 +607,17 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
             const ocupada = processando === p.id
             return (
               <tr key={p.id} style={{ background: marcada ? 'rgba(204,145,94,0.08)' : 'transparent' }}>
-                <td style={{ ...td, textAlign: 'center' }}>
+                <td style={{ ...tdFila, textAlign: 'center' }}>
                   <input type="checkbox" checked={marcada} onChange={() => onAlternar(p.id)} style={caixaSelecao} />
                 </td>
-                <td style={td}>
+                <td style={tdFila}>
                   <span style={chipTipo} title={isSaida ? 'Receita — nota emitida pela empresa' : 'Despesa — nota recebida'}>
                     {d.tipo_documento || 'NF'}
                   </span>
                 </td>
-                <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{d.numero || '—'}</td>
-                <td style={td}>
-                  <div style={{ fontWeight: 600, color: 'var(--navy)' }}>{d.parte || '(parte não identificada)'}</div>
+                <td style={{ ...tdFila, fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.numero || ''}>{d.numero || '—'}</td>
+                <td style={tdFila}>
+                  <div style={nomeDaParte} title={d.parte || ''}>{d.parte || '(parte não identificada)'}</div>
                   <div
                     style={{ ...linhaSecundaria, cursor: 'pointer' }}
                     title={`${d.descricao || d.fileName || ''} — clique para ver o documento`}
@@ -626,9 +626,9 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                     {d.descricao || d.fileName || '—'}
                   </div>
                 </td>
-                <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
-                <td style={{ ...td, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: cor, whiteSpace: 'nowrap' }}>
+                <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
+                <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
+                <td style={{ ...tdFila, textAlign: 'right', fontWeight: 700, color: cor, whiteSpace: 'nowrap' }}>
                   {isSaida ? '+' : '−'} {fmtMoney(d.valor)}
                   {d.moeda && d.moeda !== 'BRL' && (
                     <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--text-mid)' }}>
@@ -636,7 +636,7 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                     </div>
                   )}
                 </td>
-                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <td style={{ ...tdFila, textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button onClick={() => onVer(p)} style={btnLinhaGhost} title="Ver o documento como ele chegou">
                     👁
                   </button>
@@ -767,10 +767,13 @@ function UploadManualCard({ emailEntrada }) {
 
 const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
 const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
-const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const btnLinha = { padding: '4px 10px', marginLeft: 4, borderRadius: 5, border: 'none', background: 'var(--gold-dark)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
-const btnLinhaGhost = { padding: '4px 8px', marginLeft: 4, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontSize: 11, cursor: 'pointer' }
-const btnLinhaPerigo = { padding: '4px 8px', marginLeft: 4, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--red)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
+const thFila = { ...th, padding: '10px 10px' }
+const tdFila = { ...td, padding: '10px 10px' }
+const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const btnLinha = { padding: '4px 9px', marginLeft: 3, borderRadius: 5, border: 'none', background: 'var(--gold-dark)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }
+const btnLinhaGhost = { padding: '4px 7px', marginLeft: 3, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontSize: 11, cursor: 'pointer' }
+const btnLinhaPerigo = { padding: '4px 7px', marginLeft: 3, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--red)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const barraLote = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', marginBottom: 10, borderRadius: 7, background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', fontSize: 12, color: 'var(--navy)' }
 const avisoLote = { padding: '8px 14px', marginBottom: 10, borderRadius: 7, background: 'var(--cream)', fontSize: 12, fontWeight: 600, color: 'var(--text-mid)' }
 const btnMiniPerigo = { padding: '5px 12px', borderRadius: 6, border: '1.5px solid var(--red)', background: 'var(--white)', color: 'var(--red)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
@@ -789,6 +792,6 @@ const inputDataNF = { padding: '7px 10px', border: '1.5px solid var(--cream-dark
 const ajudaBox = { marginBottom: 14, padding: '10px 14px', borderRadius: 6, fontSize: 12, lineHeight: 1.55, background: 'rgba(0,32,62,0.04)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)' }
 const tableWrap = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'clip' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
-const th = { textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
+const th = { overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left', padding: '12px 14px', fontSize: 9, fontWeight: 700, letterSpacing: 1.5, color: '#fff', textTransform: 'uppercase', background: 'var(--navy)', borderBottom: '2px solid var(--gold)' }
 const td = { padding: '12px 14px', fontSize: 12, color: 'var(--navy)', borderBottom: '1px solid var(--cream-dark)', verticalAlign: 'middle' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13, background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', lineHeight: 1.5 }
