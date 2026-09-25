@@ -115,7 +115,9 @@ export default function Receber() {
     if (!user) return
     setLoading(true)
     supabase
-      .from('receivable')
+      // Visão sem o arquivo da nota: desenhar a lista não precisa dele, e ele
+      // responde pela quase totalidade do peso baixado.
+      .from('receivable_lista')
       .select('*')
       .order('updated_at', { ascending: false })
       .then(({ data, error }) => {
@@ -328,7 +330,22 @@ export default function Receber() {
   }, [porMes, anoSel])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
-  function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
+  // Busca o lançamento COMPLETO (com o arquivo da nota). A lista vem sem ele
+  // de propósito; gravar a partir da versão reduzida apagaria o anexo.
+  async function linhaCompleta(id) {
+    const { data, error } = await supabase.from('receivable').select('*').eq('id', id).single()
+    if (error) throw error
+    return data
+  }
+
+  async function abrirEdicao(row) {
+    try {
+      setEdicao(await linhaCompleta(row.id))
+      setModalOpen(true)
+    } catch (e) {
+      showToast(msgErro(e, 'Não consegui abrir o lançamento.'), 'error')
+    }
+  }
 
   // ── Marcar como recebido: popover ancorado na linha (nada de prompt) ─
   function abrirPopReceber(row, e) {
@@ -354,7 +371,10 @@ export default function Receber() {
     }
     setSalvandoRec(true)
     try {
-      const merged = { ...(row.data || {}), status: 'Recebido', data_pagamento: dataRec }
+      // O arquivo da nota não vem na lista: sem reler a linha inteira aqui, o
+      // salvamento gravaria o lançamento SEM o anexo.
+      const inteira = await linhaCompleta(row.id)
+      const merged = { ...(inteira.data || {}), status: 'Recebido', data_pagamento: dataRec }
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoReceivable() // previsto realizado direto ganha código
       const { error } = await supabase.from('receivable').update(updates).eq('id', row.id)

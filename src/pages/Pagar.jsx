@@ -115,7 +115,9 @@ export default function Pagar() {
     if (!user) return
     setLoading(true)
     supabase
-      .from('payable')
+      // Visão sem o arquivo da nota: desenhar a lista não precisa dele, e ele
+      // responde pela quase totalidade do peso baixado.
+      .from('payable_lista')
       .select('*')
       .order('updated_at', { ascending: false })
       .then(({ data, error }) => {
@@ -327,7 +329,22 @@ export default function Pagar() {
   }, [porMes, anoSel])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
-  function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
+  // Busca o lançamento COMPLETO (com o arquivo da nota). A lista vem sem ele
+  // de propósito; gravar a partir da versão reduzida apagaria o anexo.
+  async function linhaCompleta(id) {
+    const { data, error } = await supabase.from('payable').select('*').eq('id', id).single()
+    if (error) throw error
+    return data
+  }
+
+  async function abrirEdicao(row) {
+    try {
+      setEdicao(await linhaCompleta(row.id))
+      setModalOpen(true)
+    } catch (e) {
+      showToast(msgErro(e, 'Não consegui abrir o lançamento.'), 'error')
+    }
+  }
 
   // ── Marcar como pago: popover ancorado na linha (nada de prompt) ─────
   function abrirPopPagar(row, e) {
@@ -353,7 +370,10 @@ export default function Pagar() {
     }
     setSalvandoPag(true)
     try {
-      const merged = { ...(row.data || {}), status: 'Pago', data_pagamento: dataPag }
+      // O arquivo da nota não vem na lista: sem reler a linha inteira aqui, o
+      // salvamento gravaria o lançamento SEM o anexo.
+      const inteira = await linhaCompleta(row.id)
+      const merged = { ...(inteira.data || {}), status: 'Pago', data_pagamento: dataPag }
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoPayable() // previsto realizado direto ganha código
       const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
