@@ -6,7 +6,7 @@ import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
 import { fmtMoney, flatten } from '../lib/finance'
 import { parseOFX, detectarTipoOFX } from '../lib/ofx'
-import { sugerirMatches } from '../lib/matchExtrato'
+import { sugerirMatches, classificarLinha } from '../lib/matchExtrato'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable } from '../lib/codigos'
 import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } from '../lib/faturaCartao'
 import { rotuloFatura } from '../lib/fatura'
@@ -138,11 +138,13 @@ export default function Conciliacao() {
       supabase.from('payable').select('*').is('conciliado_em', null),
       supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
       supabase.from('transferencias').select('*'),
-    ]).then(([rE, rR, rP, rPer, rT]) => {
+      supabase.from('pessoas').select('id, data'),
+    ]).then(([rE, rR, rP, rPer, rT, rPessoas]) => {
       const err = rE.error || rR.error || rP.error
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
       setExtratos(rE.data || [])
+      setPessoas((rPessoas?.data || []).map(p => ({ nome: p.data?.nome, doc: p.data?.doc })))
       // PORTÃO DA ESCRITURAÇÃO: só nota ESCRITURADA é candidata a conciliar. Uma nota
       // não revisada (escriturado != true) não sobe pra conciliação — é a 1ª camada da
       // metodologia (escrituração contábil antes do cruzamento financeiro).
@@ -249,6 +251,7 @@ export default function Conciliacao() {
 
   // ── Upload ───────────────────────────────────────────────────────────
   const [confirmar, dialogoConfirmacao] = useConfirm()
+  const [pessoas, setPessoas] = useState([])
 
   async function handleUpload(e) {
     const file = e.target.files?.[0]
@@ -723,6 +726,13 @@ export default function Conciliacao() {
   )
   const compSelec = selecionadoExt?.data?.data ? String(selecionadoExt.data.data).slice(0, 7) : null
   const periodoFechadoSelec = compSelec ? periodosFechados.has(compSelec) : false
+  // Antes de procurar par: o que é esta linha? Encargo do banco, pagamento de
+  // fatura e movimento de empréstimo não têm lançamento esperando por eles.
+  const naturezaDaLinha = useMemo(
+    () => classificarLinha(selecionadoExt?.data || {}),
+    [selecionadoExt],
+  )
+
   const lancsRank = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
     const tipo = selecionadoExt.data?.tipo
@@ -731,7 +741,11 @@ export default function Conciliacao() {
     // No cartão, entrada = pagamento/estorno: não há nota pra casar.
     if (ehCartao && tipo === 'entrada') return { sugeridos: [], mesmoValor: [], resto: [] }
     const pool = (tipo === 'entrada' ? receivable : payableDaConta).filter(c => c.status !== 'Provisão')
-    const todas = sugerirMatches({ ...(selecionadoExt.data || {}), fit_id: selecionadoExt.fit_id }, pool)
+    const todas = sugerirMatches(
+      { ...(selecionadoExt.data || {}), fit_id: selecionadoExt.fit_id },
+      pool,
+      { pessoas },
+    )
     const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
     const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
     const usados = new Set(todas.map(s => s.lancamento.id))
@@ -1002,6 +1016,11 @@ export default function Conciliacao() {
                       <input type="checkbox" checked={notasNoPeriodo} onChange={e => setNotasNoPeriodo(e.target.checked)} /> só do período
                     </label>
                   </div>
+                  {naturezaDaLinha.tipo !== 'comum' && (
+                    <div style={avisoNatureza}>
+                      <strong>{naturezaDaLinha.rotulo}.</strong> {naturezaDaLinha.explicacao}
+                    </div>
+                  )}
                   {lancsRank.sugeridos.length > 0 && <div style={grupoLabel}>💡 Provavelmente é esta</div>}
                   {lancsRank.sugeridos.map((s, i) => (
                     <LancCard key={s.lancamento.id + '_' + i} lanc={s.lancamento} motivo={s.motivo} destaque marcado={marcados.has(s.lancamento.id)} onToggle={() => toggleMarcado(s.lancamento.id)} />
@@ -1015,7 +1034,13 @@ export default function Conciliacao() {
                     <LancCard key={l.id} lanc={l} marcado={marcados.has(l.id)} onToggle={() => toggleMarcado(l.id)} />
                   ))}
                   {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
-                    <div style={dicaVazia}>{ehCartao ? <>Nenhuma compra registrada pra casar. Use <strong>＋ Criar compra</strong> acima.</> : <>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</>}</div>
+                    <div style={dicaVazia}>
+                      {naturezaDaLinha.tipo === 'encargo'
+                        ? <>Não existe lançamento esperando por isto, e nem deveria: cobrança do próprio banco não se cadastra antes de acontecer. Use <strong>+ Criar lançamento</strong> e classifique.</>
+                        : ehCartao
+                          ? <>Nenhuma compra registrada pra casar. Use <strong>＋ Criar compra</strong> acima.</>
+                          : <>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</>}
+                    </div>
                   )}
 
                   {!ehCartao && <>
@@ -1130,6 +1155,7 @@ const extRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 
 const extRowSel = { background: 'var(--cream)', borderLeftColor: 'var(--gold)' }
 const dicaVazia = { padding: '30px 18px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 13, lineHeight: 1.6 }
 const acoesBar = { display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 4px 12px', borderBottom: '1px dashed var(--cream-dark)', marginBottom: 10 }
+const avisoNatureza = { margin: '0 4px 10px', padding: '9px 12px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, background: 'rgba(0,32,62,0.05)', borderLeft: '3px solid var(--navy)', color: 'var(--navy)' }
 const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '8px 4px 6px' }
 const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
 const lancCardDestaque = { border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.06)' }
