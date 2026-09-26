@@ -8,6 +8,7 @@ import EstadoErro from '../components/EstadoErro'
 import ModalLancamento from './components/ModalLancamento'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
+import { exigeJustificativaNaBaixa, motivoDaDispensa } from '../lib/naturezas'
 import { msgErro } from '../lib/erros'
 import { ehOperacional, getDocStatus, isOverdue } from '../lib/finance'
 import { calcDespesaRecorrente } from '../lib/indicadores'
@@ -439,14 +440,22 @@ export default function Pagar() {
     const left = r ? Math.max(12, Math.min(r.right - largura, window.innerWidth - largura - 12)) : 120
     const abaixo = r ? r.bottom + 6 : 120
     const top = r && abaixo + 160 > window.innerHeight ? Math.max(12, r.top - 166) : abaixo
-    setPopPagar({ row, data: hojeISO(), top, left })
+    // A natureza do lançamento decide: cobrança de banco, tributo e parcela de
+    // empréstimo não têm nota fiscal a apresentar — a natureza já é a
+    // justificativa. As demais, baixadas sem conferência no extrato, precisam
+    // de uma.
+    setPopPagar({ row, data: hojeISO(), top, left, motivo: '', exigeMotivo: exigeJustificativaNaBaixa(row?.data) })
   }
 
   async function confirmarPagamento() {
     if (!popPagar) return
-    const { row, data: dataPag } = popPagar
+    const { row, data: dataPag, motivo, exigeMotivo } = popPagar
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPag || '')) {
       showToast('Escolha uma data de pagamento válida.', 'warning')
+      return
+    }
+    if (exigeMotivo && String(motivo || '').trim().length < 3) {
+      showToast('Escreva o porquê desta baixa sem conferência no extrato.', 'warning')
       return
     }
     setSalvandoPag(true)
@@ -454,7 +463,14 @@ export default function Pagar() {
       // O arquivo da nota não vem na lista: sem reler a linha inteira aqui, o
       // salvamento gravaria o lançamento SEM o anexo.
       const inteira = await linhaCompleta(row.id)
-      const merged = { ...(inteira.data || {}), baixa_manual: true, baixa_manual_em: new Date().toISOString().slice(0, 10), status: 'Pago', data_pagamento: dataPag }
+      const merged = {
+        ...(inteira.data || {}),
+        baixa_manual: true,
+        baixa_manual_em: new Date().toISOString().slice(0, 10),
+        baixa_manual_motivo: exigeMotivo ? String(motivo).trim() : (motivoDaDispensa(inteira.data) || 'Natureza dispensa documento fiscal'),
+        status: 'Pago',
+        data_pagamento: dataPag,
+      }
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoPayable() // previsto realizado direto ganha código
       const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
@@ -826,6 +842,9 @@ export default function Pagar() {
             aria-label="Data do pagamento"
           >
             <div style={popTitulo}>Data do pagamento</div>
+            {popPagar.exigeMotivo
+              ? <div style={popAviso}>Baixa sem conferência no extrato: escreva o porquê. Fica registrado no lançamento.</div>
+              : <div style={popDispensa}>{motivoDaDispensa(popPagar.row?.data) || 'Natureza dispensa documento fiscal.'} Não precisa de justificativa.</div>}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 type="date"
@@ -841,6 +860,19 @@ export default function Pagar() {
               />
               <button onClick={() => setPopPagar(p => (p ? { ...p, data: hojeISO() } : p))} style={btnHoje} type="button">Hoje</button>
             </div>
+            {popPagar.exigeMotivo && (
+              <input
+                value={popPagar.motivo}
+                onChange={e => setPopPagar(p => (p ? { ...p, motivo: e.target.value } : p))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); confirmarPagamento() }
+                  if (e.key === 'Escape') { e.preventDefault(); setPopPagar(null) }
+                }}
+                placeholder="Ex.: paguei em dinheiro · conta de outro banco · extrato ainda não chegou"
+                style={popMotivo}
+                aria-label="Por que a baixa é sem conferência"
+              />
+            )}
             <div style={popRodape}>
               <button onClick={() => setPopPagar(null)} style={btnPopCancelar} type="button">Cancelar</button>
               <button
@@ -956,6 +988,9 @@ const popCard = {
   display: 'flex', flexDirection: 'column', gap: 10,
 }
 const popTitulo = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)' }
+const popAviso = { margin: '2px 0 8px', fontSize: 10.5, lineHeight: 1.45, color: 'var(--orange)' }
+const popDispensa = { margin: '2px 0 8px', fontSize: 10.5, lineHeight: 1.45, color: 'var(--text-mid)' }
+const popMotivo = { width: '100%', marginTop: 8, padding: '7px 9px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 11.5, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const popRodape = { display: 'flex', justifyContent: 'flex-end', gap: 6 }
 const btnHoje = { padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--cream)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
 const btnPopCancelar = { padding: '7px 12px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }
