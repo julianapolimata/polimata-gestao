@@ -241,6 +241,9 @@ export default function ImportarNFs() {
         valor_original: d.valor_original,
         cotacao_ptax: d.cotacao_ptax,
         numero_nf: d.numero,
+        // A apuração que originou a guia segue para o lançamento: é ela que
+        // permite conferir depois o que foi declarado contra o que o sistema tem.
+        ...(d.apuracao_simples ? { apuracao_simples: d.apuracao_simples, periodo_apuracao: d.periodo_apuracao || null } : {}),
         created: new Date().toISOString().slice(0, 10),
       }
       // 3. Cria o lançamento e baixa a pendência numa transação atômica (RPC).

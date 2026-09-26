@@ -1308,6 +1308,14 @@ SE FOR GUIA DE IMPOSTO (DAS, DARF, GPS, GNRE), extraia também:
 - numero_documento: o campo "Número do Documento" (ou "Nº do Documento", "Documento de Arrecadação"), exatamente como impresso. Se não achar, string vazia.
 Para documentos que não são guia, devolva os dois como string vazia.
 
+SE O DOCUMENTO TRAZ A DECLARAÇÃO DO SIMPLES NACIONAL (PGDAS-D — "Recibo de
+Entrega da Declaração", "Apuração", "Receita Bruta do PA", tabela de repartição
+dos tributos), preencha também "apuracao_simples". É comum o mesmo PDF trazer o
+recibo da declaração E a guia: nesse caso preencha os dois blocos.
+Valores em número, sem símbolo de moeda. Alíquota como fração decimal
+(6,35% → 0.0635). Campo que não existir no documento: 0.
+Se NÃO houver declaração no documento, devolva "apuracao_simples": null.
+
 Responda APENAS com JSON válido, sem markdown:
 {
   "tipo": "entrada" ou "saida",
@@ -1326,7 +1334,14 @@ Responda APENAS com JSON válido, sem markdown:
   "periodo_apuracao": "YYYY-MM (só guia, senão \\"\\")",
   "numero_documento": "número do documento de arrecadação (só guia, senão \\"\\")",
   "parte": "...",
-  "categoria": "Impostos" se for guia, senão "Operacional"
+  "categoria": "Impostos" se for guia, senão "Operacional",
+  "apuracao_simples": null ou {
+    "receita_bruta_pa": 0.00,
+    "receita_bruta_12m": 0.00,
+    "anexo": "I"|"II"|"III"|"IV"|"V"|"",
+    "aliquota_efetiva": 0.0000,
+    "tributos": { "irpj": 0.00, "csll": 0.00, "cofins": 0.00, "pis": 0.00, "cpp": 0.00, "iss": 0.00 }
+  }
 }`
       }
     ]
@@ -1662,7 +1677,22 @@ async function createLancamento(parsed, att, base64) {
       return !!(numeroDoc && String(item.desc || '').includes(numeroDoc));
     });
     if (guiaPend || guiaLanc) {
-      console.log(`[dedup-guia] ${tipoDocUp} ${numeroDoc || periodoApuracao} (R$ ${val}) já registrada (${guiaPend ? 'nf_pending ' + guiaPend.id : targetTable + ' ' + guiaLanc.id}) — pulando ${att.filename}`);
+      const novaApuracao = parsed.apuracao_simples;
+      const alvo = guiaPend
+        ? { tabela: 'nf_pending', id: guiaPend.id, data: guiaPend.data }
+        : { tabela: targetTable, id: guiaLanc.id, data: guiaLanc.data };
+      const jaTinha = alvo.data?.apuracao_simples;
+      if (novaApuracao && !jaTinha) {
+        // Mesma guia, informação nova: enriquece o registro que já existe.
+        const { error: errEnriquece } = await getSupabase()
+          .from(alvo.tabela)
+          .update({ data: { ...(alvo.data || {}), apuracao_simples: novaApuracao } })
+          .eq('id', alvo.id);
+        if (errEnriquece) console.warn('[dedup-guia] não consegui gravar a apuração:', errEnriquece.message);
+        else console.log(`[dedup-guia] ${tipoDocUp} ${numeroDoc || periodoApuracao} já existia — gravada a apuração do Simples em ${alvo.tabela} ${alvo.id}`);
+      } else {
+        console.log(`[dedup-guia] ${tipoDocUp} ${numeroDoc || periodoApuracao} (R$ ${val}) já registrada (${alvo.tabela} ${alvo.id}) — pulando ${att.filename}`);
+      }
       return null;
     }
   }
@@ -1742,6 +1772,9 @@ async function createLancamento(parsed, att, base64) {
     numero: numero,
     numero_documento: numeroDoc || null,
     periodo_apuracao: periodoApuracao || null,
+    // A apuração que originou a guia: é com ela que se confere o que foi
+    // declarado contra o que o sistema tem.
+    apuracao_simples: parsed.apuracao_simples || null,
     data_emissao: parsed.data_emissao || null,
     data_vencimento: due,
     emitente_nome: parsed.emitente_nome || '',
