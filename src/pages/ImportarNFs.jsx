@@ -200,6 +200,25 @@ export default function ImportarNFs() {
   }
 
   // ── Aprovar uma NF: gera lançamento em receivable/payable ─────────────
+  // Guia de imposto, folha e pró-labore não são nota fiscal — e nunca vão ser,
+  // porque não existe nota a emitir. O documento deles é a guia, o recibo, o
+  // contracheque. Dizer "tenho a nota" nesses casos é afirmar o que não existe.
+  const SEM_NOTA_FISCAL = {
+    DAS: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
+    DARF: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
+    GPS: 'Guia previdenciária: o documento é a própria guia, não há nota fiscal.',
+    GNRE: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
+    FOLHA: 'Folha de pagamento: o documento é o recibo, não há nota fiscal a emitir.',
+    'PRÓ-LABORE': 'Retirada de sócio: o documento é o recibo, não há nota fiscal a emitir.',
+    'PRO-LABORE': 'Retirada de sócio: o documento é o recibo, não há nota fiscal a emitir.',
+  }
+
+  function situacaoFiscalDe(d) {
+    const motivo = SEM_NOTA_FISCAL[String(d?.tipo_documento || '').trim().toUpperCase()]
+    if (motivo) return { doc_status: 'dispensado', doc_motivo_dispensa: motivo }
+    return { doc_status: 'vinculado' }
+  }
+
   // A competência de um documento com período de apuração é o próprio
   // período — o mês a que ele se refere —, não a data em que foi emitido.
   // Recibo de folha de agosto sai em setembro; guia de agosto vence em
@@ -245,7 +264,7 @@ export default function ImportarNFs() {
         cat_sugerida: (!catSugeridaValida && d.categoria_sugerida) ? d.categoria_sugerida : undefined,
         subcat: '',
         notes: `NF importada via cron (origem: ${pending.origem || 'email'})`,
-        doc_status: 'vinculado',
+        ...situacaoFiscalDe(d),
         sem_documento: false,
         moeda: d.moeda || 'BRL',
         valor_original: d.valor_original,
