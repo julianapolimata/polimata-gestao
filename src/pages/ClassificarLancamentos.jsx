@@ -109,7 +109,6 @@ export default function ClassificarLancamentos() {
 
   const categorias = useMemo(() => categoriasDe(plano, aba), [plano, aba])
   const totalPend = payable.length + receivable.length
-  const gruposComRegra = useMemo(() => grupos.filter(g => g.regra), [grupos])
 
   // PRÉ-CARGA: o grupo abre com o que o lançamento JÁ tem (categoria, situação fiscal,
   // motivo) ou com a regra aprendida. Antes os seletores vinham vazios e a usuária
@@ -132,6 +131,19 @@ export default function ClassificarLancamentos() {
   // "Sem NF" (dispensado). "NF pendente" é um estado, não precisa de justificativa.
   function validar(s) {
     if (!s?.cat) return 'Escolha uma categoria.'
+    // Só valida contra o plano depois que ele carregou — senão tudo ficaria
+    // inválido no primeiro render.
+    if (plano.length) {
+      if (!categorias.includes(s.cat)) {
+        return `"${s.cat}" não existe no plano de contas — escolha uma categoria da lista.`
+      }
+      const subs = subcategoriasDe(plano, aba, s.cat)
+      if (subs.length && !subs.includes(s.subcat || '')) {
+        return s.subcat
+          ? `"${s.subcat}" não é subcategoria de "${s.cat}" — escolha uma da lista.`
+          : 'Escolha a subcategoria — é ela que define a linha da DRE.'
+      }
+    }
     if (!s?.situacao_fiscal) return 'Informe a situação fiscal.'
     if (s.situacao_fiscal === 'dispensado' && !String(s.motivo || '').trim()) return '"Não tem nota" exige o motivo — escreva por que esta despesa não tem nota fiscal.'
     return null
@@ -268,6 +280,14 @@ export default function ClassificarLancamentos() {
       setAutoRodando(false)
     }
   }
+
+  // Regra só vale enquanto a classificação dela existir no plano de contas.
+  // Inválida, ela sai da proposta automática e o grupo volta para a decisão
+  // humana — que é onde uma classificação inexistente tem que ser resolvida.
+  const gruposComRegra = grupos.filter(g => g.regra && !validar({
+    cat: g.regra.cat, subcat: g.regra.subcat,
+    situacao_fiscal: g.regra.doc_status, motivo: g.regra.doc_motivo_dispensa,
+  }))
 
   // Grupos PRONTOS = pré-carga já válida (categoria + situação fiscal, motivo se Sem NF).
   // O grupo segue a regra aprendida, sem alteração da usuária?

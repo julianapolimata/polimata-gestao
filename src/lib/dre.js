@@ -59,7 +59,12 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
   const catToClass = new Map()
   const catSubToClass = new Map()
   for (const p of plano) {
-    if (p.categoria && p.classificacao) catToClass.set(`${p.tipo}|${p.categoria}`, p.classificacao)
+    // Primeira linha da categoria vence (o plano vem ordenado por `ordem`).
+    // Com set() direto, a ÚLTIMA vencia: "Despesas Operacionais" terminava
+    // classificada como Despesa Financeira por causa do Seguro Prestamista.
+    if (p.categoria && p.classificacao && !catToClass.has(`${p.tipo}|${p.categoria}`)) {
+      catToClass.set(`${p.tipo}|${p.categoria}`, p.classificacao)
+    }
     if (p.categoria && p.subcategoria && p.classificacao) catSubToClass.set(`${p.tipo}|${p.categoria}|${p.subcategoria}`, p.classificacao)
   }
   const resolveClassif = (tipoFin, cat, sub) =>
