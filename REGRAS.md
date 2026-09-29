@@ -56,6 +56,14 @@ a base do Simples em cima de dinheiro que saiu.
 Guia de imposto (DAS, DARF, GPS, GNRE), folha e pró-labore entram **sempre como
 despesa**, independentemente de quem consta como emitente.
 
+## 2c. A competência é o período do documento, não a data dele
+
+Recibo de folha de agosto é emitido em setembro. Guia de agosto vence em
+setembro. Se a competência vier da data de emissão, a despesa cai no mês
+errado — e com ela o Fator R, a DRE e a apuração do mês.
+
+Quando o documento diz a que período se refere, é esse período que manda.
+
 ## 3. "Pago" tem dois significados, e eles não se misturam
 
 | Estado | O que significa |

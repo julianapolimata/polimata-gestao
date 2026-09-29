@@ -1706,7 +1706,9 @@ async function createLancamento(parsed, att, base64) {
       sem_documento: false,
       doc_status: 'vinculado', // a nota chegou: situação fiscal passa a "Com NF"
       // competência (data de emissão) vem da NF anexada — salvo se já foi preenchida à mão
-      data_competencia: matchSemDoc.data.data_competencia || (parsed.data_emissao || '').slice(0, 10) || null,
+      data_competencia: matchSemDoc.data.data_competencia
+        || (periodoApuracao ? `${periodoApuracao}-01` : (parsed.data_emissao || '').slice(0, 10))
+        || null,
       notes: (matchSemDoc.data.notes || '') + ` · Doc anexado em ${today} via email automático`
     };
     const { error: updErr } = await getSupabase()

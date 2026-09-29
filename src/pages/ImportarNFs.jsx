@@ -200,6 +200,16 @@ export default function ImportarNFs() {
   }
 
   // ── Aprovar uma NF: gera lançamento em receivable/payable ─────────────
+  // A competência de um documento com período de apuração é o próprio
+  // período — o mês a que ele se refere —, não a data em que foi emitido.
+  // Recibo de folha de agosto sai em setembro; guia de agosto vence em
+  // setembro. A despesa é de agosto nos dois casos.
+  function competenciaDoDocumento(d) {
+    const pa = String(d?.periodo_apuracao || '').trim()
+    if (/^\d{4}-\d{2}$/.test(pa)) return `${pa}-01`
+    return d?.data_emissao || null
+  }
+
   async function aprovar(pending, opcoes = {}) {
     if (!user) return
     setConfirmando(pending.id)
@@ -224,7 +234,7 @@ export default function ImportarNFs() {
         desc: d.desc_full || d.descricao,
         value: Number(d.valor || 0),
         due: d.data_vencimento || new Date().toISOString().slice(0, 10),
-        data_competencia: d.data_emissao || null,
+        data_competencia: competenciaDoDocumento(d),
         data_pagamento: null,
         status: 'Pendente',
         forma: '',
