@@ -1606,6 +1606,8 @@ async function createLancamento(parsed, att, base64) {
   // vezes (o contador manda pra dois endereços e reenvia dias seguidos).
   const tipoDocUp = String(tipoDoc).toUpperCase();
   const ehGuia = ['DAS', 'DARF', 'GPS', 'GNRE'].includes(tipoDocUp);
+  // Guia de imposto, folha e pró-labore: dinheiro que sai, sempre.
+  const SEMPRE_DESPESA = ['DAS', 'DARF', 'GPS', 'GNRE', 'FOLHA', 'PRÓ-LABORE', 'PRO-LABORE'];
   const numeroDoc = String(parsed.numero_documento || '').trim();
   const periodoApuracao = normalizarPeriodo(parsed.periodo_apuracao);
   // Direção DETERMINÍSTICA pelo CNPJ da empresa — não confia só no "tipo" da IA
@@ -1615,7 +1617,13 @@ async function createLancamento(parsed, att, base64) {
   const emitCnpjDir = String(parsed.emitente_cnpj || '').replace(/\D/g, '');
   const destCnpjDir = String(parsed.destinatario_cnpj || '').replace(/\D/g, '');
   let isSaida;
-  if (emitCnpjDir === cnpjEmpresa) isSaida = true;
+  // Há documentos que são SEMPRE despesa, não importa quem consta como
+  // emitente. O recibo de pró-labore é emitido pela empresa — é ela quem paga —
+  // e a regra do CNPJ concluía "emitente = nós, logo é receita". Isso jogaria a
+  // folha para dentro do faturamento e subiria a base do Simples em cima de
+  // dinheiro que SAIU.
+  if (SEMPRE_DESPESA.includes(tipoDocUp)) isSaida = false;
+  else if (emitCnpjDir === cnpjEmpresa) isSaida = true;
   else if (destCnpjDir === cnpjEmpresa) isSaida = false;
   else isSaida = parsed.tipo === 'saida';
   let val = parseFloat(parsed.valor_total) || 0;

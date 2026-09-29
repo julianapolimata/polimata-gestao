@@ -43,6 +43,19 @@ classificação não dá para saber a natureza, e o certo é perguntar, não pre
 
 ---
 
+## 2b. Guia, folha e pró-labore são sempre despesa
+
+A direção de um documento (receita ou despesa) sai do CNPJ: emitente é a
+empresa → receita; destinatário é a empresa → despesa.
+
+Há exceções em que essa regra erra, e erra feio. O recibo de pró-labore é
+emitido PELA empresa — é ela quem paga — e a regra concluía "emitente somos
+nós, logo é receita". Isso jogaria a folha para dentro do faturamento e subiria
+a base do Simples em cima de dinheiro que saiu.
+
+Guia de imposto (DAS, DARF, GPS, GNRE), folha e pró-labore entram **sempre como
+despesa**, independentemente de quem consta como emitente.
+
 ## 3. "Pago" tem dois significados, e eles não se misturam
 
 | Estado | O que significa |

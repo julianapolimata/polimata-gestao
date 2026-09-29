@@ -628,6 +628,11 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   >
                     {d.descricao || d.fileName || '—'}
                   </div>
+                  {paraQueServe(d) && (
+                    <div style={paraQueServeEstilo} title={paraQueServe(d)}>
+                      ⓘ {paraQueServe(d)}
+                    </div>
+                  )}
                 </td>
                 <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
                 <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
@@ -660,6 +665,25 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
       </table>
     </div>
   )
+}
+
+// O que cada documento alimenta no sistema. Documento sem contexto vira
+// decisão sem contexto — e decisão sem contexto vira imposto errado.
+const PARA_QUE_SERVE = {
+  'Folha': 'Entra como despesa de pessoal e conta no Fator R, que decide o anexo do seu Simples.',
+  'Pró-labore': 'Entra como despesa de pessoal e conta no Fator R, que decide o anexo do seu Simples.',
+  'Pro-labore': 'Entra como despesa de pessoal e conta no Fator R, que decide o anexo do seu Simples.',
+  'GPS': 'Contribuição previdenciária: entra como despesa e conta no Fator R.',
+  'DAS': 'Guia do Simples: vira conta a pagar e carrega a apuração do mês.',
+  'DARF': 'Guia federal: vira conta a pagar na competência informada.',
+  'GNRE': 'Guia estadual: vira conta a pagar na competência informada.',
+}
+
+function paraQueServe(d) {
+  if (d?.apuracao_simples) {
+    return 'Traz a apuração do Simples: receita declarada, anexo e a divisão por tributo — é com isso que se confere o que o contador declarou.'
+  }
+  return PARA_QUE_SERVE[String(d?.tipo_documento || '').trim()] || ''
 }
 
 // O que apareceu no lugar do status cru do robô ('ok', 'sem_anexo'...).
@@ -771,6 +795,7 @@ function UploadManualCard({ emailEntrada }) {
 const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
 const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
 const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const paraQueServeEstilo = { fontSize: 10.5, color: 'var(--gold-dark)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }
 const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const btnLinha = { padding: '4px 9px', marginLeft: 3, borderRadius: 5, border: 'none', background: 'var(--gold-dark)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }
 const btnLinhaGhost = { padding: '4px 7px', marginLeft: 3, borderRadius: 5, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--navy)', fontSize: 11, cursor: 'pointer' }
