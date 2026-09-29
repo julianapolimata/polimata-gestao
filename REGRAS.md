@@ -92,6 +92,22 @@ estar certo.
 
 ---
 
+## 4b. Classificação só vale se existir no plano de contas
+
+Categoria e subcategoria são escolhidas **do plano de contas**, nunca escritas
+livremente. Rótulo que o leitor de documentos sugere e não existe no plano é
+recusado: o lançamento nasce sem categoria e passa pela Escrituração.
+
+A subcategoria faz parte da classificação, não é detalhe. É ela que define a
+linha da DRE — "Despesas Operacionais · Seguro Prestamista" é Despesa
+**Financeira**. Onde o plano oferece subcategoria, ela é obrigatória.
+
+**Por quê:** classificação fora do plano não some com alarde. O lançamento
+continua lá, o total do mês continua batendo, e ele simplesmente não aparece na
+DRE. Erro que não grita é o que demora a ser achado.
+
+---
+
 ## 5. O mês fechado é travado no banco, não na tela
 
 Fechar um mês grava uma trava no próprio banco de dados: lançamento daquela
