@@ -1074,6 +1074,24 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
         continue;
       }
 
+      // MESMO ARQUIVO, DE NOVO? O contador reenvia a mesma tarefa várias vezes
+      // e cada e-mail traz o mesmo link. Antes o sistema pagava a leitura e só
+      // então descobria a duplicata — o mesmo relatório chegou a ser lido oito
+      // vezes em um minuto. A conferência agora vem ANTES de pagar.
+      const digital = impressaoDigital(base64);
+      const lidoAntes = await jaFoiLido(digital);
+      if (lidoAntes) {
+        descartadosCount++;
+        console.log(`[dedup-leitura] ${att.filename}: conteúdo idêntico ao já lido em ${String(lidoAntes.created_at).slice(0, 10)} — não paguei de novo`);
+        await registrarDescarte({
+          att, parsed: null,
+          status: 'duplicado',
+          motivo: 'ja_lido_antes',
+          detalhe: `mesmo conteúdo de "${lidoAntes.arquivo || 'documento anterior'}", lido em ${String(lidoAntes.created_at).slice(0, 10)}`,
+        });
+        continue;
+      }
+
       let leitura;
       try {
         leitura = await lerDocumento(base64, att);
@@ -1085,6 +1103,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
           gmailMessageId: messageId,
           resultado: 'descartado',   // vira 'documento' se gerar pendência
           meta: null,
+          hashArquivo: digital,
         };
       } catch (e) {
         // A chamada falhou: registra tokens 0 e o motivo, e segue o fluxo de erro.
@@ -1096,6 +1115,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
           gmailMessageId: messageId,
           resultado: 'erro',
           meta: { erro: String(e.message || e).slice(0, 300) },
+          hashArquivo: digital,
         };
         throw e;
       }
@@ -1293,6 +1313,13 @@ async function parseDocumentWithAI(base64, mimeType) {
 CNPJ da empresa: ${cnpjEmpresa}
 
 REGRAS PARA DETERMINAR O TIPO:
+- Recibo de pagamento de salário ou de PRÓ-LABORE (folha do mês, holerite,
+  "Recibo de pagamento", "Recibo mensal") → tipo_documento "Pró-labore" quando
+  for retirada de sócio, "Folha" quando for salário de empregado. Sempre
+  "entrada" (é despesa da empresa), e a parte é QUEM RECEBEU.
+- Relatório totalizador do eSocial (S-5011/S-5012, "Contribuição Previdenciária
+  Patronal", DCTFWeb) → tipo_documento "Folha", parte = a própria empresa, e o
+  valor é o da contribuição do período.
 - DAS, DARF, GPS, GNRE, ou guias de imposto → tipo "entrada" (Conta a Pagar) e parte = nome do órgão emissor
 - NF/NFS com EMITENTE = ${cnpjEmpresa} → "saida" (Conta a Receber)
 - NF/NFS com DESTINATÁRIO = ${cnpjEmpresa} → "entrada" (Conta a Pagar)
@@ -1302,6 +1329,9 @@ CAMPOS OBRIGATÓRIOS (extraia com muito cuidado, mesmo se aparecem em rodapé/ca
 - numero_nf: procure por "NF", "NFS-e", "Nº", "Numero", "Number". Se não achar, deixe string vazia.
 - data_emissao: procure por "Data de emissão", "Emissão", "Issue date", "Issued on". Formato YYYY-MM-DD obrigatório.
 - emitente_cnpj e destinatario_cnpj: extraia mesmo de rodapé. Format 14 dígitos.
+
+SE FOR FOLHA OU PRÓ-LABORE, o "periodo_apuracao" é a COMPETÊNCIA da folha
+(o mês trabalhado), não a data de pagamento. Formato "YYYY-MM".
 
 SE FOR GUIA DE IMPOSTO (DAS, DARF, GPS, GNRE), extraia também:
 - periodo_apuracao: o campo "Período de Apuração" (ou "PA", "Competência"), SEMPRE no formato "YYYY-MM". Ex.: "agosto/2026" → "2026-08"; "08/2026" → "2026-08". Se não achar, string vazia.
@@ -1319,7 +1349,7 @@ Se NÃO houver declaração no documento, devolva "apuracao_simples": null.
 Responda APENAS com JSON válido, sem markdown:
 {
   "tipo": "entrada" ou "saida",
-  "tipo_documento": "NF-e"|"NFS-e"|"DAS"|"DARF"|"GPS"|"GNRE"|"Boleto"|"Fatura"|"Outro",
+  "tipo_documento": "NF-e"|"NFS-e"|"DAS"|"DARF"|"GPS"|"GNRE"|"Boleto"|"Fatura"|"Folha"|"Pró-labore"|"Outro",
   "numero_nf": "número do documento",
   "emitente_nome": "...",
   "emitente_cnpj": "...",
@@ -1398,7 +1428,7 @@ function calcularCustoUSD(modelo, inputTokens, outputTokens) {
 // Grava UMA linha em leituras_ia. Nunca derruba o processamento: se o registro
 // do consumo falhar, o e-mail continua sendo processado e a falha só vai para
 // o console (a tabela é histórico de gasto, não parte do fluxo do documento).
-async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessageId, resultado, meta }) {
+async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessageId, resultado, meta, hashArquivo }) {
   const vazio = { custoUsd: 0, custoBrl: 0 };
   try {
     const inputTokens = Math.max(0, Number(usage?.input_tokens) || 0);
@@ -1446,6 +1476,7 @@ async function registrarConsumoIA({ modelo, usage, origem, arquivo, gmailMessage
       arquivo: arquivo || null,
       gmail_message_id: gmailMessageId || null,
       resultado,
+      hash_arquivo: hashArquivo || null,
       // Sempre objeto: a coluna não aceita vazio e recusava a linha inteira.
       meta: metaFinal,
     });
@@ -1522,6 +1553,46 @@ async function preferirPdfNoAnexo(pendente, att, base64) {
   }).eq('id', pendente.id);
   if (error) console.warn('[anexo] não consegui trocar o XML pelo PDF:', error.message);
   else console.log(`[anexo] ${att.filename} passou a ser o anexo da pendência ${pendente.id} (leitura veio do XML)`);
+}
+
+// Impressão digital do conteúdo. Nome de arquivo repete e engana; o conteúdo
+// não. É por ele que se sabe que a leitura já foi paga uma vez.
+function impressaoDigital(base64) {
+  try {
+    return crypto.createHash('sha1').update(String(base64 || '')).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+// Este arquivo já foi lido antes, com sucesso? Erro de leitura NÃO conta: se a
+// primeira tentativa falhou, a segunda tem que acontecer.
+async function jaFoiLido(hash) {
+  if (!hash) return null;
+  try {
+    const { data, error } = await getSupabase()
+      .from('leituras_ia')
+      .select('id, arquivo, resultado, created_at')
+      .eq('user_id', process.env.POLIMATA_USER_ID)
+      .eq('hash_arquivo', hash)
+      .in('resultado', ['documento', 'descartado'])
+      .limit(1);
+    if (error) throw new Error(error.message);
+    return data && data.length ? data[0] : null;
+  } catch (e) {
+    // Sem certeza de que já foi lido, o certo é ler: perder um documento é pior
+    // do que gastar uma leitura.
+    console.warn('[dedup-leitura] não consegui consultar o histórico:', e.message);
+    return null;
+  }
+}
+
+// Declaração de verdade tem receita declarada. Sem isso é um objeto de campos
+// vazios que a leitura devolveu por educação — e apuração vazia é pior que
+// apuração nenhuma, porque tem cara de dado.
+function apuracaoValida(ap) {
+  if (!ap || typeof ap !== 'object') return null;
+  return (Number(ap.receita_bruta_pa) || 0) > 0 ? ap : null;
 }
 
 async function createLancamento(parsed, att, base64) {
@@ -1774,7 +1845,7 @@ async function createLancamento(parsed, att, base64) {
     periodo_apuracao: periodoApuracao || null,
     // A apuração que originou a guia: é com ela que se confere o que foi
     // declarado contra o que o sistema tem.
-    apuracao_simples: parsed.apuracao_simples || null,
+    apuracao_simples: apuracaoValida(parsed.apuracao_simples),
     data_emissao: parsed.data_emissao || null,
     data_vencimento: due,
     emitente_nome: parsed.emitente_nome || '',
@@ -1931,6 +2002,10 @@ async function mapNFCategoria(nf, isSaida) {
   const ok = (nome) => cats.get(`${tipo}|${String(nome || '').toLowerCase()}`) || '';
   const td = (nf.tipo_documento || '').toUpperCase();
   if (td === 'DAS') return ok('Impostos sobre Receita');
+  // Retirada de sócio e salário são FOLHA no sentido da lei — e é essa
+  // categoria que o Fator R soma para decidir o anexo do Simples. Entrando
+  // como "Outro", a folha ficava invisível para o cálculo que depende dela.
+  if (['PRÓ-LABORE', 'PRO-LABORE', 'FOLHA'].includes(td)) return ok('Pessoal / Mão de Obra');
   if (['DARF', 'GPS'].includes(td)) return ok('Impostos sobre Folha');
   return ok(nf.categoria);
 }
