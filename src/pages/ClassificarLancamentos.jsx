@@ -8,7 +8,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable } from '../lib/codigos'
 import { showToast } from '../components/Toast'
 import {
   construirRegras, regraPara, escriturarAuto,
-  SITUACOES_FISCAIS, semDocumentoDe,
+  SITUACOES_FISCAIS, rotuloSituacaoFiscal, semDocumentoDe,
 } from '../lib/escrituracao'
 import SeletorNF from './components/SeletorNF'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento } from '../lib/fechamento'
@@ -219,7 +219,24 @@ export default function ClassificarLancamentos() {
     if (!alvo.length) { showToast('Nenhuma recorrente reconhecida agora.', 'info'); return }
     const ok = await confirmar({
       titulo: `Escriturar ${alvo.length} grupo(s) reconhecido(s)?`,
-      texto: 'São despesas e receitas que se repetem e que você já classificou antes.',
+      texto: (
+        <>
+          <div>São despesas e receitas que se repetem e que você já classificou antes. Isto é o que vai ser aplicado:</div>
+          <ul style={listaGrupos}>
+            {alvo.map(g => (
+              <li key={g.key} style={itemGrupo}>
+                <strong>{g.nome}</strong>
+                <span style={{ color: 'var(--text-mid)' }}> · {g.itens.length} lançamento(s)</span>
+                <div style={classificacaoGrupo}>
+                  → {g.regra.cat}
+                  {g.regra.subcat ? ` · ${g.regra.subcat}` : ''}
+                  {g.regra.doc_status ? ` · ${rotuloSituacaoFiscal(g.regra.doc_status)}` : ''}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      ),
       consequencias: [
         'A classificação copiada é exatamente a que você aprovou da última vez — nada é inventado.',
         'Cada lançamento fica marcado como escriturado automaticamente.',
@@ -513,6 +530,9 @@ export default function ClassificarLancamentos() {
   )
 }
 
+const listaGrupos = { margin: '8px 0 0', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 6 }
+const itemGrupo = { fontSize: 12.5, lineHeight: 1.45, color: 'var(--navy)' }
+const classificacaoGrupo = { fontSize: 11.5, color: 'var(--gold-dark)', fontWeight: 600 }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const card = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 14 }
 const autoBox = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--cream)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }
