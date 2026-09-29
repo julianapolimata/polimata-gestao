@@ -284,7 +284,32 @@ export default function ClassificarLancamentos() {
     if (!totalProntos) { showToast('Nada pronto ainda — preencha categoria e situação fiscal (e anexe a nota nos "Tenho a nota").', 'info'); return }
     const ok = await confirmar({
       titulo: `Escriturar ${totalProntos} lançamento(s)?`,
-      texto: `Estão em ${gruposProntos.length} grupo(s), com a classificação já preenchida.`,
+      texto: (
+        <>
+          <div>Estão em {gruposProntos.length} grupo(s), com a classificação já preenchida. Isto é o que vai ser gravado:</div>
+          <ul style={listaGrupos}>
+            {gruposProntos.slice(0, 8).map(g => {
+              const sel = selDe(g)
+              return (
+                <li key={g.key} style={itemGrupo}>
+                  <strong>{g.nome}</strong>
+                  <span style={{ color: 'var(--text-mid)' }}> · {itensProntosDe(g).length} lançamento(s)</span>
+                  <div style={classificacaoGrupo}>
+                    → {sel.cat}
+                    {sel.subcat ? ` · ${sel.subcat}` : ''}
+                    {sel.situacao_fiscal ? ` · ${rotuloSituacaoFiscal(sel.situacao_fiscal)}` : ''}
+                  </div>
+                </li>
+              )
+            })}
+            {gruposProntos.length > 8 && (
+              <li style={{ ...itemGrupo, color: 'var(--text-mid)' }}>
+                e mais {gruposProntos.length - 8} grupo(s)…
+              </li>
+            )}
+          </ul>
+        </>
+      ),
       consequencias: [
         'Só entra o que está marcado e com a nota anexada.',
         'O que estiver desmarcado, ou sem nota, continua na fila esperando.',
@@ -530,7 +555,7 @@ export default function ClassificarLancamentos() {
   )
 }
 
-const listaGrupos = { margin: '8px 0 0', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 6 }
+const listaGrupos = { margin: '8px 0 0', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '32vh', overflowY: 'auto' }
 const itemGrupo = { fontSize: 12.5, lineHeight: 1.45, color: 'var(--navy)' }
 const classificacaoGrupo = { fontSize: 11.5, color: 'var(--gold-dark)', fontWeight: 600 }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
