@@ -270,7 +270,18 @@ export default function ClassificarLancamentos() {
   }
 
   // Grupos PRONTOS = pré-carga já válida (categoria + situação fiscal, motivo se Sem NF).
-  const gruposProntos = grupos.filter(g => !validar(selDe(g)))
+  // O grupo segue a regra aprendida, sem alteração da usuária?
+  function seguiuARegra(g) {
+    if (!g.regra) return false
+    const s = selDe(g)
+    return (s.cat || '') === (g.regra.cat || '')
+      && (s.subcat || '') === (g.regra.subcat || '')
+      && (s.situacao_fiscal || '') === (g.regra.doc_status || '')
+  }
+
+  // "Pronto" é o que depende de DECISÃO dela. O que o sistema já sabe fazer
+  // sozinho é do outro botão — e só sai de lá se ela mudar a classificação.
+  const gruposProntos = grupos.filter(g => !seguiuARegra(g) && !validar(selDe(g)))
   const itensProntosDe = g => {
     const s = selDe(g)
     const base = g.itens.filter(it => !desmarcados.has(it.id) && !emMesFechado(it)) // mês fechado fica de fora
@@ -406,7 +417,10 @@ export default function ClassificarLancamentos() {
       {gruposComRegra.length > 0 && (
         <div style={autoBox}>
           <div style={{ fontSize: 12, color: 'var(--navy)' }}>
-            <strong>{gruposComRegra.length}</strong> grupo(s) recorrente(s) reconhecido(s) pelo histórico — a classificação já aprovada por você pode ser aplicada fielmente.
+            <strong>{gruposComRegra.length}</strong> grupo(s) recorrente(s) reconhecido(s) pelo histórico — a classificação já aprovada por você é aplicada fielmente.
+            {' '}<span style={{ color: 'var(--text-mid)' }}>
+              Isto é o sistema repetindo o que você ensinou: não conta como decisão nova e não vira regra.
+            </span>
           </div>
           <button onClick={escriturarAutomaticas} disabled={autoRodando} style={btnAuto}>
             {autoRodando ? 'Escriturando…' : `↻ Escriturar automáticas (${gruposComRegra.length})`}
@@ -418,6 +432,9 @@ export default function ClassificarLancamentos() {
         <div style={autoBox}>
           <div style={{ fontSize: 12, color: 'var(--navy)' }}>
             <strong>{totalProntos}</strong> lançamento(s) em <strong>{gruposProntos.length}</strong> grupo(s) já vêm com categoria e situação fiscal pré-carregadas — confira e escriture de uma vez.
+            {' '}<span style={{ color: 'var(--text-mid)' }}>
+              Estes contam como decisão sua: é deles que o sistema aprende para as próximas vezes.
+            </span>
           </div>
           <button onClick={escriturarProntos} disabled={autoRodando} style={btnAplicar}>
             {autoRodando ? 'Escriturando…' : `✓ Escriturar todos os prontos (${totalProntos})`}

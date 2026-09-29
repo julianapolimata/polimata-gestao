@@ -118,6 +118,13 @@ sob três condições:
    passado, não há proposta: espera decisão humana;
 3. **a regra propõe e diz de onde veio.** Nunca aplica sozinha.
 
+
+Na Escrituração isso aparece como dois botões que **não se sobrepõem**:
+"Escriturar automáticas" aplica o que o sistema já aprendeu e não realimenta o
+aprendizado; "Escriturar todos os prontos" são as decisões suas, e é delas que
+ele aprende. Um grupo só sai do primeiro para o segundo se você mudar a
+classificação proposta.
+
 ---
 
 ## 7. A conciliação entende o que a linha é antes de procurar par
