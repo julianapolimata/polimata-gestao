@@ -116,11 +116,29 @@ export default function ClassificarLancamentos() {
   // PRÉ-CARGA: o grupo abre com o que o lançamento JÁ tem (categoria, situação fiscal,
   // motivo) ou com a regra aprendida. Antes os seletores vinham vazios e a usuária
   // reescolhia a categoria de 369 itens que já estavam classificados — a "parede".
+  // O que está gravado só serve de pré-carga se ainda existir no plano.
+  // Categoria extinta/inventada vira seletor vazio sem explicação — pior que
+  // não pré-carregar nada.
+  function catNoPlano(cat) { return !!cat && (!plano.length || categorias.includes(cat)) }
+  function subNoPlano(cat, sub) {
+    if (!sub) return false
+    if (!plano.length) return true
+    return subcategoriasDe(plano, aba, cat).includes(sub)
+  }
+  // O que a pré-carga DESCARTOU, pra tela poder dizer.
+  function classificacaoDescartada(g) {
+    const d = g.rep?.data || {}
+    if (!plano.length) return null
+    if (d.cat && !catNoPlano(d.cat)) return d.cat
+    if (d.cat && d.subcat && !subNoPlano(d.cat, d.subcat)) return `${d.cat} · ${d.subcat}`
+    return null
+  }
   function prefillDe(g) {
     const d = g.rep?.data || {}
+    const catOk = catNoPlano(d.cat) ? d.cat : ''
     return {
-      cat: d.cat || g.regra?.cat || '',
-      subcat: d.subcat || g.regra?.subcat || '',
+      cat: catOk || g.regra?.cat || '',
+      subcat: (catOk && subNoPlano(catOk, d.subcat)) ? d.subcat : (catOk ? '' : (g.regra?.subcat || '')),
       situacao_fiscal: d.doc_status || g.regra?.doc_status || '',
       motivo: d.doc_motivo_dispensa || g.regra?.doc_motivo_dispensa || '',
     }
@@ -574,6 +592,7 @@ export default function ClassificarLancamentos() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {grupos.map(g => {
             const s = selDe(g)
+            const descartada = classificacaoDescartada(g)
             const subs = subcategoriasDe(plano, aba, s.cat)
             const precisaMotivo = s.situacao_fiscal && s.situacao_fiscal !== 'vinculado'
             const comNF = s.situacao_fiscal === 'vinculado'
@@ -593,6 +612,12 @@ export default function ClassificarLancamentos() {
                       <div style={grpNome} title={g.nome}>
                         {g.nome}
                         {g.regra && <span style={badgeRegra} title={`Recorrente reconhecida: ${g.regra.cat}`}>recorrente</span>}
+                        {descartada && (
+                          <span
+                            style={badgeForaDoPlano}
+                            title={`Estava gravado "${descartada}", que não existe no plano de contas. Escolha uma categoria da lista — a antiga não voltaria na DRE.`}
+                          >fora do plano</span>
+                        )}
                       </div>
                       <div style={grpMeta}>
                         {parcial
@@ -614,6 +639,14 @@ export default function ClassificarLancamentos() {
                     {SITUACOES_FISCAIS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
+                {descartada && (
+                  <div style={avisoForaDoPlano}>
+                    Este grupo estava gravado como <strong>{descartada}</strong>, que não existe no seu plano de contas
+                    {s.cat ? <> — deixei a sugestão <strong>{s.cat}</strong>{s.subcat ? <> · <strong>{s.subcat}</strong></> : null} vinda do histórico. Confira antes de escriturar.</>
+                      : <>. Escolha a categoria certa acima.</>}
+                    {' '}Lançamento com categoria fora do plano <strong>não aparece na DRE</strong>.
+                  </div>
+                )}
                 {precisaMotivo && (
                   <input
                     value={s.motivo || ''}
@@ -720,6 +753,8 @@ const listaGrupos = { margin: '8px 0 0', padding: '0 0 0 18px', display: 'flex',
 const itemGrupo = { fontSize: 12.5, lineHeight: 1.45, color: 'var(--navy)' }
 const classificacaoGrupo = { fontSize: 11.5, color: 'var(--gold-dark)', fontWeight: 600 }
 const btnVincularLote = { padding: '6px 12px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--navy)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)', whiteSpace: 'nowrap' }
+const badgeForaDoPlano = { marginLeft: 6, fontSize: 8.5, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--red)', border: '1px solid var(--red)', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }
+const avisoForaDoPlano = { marginTop: 8, padding: '8px 10px', borderRadius: 6, background: 'rgba(192,57,43,0.07)', borderLeft: '3px solid var(--red)', fontSize: 11.5, color: 'var(--navy)', lineHeight: 1.5 }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const card = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 14 }
 const autoBox = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--cream)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }
