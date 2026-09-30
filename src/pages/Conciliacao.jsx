@@ -12,6 +12,7 @@ import { proximoCodigoReceivable, proximoCodigoPayable, proximosCodigosPayable }
 import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } from '../lib/faturaCartao'
 import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
+import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
 import { useConfirm } from '../components/ConfirmDialog'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
@@ -97,6 +98,9 @@ export default function Conciliacao() {
   const [ajustes, setAjustes] = useState([])            // [{ id, key, valor }] ajustes que explicam a diferença
   const [conciliando, setConciliando] = useState(false)
   const [periodosFechados, setPeriodosFechados] = useState(new Set()) // 'YYYY-MM' travados
+  const [juntarAberto, setJuntarAberto] = useState(false)
+  const [juntas, setJuntas] = useState(new Set())   // OUTRAS linhas do grupo (a âncora é a selecionada)
+  const [partes, setPartes] = useState([])          // como o total se divide por natureza
   const [plano, setPlano] = useState([])
   const [criarAberto, setCriarAberto] = useState(false) // form de "criar lançamento" aberto
   const [nCat, setNCat] = useState('')
@@ -106,7 +110,7 @@ export default function Conciliacao() {
   const [erro, setErro] = useState(null)
 
   // Zera a seleção/ajustes/form ao trocar a linha do extrato
-  useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat(''); setTransfAberto(false); setTOutraConta(''); setTLigar('') }, [selecionado])
+  useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat(''); setTransfAberto(false); setTOutraConta(''); setTLigar(''); setJuntarAberto(false); setJuntas(new Set()); setPartes([]) }, [selecionado])
 
   // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
   useEffect(() => {
@@ -423,6 +427,85 @@ export default function Conciliacao() {
       setSelecionado(null); carregar()
     } catch (e) { if (!silencioso) showToast('Erro na conciliação automática: ' + e.message, 'error') }
     finally { setAutoConc(false) }
+  }
+
+  // ── Juntar transferências: várias linhas, uma baixa ──────────────────
+  //
+  // O pró-labore não sai num Pix só. E o que sai não é de uma natureza só:
+  // parte é pró-labore (conta no Fator R) e parte é antecipação de lucro (não
+  // conta). Por isso o painel não junta só as linhas — ele pede a divisão.
+
+  // Candidatas: pendentes da MESMA conta e do MESMO sentido, menos a âncora.
+  const candidatasAJuntar = useMemo(() => {
+    const ext = extratosFiltrados.find(e => e.id === selecionado)
+    if (!ext) return []
+    return extratosFiltrados.filter(e =>
+      e.id !== ext.id && e.status === 'pendente'
+      && e.conta_id === ext.conta_id && e.data?.tipo === ext.data?.tipo)
+  }, [extratosFiltrados, selecionado])
+
+  const linhasDoGrupo = useMemo(() => {
+    const ext = extratosFiltrados.find(e => e.id === selecionado)
+    if (!ext) return []
+    return [ext, ...candidatasAJuntar.filter(e => juntas.has(e.id))]
+  }, [extratosFiltrados, selecionado, candidatasAJuntar, juntas])
+
+  const totalDoGrupo = useMemo(() => somarLinhas(linhasDoGrupo), [linhasDoGrupo])
+  const erroDivisao = useMemo(
+    () => (linhasDoGrupo.length < 2 && !juntas.size)
+      ? 'Marque as outras transferências que fazem parte deste pagamento.'
+      : validarDivisao({ linhas: linhasDoGrupo, partes }),
+    [linhasDoGrupo, partes, juntas],
+  )
+
+  function toggleJunta(id) {
+    setJuntas(j => { const n = new Set(j); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function addParte() { setPartes(ps => [...ps, { id: crypto.randomUUID(), cat: '', subcat: '', valor: '' }]) }
+  function updParte(id, campo, val) {
+    setPartes(ps => ps.map(x => x.id === id ? { ...x, [campo]: val, ...(campo === 'cat' ? { subcat: '' } : {}) } : x))
+  }
+  function rmParte(id) { setPartes(ps => ps.filter(x => x.id !== id)) }
+  /** Joga no campo em branco tudo que falta para fechar — o atalho do caso comum. */
+  function completarResto(id) {
+    const outras = partes.filter(x => x.id !== id).reduce((s, x) => s + Math.abs(Number(x.valor) || 0), 0)
+    const resto = Math.max(0, totalDoGrupo - outras)
+    updParte(id, 'valor', resto.toFixed(2))
+  }
+
+  async function conciliarJuntas() {
+    const ext = selecionadoExt
+    if (!ext || erroDivisao) return
+    const tabela = ext.data?.tipo === 'entrada' ? 'receivable' : 'payable'
+    setConciliando(true)
+    try {
+      const lancs = montarLancamentos({
+        linhas: linhasDoGrupo,
+        partes: partes.map(x => ({ cat: x.cat, subcat: x.subcat, valor: Number(x.valor) })),
+        tabela,
+        parte: (ext.data?.descricao || '').substring(0, 80),
+      })
+      // Códigos sequenciais, como no resto da tela.
+      let base = null, n = 0
+      for (const l of lancs) {
+        if (base === null) {
+          base = tabela === 'receivable' ? await proximoCodigoReceivable() : await proximoCodigoPayable()
+          n = parseInt(base.slice(1), 10)
+        }
+        l.codigo = `${tabela === 'receivable' ? '1' : '2'}${String(n++).padStart(5, '0')}`
+      }
+      const { error } = await supabase.rpc('conciliar_varias_linhas', {
+        p_extrato_ids: linhasDoGrupo.map(l => l.id),
+        p_target: tabela,
+        p_ledger: [],
+        p_ajustes: lancs,
+        p_meta: { juntado_manualmente: true, total_do_grupo: totalDoGrupo },
+      })
+      if (error) throw error
+      showToast(`${linhasDoGrupo.length} transferência(s) conciliada(s) em ${lancs.length} lançamento(s). Próximo passo: Escrituração.`, 'success')
+      setSelecionado(null); carregar()
+    } catch (e) { showToast('Erro ao juntar: ' + (e.message || e), 'error') }
+    finally { setConciliando(false) }
   }
 
   // ── Mesa de conciliação (multi-seleção + ajustes) ────────────────────
@@ -973,6 +1056,13 @@ export default function Conciliacao() {
                       )
                       : <button onClick={() => { setCriarAberto(v => !v); setTransfAberto(false) }} style={criarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>+ Criar lançamento</button>}
                     <button onClick={() => abrirTransferencia(selecionadoExt)} style={transfAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}>↔ Transferência{ehCartao && selecionadoExt.data?.tipo === 'entrada' ? ' (pagamento da fatura)' : ''}</button>
+                    {!ehCartao && candidatasAJuntar.length > 0 && (
+                      <button
+                        onClick={() => { setJuntarAberto(v => !v); setCriarAberto(false); setTransfAberto(false) }}
+                        style={juntarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}
+                        title="Um pagamento que saiu em várias transferências (ex.: pró-labore picado)"
+                      >⊞ Juntar transferências</button>
+                    )}
                     <button onClick={() => arquivar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>🗄 Arquivar</button>
                   </div>
                   {transfAberto && (
@@ -1017,6 +1107,79 @@ export default function Conciliacao() {
                         : <>Crédito na fatura: se for estorno/desconto, use <strong>＋ Estorno / crédito</strong>; se for o pagamento da fatura, <strong>↔ Transferência</strong>.</>}
                     </div>
                   )}
+                  {juntarAberto && !ehCartao && (
+                    <div style={criarBox}>
+                      <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.55 }}>
+                        Para quando <strong>um pagamento saiu em várias transferências</strong> — o pró-labore mandado picado, por
+                        exemplo. Marque as outras linhas que fazem parte do mesmo pagamento e diga <strong>como o total se divide</strong>.
+                        {' '}A divisão importa: <strong>pró-labore conta no Fator R</strong> e decide o anexo do Simples;
+                        {' '}<strong>antecipação de lucro não conta</strong>.
+                      </div>
+
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '10px 0 4px' }}>
+                        Linhas deste pagamento
+                      </div>
+                      <div style={listaJuntar}>
+                        <label style={{ ...linhaJuntar, opacity: 0.7 }}>
+                          <input type="checkbox" checked readOnly />
+                          <span style={{ width: 82, flexShrink: 0 }}>{fmtDataBR(selecionadoExt.data?.data)}</span>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selecionadoExt.data?.descricao}</span>
+                          <strong style={{ width: 96, textAlign: 'right' }}>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong>
+                        </label>
+                        {candidatasAJuntar.map(e => (
+                          <label key={e.id} style={linhaJuntar}>
+                            <input type="checkbox" checked={juntas.has(e.id)} onChange={() => toggleJunta(e.id)} />
+                            <span style={{ width: 82, flexShrink: 0 }}>{fmtDataBR(e.data?.data)}</span>
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.data?.descricao}</span>
+                            <strong style={{ width: 96, textAlign: 'right' }}>{fmtMoney(Math.abs(Number(e.data?.valor || 0)))}</strong>
+                          </label>
+                        ))}
+                      </div>
+                      <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--navy)', marginTop: 6 }}>
+                        {linhasDoGrupo.length} linha(s) · <strong>{fmtMoney(totalDoGrupo)}</strong>
+                      </div>
+
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '14px 0 4px' }}>
+                        Como esse total se divide
+                      </div>
+                      {partes.map(pt => {
+                        const tipoPlano = selecionadoExt.data?.tipo === 'entrada' ? 'Entrada' : 'Saída'
+                        const subs = subcategoriasDe(plano, tipoPlano, pt.cat)
+                        return (
+                          <div key={pt.id} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6, alignItems: 'center' }}>
+                            <select value={pt.cat} onChange={e => updParte(pt.id, 'cat', e.target.value)} style={ajSelect}>
+                              <option value="">— categoria —</option>
+                              {categoriasDe(plano, tipoPlano).map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <select value={pt.subcat} onChange={e => updParte(pt.id, 'subcat', e.target.value)} style={{ ...ajSelect, opacity: subs.length ? 1 : 0.5 }} disabled={!subs.length}>
+                              <option value="">{subs.length ? '— subcategoria —' : 'sem subcategoria'}</option>
+                              {subs.map(x => <option key={x} value={x}>{x}</option>)}
+                            </select>
+                            <input
+                              value={pt.valor} onChange={e => updParte(pt.id, 'valor', e.target.value)}
+                              placeholder="0,00" inputMode="decimal" style={inpValorParte}
+                            />
+                            <button onClick={() => completarResto(pt.id)} style={btnLink} title="Preenche com tudo que falta para fechar">o resto</button>
+                            <button onClick={() => rmParte(pt.id)} style={btnLink}>remover</button>
+                          </div>
+                        )
+                      })}
+                      <button onClick={addParte} style={btnAcao}>+ natureza</button>
+
+                      <div style={{ marginTop: 10, fontSize: 12, color: erroDivisao ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 600 }}>
+                        {erroDivisao || '✓ A divisão fecha o valor das transferências.'}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <button
+                          onClick={conciliarJuntas}
+                          disabled={!!erroDivisao || conciliando}
+                          style={{ ...btnConciliar, width: 'auto', marginTop: 0, padding: '8px 16px', opacity: erroDivisao || conciliando ? 0.5 : 1, cursor: erroDivisao || conciliando ? 'not-allowed' : 'pointer' }}
+                        >{conciliando ? 'Conciliando…' : `✓ Juntar e conciliar ${linhasDoGrupo.length} linha(s)`}</button>
+                        <button onClick={() => setJuntarAberto(false)} style={btnAcao}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
+
                   {criarAberto && !ehCartao && (
                     <div style={criarBox}>
                       <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.5 }}>
@@ -1207,6 +1370,9 @@ const grupoLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransf
 const lancCard = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--cream-dark)', marginBottom: 6, background: 'var(--white)' }
 const lancCardDestaque = { border: '1.5px solid var(--gold)', background: 'rgba(204,145,94,0.06)' }
 const lancCardMarcado = { border: '1.5px solid var(--navy)', background: 'rgba(0,32,62,0.05)' }
+const listaJuntar = { display: 'flex', flexDirection: 'column', gap: 2, maxHeight: '28vh', overflowY: 'auto', border: '1px solid var(--cream-dark)', borderRadius: 6, padding: 6, background: 'var(--white)' }
+const linhaJuntar = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--navy)', padding: '3px 4px', cursor: 'pointer' }
+const inpValorParte = { width: 110, padding: '6px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', outline: 'none', textAlign: 'right' }
 const criarBox = { padding: 12, borderRadius: 8, background: 'rgba(0,32,62,0.03)', border: '1px solid var(--cream-dark)', marginBottom: 10 }
 const ajusteRow = { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }
 const ajSelect = { flex: 1, minWidth: 0, padding: '7px 8px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
