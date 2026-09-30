@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { fmtMoney } from '../../lib/finance'
-import { rankearNFs, confiancaMatch } from '../../lib/nfMatch'
+import { rankearNFs, confiancaMatch, motivosDoMatch, notaObvia } from '../../lib/nfMatch'
 import { vincularNFEmail, vincularNFArquivo } from '../../lib/vincularNF'
 
 // ===========================================================================
@@ -19,15 +19,17 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
   const [processando, setProcessando] = useState(false)
   const [arquivo, setArquivo] = useState(null)
   const [numeroManual, setNumeroManual] = useState('')
+  const [verTodas, setVerTodas] = useState(false)
 
   useEffect(() => {
     if (!open || !user) return
-    setLoading(true); setArquivo(null); setNumeroManual('')
+    setLoading(true); setArquivo(null); setNumeroManual(''); setVerTodas(false)
     supabase.from('nf_pending').select('*').in('status', ['pendente', 'aprovado'])
       .then(({ data }) => { setNfs(data || []); setLoading(false) })
   }, [open, user])
 
   const ranking = useMemo(() => compra ? rankearNFs(compra, nfs, compraTabela) : [], [compra, nfs, compraTabela])
+  const obvia = useMemo(() => notaObvia(ranking), [ranking])
 
   async function vincularEmail(nf) {
     setProcessando(true)
@@ -78,6 +80,36 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
           <div style={vazio}>Buscando notas…</div>
         ) : ranking.length === 0 ? (
           <div style={vazio}>Nenhuma nota do e-mail casou com este lançamento. Suba o arquivo abaixo.</div>
+        ) : (obvia && !verTodas) ? (
+          /* Uma resposta só: mostra uma só, com a evidência escrita. */
+          <div style={destaqueBox}>
+            <div style={destaqueTitulo}>✓ Esta é a nota deste lançamento</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginTop: 6 }}>
+              {obvia.nf.data?.emitente_nome || obvia.nf.data?.parte || '—'}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-mid)', marginTop: 2 }}>
+              NF {obvia.nf.data?.numero || '—'} · {fmtMoney(Math.abs(Number(obvia.nf.data?.valor || 0)))} · {fmtDataBR(obvia.nf.data?.data_emissao)}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600, marginTop: 6 }}>
+              Bate por: {motivosDoMatch(compra, obvia.nf).join(' · ') || 'valor e fornecedor'}
+            </div>
+            {obvia.nf.status === 'aprovado' && (
+              <div style={avisoUniao}>
+                Esta nota já é um lançamento. Vincular <strong>une os dois</strong>: a nota fica,
+                a compra do cartão sai, e o valor passa a contar uma vez só.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => vincularEmail(obvia.nf)} disabled={processando} style={{ ...btnVincular, padding: '9px 18px', fontSize: 12 }}>
+                {processando ? 'Vinculando…' : 'Vincular esta nota'}
+              </button>
+              {ranking.length > 1 && (
+                <button onClick={() => setVerTodas(true)} style={btnLink}>
+                  não é essa — ver as outras {ranking.length - 1}
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
           <div style={lista}>
             {ranking.map(({ nf, score }) => {
@@ -91,6 +123,11 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
                       NF {d.numero || '—'} · {fmtMoney(Math.abs(Number(d.valor || 0)))} · {fmtDataBR(d.data_emissao)} {nf.status === 'aprovado' && '· já lançada'}
+                    </div>
+                    {/* A evidência em cada linha: numa lista de notas iguais do
+                        mesmo fornecedor, é o que distingue uma da outra. */}
+                    <div style={{ fontSize: 10, color: 'var(--text-mid)', marginTop: 1 }}>
+                      {motivosDoMatch(compra, nf).join(' · ')}
                     </div>
                   </div>
                   <button onClick={() => vincularEmail(nf)} disabled={processando} style={btnVincular}>Vincular</button>
@@ -128,4 +165,8 @@ const btnVincular = { border: 'none', borderRadius: 6, padding: '7px 14px', font
 const btnSecondary = { padding: '9px 16px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--cream-dark)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--body)' }
 const uploadBox = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: 10, background: 'var(--cream)', borderRadius: 8, border: '1px dashed var(--gold)' }
 const inpNum = { flex: 1, minWidth: 120, padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', outline: 'none' }
+const destaqueBox = { padding: 14, border: '1.5px solid var(--green)', borderRadius: 10, background: 'rgba(46,125,50,0.05)' }
+const destaqueTitulo = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--green)' }
+const avisoUniao = { fontSize: 11, color: 'var(--navy)', background: 'var(--cream)', borderRadius: 6, padding: '7px 9px', marginTop: 9, lineHeight: 1.45 }
+const btnLink = { background: 'none', border: 'none', color: 'var(--text-mid)', fontSize: 11, textDecoration: 'underline', cursor: 'pointer', fontFamily: 'var(--body)', padding: 0 }
 const vazio = { padding: '16px', textAlign: 'center', color: 'var(--text-mid)', fontSize: 12, background: 'var(--cream)', borderRadius: 8 }

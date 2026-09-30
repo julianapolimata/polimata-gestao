@@ -66,6 +66,55 @@ export function rankearNFs(lanc, nfs, tabela) {
     .sort((a, b) => b.score - a.score)
 }
 
+// A EVIDÊNCIA do casamento, em palavras. O score é um número interno; quem
+// decide precisa ver o motivo — "mesmo valor, mesma data" é verificável, "148
+// pontos" não é.
+export function motivosDoMatch(lanc, nf) {
+  const ld = lanc?.data || lanc || {}
+  const nd = nf?.data || nf || {}
+  const motivos = []
+  const lv = Math.abs(Number(ld.value || 0))
+  const nv = Math.abs(Number(nd.valor || 0))
+  if (lv && nv) {
+    const diff = Math.abs(lv - nv)
+    if (diff < 0.01) motivos.push('mesmo valor')
+    else if (diff <= lv * 0.02) motivos.push('valor quase igual')
+  }
+  const lc = digits(ld.cnpj || ld.emitente_cnpj || ld.cnpj_emitente)
+  const nc = digits(nd.emitente_cnpj || nd.destinatario_cnpj)
+  if (lc && nc && lc === nc) motivos.push('mesmo CNPJ')
+  else {
+    const ln = normalizarFornecedor(ld.supplier || ld.client || ld.desc)
+    const nn = normalizarFornecedor(nd.emitente_nome || nd.parte || nd.destinatario_nome)
+    if (ln && nn && (ln.includes(nn) || nn.includes(ln))) motivos.push('mesmo fornecedor')
+  }
+  const lday = ld.data_competencia || ld.due
+  const nday = nd.data_emissao || nd.data_vencimento
+  if (lday && nday) {
+    const dias = Math.round(Math.abs((new Date(lday) - new Date(nday)) / 86400000))
+    if (dias === 0) motivos.push('mesma data')
+    else if (dias <= 15) motivos.push(`${dias} dia(s) de diferença`)
+  }
+  return motivos
+}
+
+// Existe UMA nota obviamente certa? Só quando ela é forte E está claramente à
+// frente da segunda.
+//
+// Por que isto importa: vincular UNE os dois registros e APAGA a compra
+// duplicada. Numa lista de cinco notas do mesmo fornecedor, todas do mesmo
+// valor, diferindo só no mês, o clique errado apaga o lançamento errado — e o
+// erro não aparece em lugar nenhum. Quando a resposta é uma só, a tela mostra
+// uma só.
+export const VANTAGEM_MINIMA = 20
+export function notaObvia(ranking) {
+  if (!ranking?.length) return null
+  const [primeira, segunda] = ranking
+  if (primeira.score < 120) return null
+  if (segunda && primeira.score - segunda.score < VANTAGEM_MINIMA) return null
+  return primeira
+}
+
 // Rótulo de confiança do match, pra UI.
 export function confiancaMatch(score) {
   if (score >= 120) return { label: 'forte', cor: 'var(--green)' }
