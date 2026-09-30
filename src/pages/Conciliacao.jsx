@@ -600,7 +600,14 @@ export default function Conciliacao() {
       // decisão — duplicar seria pior.
       const { data: todas, error: e1 } = await supabase.from('payable').select('id,parent_id,extrato_id,data').eq('cartao_id', contaId)
       if (e1) throw e1
-      const plano = planejarCompras({ conta, linhas, compras: todas || [] })
+      // Notas do e-mail que já viraram lançamento e ainda não têm linha de fatura.
+      // Sem isto elas ficam invisíveis aqui (não têm cartao_id) e a mesma compra
+      // entra duas vezes: uma pela nota, outra pela fatura.
+      const { data: notas, error: e2 } = await supabase.from('payable_lista')
+        .select('id,parent_id,extrato_id,data')
+        .is('extrato_id', null).is('cartao_id', null).is('conciliado_em', null)
+      if (e2) throw e2
+      const plano = planejarCompras({ conta, linhas, compras: todas || [], notas: notas || [] })
       if (!plano.criar.length && !plano.casar.length) {
         showToast(plano.pagamentos.length ? 'Só sobraram pagamentos da fatura: concilie-os como ↔ Transferência.' : 'Nada a criar.', 'info')
         return
@@ -612,6 +619,9 @@ export default function Conciliacao() {
           'As compras nascem já conciliadas com a fatura.',
           'Elas vão para a Escrituração, onde você classifica e define a situação fiscal.',
           'Parcela futura de compra parcelada nasce pendente — o cartão ainda não cobrou.',
+          ...(plano.notasCasadas?.length
+            ? [`Reconhecidas como nota já lançada (não viram compra nova): ${plano.notasCasadas.map(n => `${n.fornecedor} · NF ${n.numero_nf}`).join('; ')}.`]
+            : []),
         ],
         confirmarLabel: 'Criar compras',
         width: 560,

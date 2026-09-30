@@ -169,6 +169,32 @@ causa de um documento velho.
 
 ---
 
+## 8b. A fatura do cartão reconhece a nota que já está no sistema
+
+O fornecedor manda a nota por e-mail (vira lançamento) e cobra no cartão (a
+fatura traz a linha). É o **mesmo gasto**. Até set/26 viravam dois lançamentos:
+15 pares, R$ 3.776,84 contados em dobro no primeiro ano.
+
+O nome não reconhece — o cartão traz `ANTHROPIC* CLAUDE SU ANTHROPIC.COM` e a
+nota traz `Anthropic, PBC`. Sobram **valor e data**. Por isso a regra é
+conservadora:
+
+| Exige | Por quê |
+|---|---|
+| valor **idêntico ao centavo** | comparado em centavos inteiros, não em decimal |
+| data a até **5 dias** | a cobrança e a emissão andam juntas |
+| par **único nos dois sentidos** | uma linha para uma nota, uma nota para uma linha |
+
+Quando casa, a nota é a verdade: mantém número, competência e classificação, e
+só **absorve o pagamento** (fatura, data, forma). Quando não casa — duas notas
+do mesmo valor na janela, por exemplo — o sistema **cria a compra** e devolve a
+decisão a quem escritura.
+
+**Por quê nessa direção:** duplicar é chato e visível. Unir o mês errado apaga
+o lançamento errado, e isso não aparece em lugar nenhum.
+
+---
+
 ## 9. O robô só paga para ler o que pode ser documento fiscal
 
 A leitura por inteligência artificial é cobrada pelo tamanho do que se manda.
