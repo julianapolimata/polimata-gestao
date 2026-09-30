@@ -19,6 +19,13 @@
 import { detectarParcelaLivre, removerSufixoParcela, gerarParcelas } from './parcelas'
 import { periodoFatura } from './fatura'
 
+// ATENÇÃO ao escopo: isto só vale para uma linha de ENTRADA na conta do
+// CARTÃO. Lá, um crédito descrito só como "PAGAMENTO" é o pagamento da fatura,
+// e por isso o padrão é largo de propósito. Fora desse escopo ele dá falso
+// positivo: no extrato do Sicoob TODO Pix sai como "Pagamento Pix 00.394.460
+// 0058-87 · PIX EMITIDO OUTRA IF", que casa aqui.
+// Para classificar linha de CONTA CORRENTE use classificarLinha() do
+// matchExtrato, que exige a palavra cartão/fatura na descrição.
 export const ehPagamentoFatura = d => /pagament|pgto|pag\.|d[ée]bito?\s*autom|deb\s*aut|recorrent|d[ée]b\.?\s*conv|quita/i.test(d || '')
 // Crédito com cara de parcela (NN/MM) é ambíguo (estorno de compra parcelada ×
 // artefato do OFX) e pode abater um valor alto por engano — não vira crédito sozinho.
@@ -63,8 +70,12 @@ export const JANELA_DIAS_NOTA = 5
 /** A linha da fatura é elegível a casar com uma nota já lançada? */
 function linhaPodeSerNota(ln) {
   const t = ln?.data || {}
-  if (t.tipo === 'entrada') return false              // crédito/estorno não é compra
-  if (ehPagamentoFatura(t.descricao)) return false    // pagamento da fatura não é compra
+  // O pagamento da fatura é um CRÉDITO no cartão, então já sai nesta primeira
+  // linha. Não repetimos ehPagamentoFatura() para as saídas: o padrão dele é
+  // largo de propósito (reconhece um crédito descrito só como "PAGAMENTO") e,
+  // aplicado ao nome de um estabelecimento, daria falso positivo — a compra
+  // deixaria de casar com a nota e nasceria duplicada.
+  if (t.tipo === 'entrada') return false
   if (detectarParcelaLivre(t.descricao)) return false // parcela tem caminho próprio
   return true
 }
