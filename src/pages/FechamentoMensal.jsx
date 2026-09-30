@@ -502,13 +502,13 @@ export default function FechamentoMensal() {
                                   {m.items.filter(i => i.ponta === pt.id).map(i => (
                                     <Fragment key={i.key}>
                                       <div style={{ fontWeight: 600, color: i.ok ? 'var(--green)' : i.obrigatorio ? 'var(--red)' : 'var(--gold-dark)' }}>
-                                    {i.ok ? '✅' : i.obrigatorio ? '🔴' : '⚠️'} {i.label}
-                                    {!i.obrigatorio && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginLeft: 6 }}>aviso</span>}
-                                  </div>
-                                  <div style={{ color: 'var(--navy)' }}>{i.detalhe}</div>
-                                  <div style={{ textAlign: 'right' }}>
-                                    {!i.ok && i.link && i.link !== '/fechamento-mensal' && <Link to={i.link} style={linkResolver}>resolver →</Link>}
-                                  </div>
+                                        {i.ok ? '✅' : i.obrigatorio ? '🔴' : '⚠️'} {i.label}
+                                        {!i.obrigatorio && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginLeft: 6 }}>aviso</span>}
+                                      </div>
+                                      <div style={{ color: 'var(--navy)' }}>{i.detalhe}</div>
+                                      <div style={{ textAlign: 'right' }}>
+                                        {!i.ok && i.link && i.link !== '/fechamento-mensal' && <Link to={i.link} style={linkResolver}>resolver →</Link>}
+                                      </div>
                                     </Fragment>
                                   ))}
                                 </div>
