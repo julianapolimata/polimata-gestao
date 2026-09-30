@@ -33,7 +33,13 @@ export const DRE_BLOCOS = [
 // não escrito à mão: se um bloco mudar de classificação, isto acompanha).
 // Uma classificação válida no plano mas fora desta lista (ex.: 'Conta Transitória')
 // não some em silêncio — cai no rodapé `fora` com motivo 'nao-entra-no-resultado'.
-const CLASSIFS_EM_BLOCO = new Set(DRE_BLOCOS.flatMap(b => b.classifs || []))
+// A chave é LADO+CLASSIFICAÇÃO: a mesma classificação pode existir de um lado
+// e não do outro, e somar uma entrada num bloco de saída inverte o sinal do
+// resultado sem avisar.
+const chaveBloco = (tipoFin, classif) => `${tipoFin}|${classif}`
+const CLASSIFS_EM_BLOCO = new Set(
+  DRE_BLOCOS.flatMap(b => (b.classifs || []).map(c => chaveBloco(b.tipoFin, c))),
+)
 
 function evalFormula(formula, valores) {
   const tokens = formula.split(/\s+/)
@@ -71,12 +77,12 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
     (sub && catSubToClass.get(`${tipoFin}|${cat}|${sub}`)) || catToClass.get(`${tipoFin}|${cat}`)
 
   const grupos = {}
-  function bucket(classif) {
-    if (!grupos[classif]) grupos[classif] = { total: 0, byMes: new Array(12).fill(0), byCat: {} }
-    return grupos[classif]
+  function bucket(chave) {
+    if (!grupos[chave]) grupos[chave] = { total: 0, byMes: new Array(12).fill(0), byCat: {} }
+    return grupos[chave]
   }
-  function add(classif, cat, m, val) {
-    const b = bucket(classif)
+  function add(tipoFin, classif, cat, m, val) {
+    const b = bucket(chaveBloco(tipoFin, classif))
     b.total += val
     b.byMes[m] += val
     if (!b.byCat[cat]) b.byCat[cat] = { total: 0, byMes: new Array(12).fill(0) }
@@ -89,6 +95,8 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
   //   'sem-categoria'          → falta escriturar
   //   'fora-do-plano'          → categoria não existe no plano de contas
   //   'nao-entra-no-resultado' → classificação válida que a DRE não usa (conta transitória)
+  //   'lado-errado'            → a classificação só existe do outro lado (entrada
+  //                              classificada como despesa, ou o contrário)
   const fora = { count: 0, total: 0, porCat: {} }
   const naoEscriturados = { count: 0, total: 0 }       // no ano, mas ainda sem revisão
   function registraFora(k, val, tipoFin, motivo) {
@@ -110,12 +118,15 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
       registraFora(cat || '(sem categoria)', val, tipoFin, cat ? 'fora-do-plano' : 'sem-categoria')
       return
     }
-    if (!CLASSIFS_EM_BLOCO.has(classif)) {
-      // Classificação existe no plano mas não é linha da DRE (ex.: Conta Transitória).
-      registraFora(cat, val, tipoFin, 'nao-entra-no-resultado')
+    if (!CLASSIFS_EM_BLOCO.has(chaveBloco(tipoFin, classif))) {
+      // Ou a classificação não é linha da DRE (ex.: Conta Transitória), ou ela
+      // só existe do OUTRO lado — uma entrada com classificação de despesa, que
+      // somada aqui viraria gasto a mais.
+      const existeDoOutroLado = CLASSIFS_EM_BLOCO.has(chaveBloco(tipoFin === 'Entrada' ? 'Saída' : 'Entrada', classif))
+      registraFora(cat, val, tipoFin, existeDoOutroLado ? 'lado-errado' : 'nao-entra-no-resultado')
       return
     }
-    add(classif, cat, m, val)
+    add(tipoFin, classif, cat, m, val)
   }
   receivable.forEach(r => processa(r, 'Entrada'))
   payable.forEach(r => processa(r, 'Saída'))
@@ -133,11 +144,11 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
       if (!valor || !d.cat) continue
       const tipoFin = d.tipo === 'despesa' ? 'Saída' : 'Entrada'
       const classif = resolveClassif(tipoFin, d.cat, d.subcat)
-      if (!classif || !CLASSIFS_EM_BLOCO.has(classif)) continue
+      if (!classif || !CLASSIFS_EM_BLOCO.has(chaveBloco(tipoFin, classif))) continue
       for (const due of ocorrenciasEntre(master, `${anoNum}-01-01`, `${anoNum}-12-31`)) {
         const m = parseInt(due.substring(5, 7), 10) - 1
         if (m <= mesCorte) continue
-        add(classif, d.cat, m, valor)
+        add(tipoFin, classif, d.cat, m, valor)
       }
     }
   }
@@ -154,7 +165,7 @@ export function computeDRE({ receivable = [], payable = [], plano = [], ano, inc
       const byMes = new Array(12).fill(0)
       const subItems = []
       for (const classif of blk.classifs) {
-        const g = grupos[classif]
+        const g = grupos[chaveBloco(blk.tipoFin, classif)]
         if (!g) continue
         total += g.total
         for (let m = 0; m < 12; m++) byMes[m] += g.byMes[m]

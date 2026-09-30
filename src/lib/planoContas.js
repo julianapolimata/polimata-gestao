@@ -11,6 +11,7 @@ export const CLASSIFICACOES = [
   'Receita Financeira',
   'Outras Receitas',
   'Impostos sobre Vendas',
+  'Deduções de Receita',
   'CSP',
   'Despesas Operacionais',
   'Despesas Comerciais',
@@ -23,6 +24,10 @@ export const CLASSIFICACOES = [
   'Transferência Entre Contas',
   'Empréstimo - Principal',
   'Parcelamento - Principal',
+  // Estas duas já estavam EM USO no plano e faltavam nesta lista: quem editasse
+  // a linha na tela de Categorias perdia a classificação sem perceber, porque o
+  // seletor não tinha a opção correspondente.
+  'Conta Transitória',
 ]
 
 export async function fetchPlanoContas() {

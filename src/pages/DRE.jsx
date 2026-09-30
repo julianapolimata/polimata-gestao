@@ -27,6 +27,9 @@ const MOTIVOS_FORA = [
   { motivo: 'sem-categoria', texto: 'sem categoria — escriture', href: '/classificar', acao: 'Escriturar →' },
   { motivo: 'fora-do-plano', texto: 'categoria fora do plano de contas — ajuste em Categorias', href: '/plano-contas', acao: 'Abrir Categorias →' },
   { motivo: 'nao-entra-no-resultado', texto: 'não entra no resultado (conta transitória a esclarecer) — resolva na Conciliação', href: '/conciliacao', acao: 'Abrir Conciliação →' },
+  // Entrada com categoria de despesa (ou o contrário). Somar isso no bloco do
+  // outro lado inverteria o sinal do resultado sem ninguém ver.
+  { motivo: 'lado-errado', texto: 'a categoria é do outro lado (receita classificada como despesa, ou o contrário) — corrija a categoria na Escrituração', href: '/classificar', acao: 'Escriturar →' },
 ]
 
 
