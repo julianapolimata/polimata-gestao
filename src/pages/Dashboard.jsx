@@ -162,8 +162,8 @@ export default function Dashboard() {
     // NF pendente: um alerta por tela (o link levava a uma só e o número não batia).
     const semDocRec = receivable.filter(r => ehOperacional(r) && getDocStatus(r) === 'pendente')
     const semDocPay = payable.filter(r => ehOperacional(r) && getDocStatus(r) === 'pendente')
-    if (semDocPay.length) out.push({ kind: 'warning', to: '/pagar?filtro=sem_doc', text: `📎 ${semDocPay.length} conta(s) a pagar com NF pendente — ${fmtMoney(semDocPay.reduce((a, r) => a + r.value, 0))}` })
-    if (semDocRec.length) out.push({ kind: 'warning', to: '/receber?filtro=sem_doc', text: `📎 ${semDocRec.length} recebível(is) com NF pendente — ${fmtMoney(semDocRec.reduce((a, r) => a + r.value, 0))}` })
+    if (semDocPay.length) out.push({ kind: 'warning', to: '/pagar?filtro=sem_doc', text: `📎 ${semDocPay.length} conta(s) a pagar aguardando a nota — ${fmtMoney(semDocPay.reduce((a, r) => a + r.value, 0))}` })
+    if (semDocRec.length) out.push({ kind: 'warning', to: '/receber?filtro=sem_doc', text: `📎 ${semDocRec.length} recebível(is) aguardando a nota — ${fmtMoney(semDocRec.reduce((a, r) => a + r.value, 0))}` })
     // A escriturar: a porta que trava tudo o resto — sempre visível quando há fila.
     const aEscriturar = [...receivable, ...payable].filter(r => ehOperacional(r) && r.data?.escriturado !== true && !r.data?.conciliado_em)
     if (aEscriturar.length) out.push({ kind: 'warning', to: '/classificar', text: `📋 ${aEscriturar.length} lançamento(s) aguardando escrituração — não entram na conciliação até serem revisados` })

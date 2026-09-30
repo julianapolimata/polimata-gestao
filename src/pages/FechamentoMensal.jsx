@@ -94,7 +94,7 @@ function montarChecklist(comp, ctx) {
   // 4. Sem NF pendente (aviso)
   {
     const n = doMes.filter(l => l.doc === 'pendente').length
-    items.push({ key: 'nf_pendente', label: 'Sem NF pendente', obrigatorio: false, ok: n === 0, detalhe: n ? `${n} lançamento(s) aguardando nota` : 'nenhuma nota pendente', link: '/classificar' })
+    items.push({ key: 'nf_pendente', label: 'Nenhuma nota a chegar', obrigatorio: false, ok: n === 0, detalhe: n ? `${n} lançamento(s) marcados como "A nota vai chegar"` : 'nenhuma nota a chegar', link: '/classificar' })
   }
 
   // 5. Sem suspense (aviso)
@@ -493,12 +493,15 @@ export default function FechamentoMensal() {
                               <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 10 }}>⏳ O mês ainda não terminou — o checklist vai se atualizando; o botão de fechar aparece no mês seguinte.</div>
                             )}
                             {PONTAS.filter(pt => m.items.some(i => i.ponta === pt.id)).map(pt => (
-                            <div key={pt.id} style={{ marginBottom: 10 }}>
-                            <div style={tituloPonta}>{pt.label} <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-mid)' }}>— {pt.sub}</span></div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr auto', gap: '6px 14px', alignItems: 'center', fontSize: 12 }}>
-                              {m.items.filter(i => i.ponta === pt.id).map(i => (
-                                <Fragment key={i.key}>
-                                  <div style={{ fontWeight: 600, color: i.ok ? 'var(--green)' : i.obrigatorio ? 'var(--red)' : 'var(--gold-dark)' }}>
+                              <div key={pt.id} style={{ marginBottom: 10 }}>
+                                <div style={tituloPonta}>
+                                  {pt.label}
+                                  <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-mid)' }}> — {pt.sub}</span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr auto', gap: '6px 14px', alignItems: 'center', fontSize: 12 }}>
+                                  {m.items.filter(i => i.ponta === pt.id).map(i => (
+                                    <Fragment key={i.key}>
+                                      <div style={{ fontWeight: 600, color: i.ok ? 'var(--green)' : i.obrigatorio ? 'var(--red)' : 'var(--gold-dark)' }}>
                                     {i.ok ? '✅' : i.obrigatorio ? '🔴' : '⚠️'} {i.label}
                                     {!i.obrigatorio && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginLeft: 6 }}>aviso</span>}
                                   </div>
@@ -506,10 +509,10 @@ export default function FechamentoMensal() {
                                   <div style={{ textAlign: 'right' }}>
                                     {!i.ok && i.link && i.link !== '/fechamento-mensal' && <Link to={i.link} style={linkResolver}>resolver →</Link>}
                                   </div>
-                                </Fragment>
-                              ))}
-                            </div>
-                            </div>
+                                    </Fragment>
+                                  ))}
+                                </div>
+                              </div>
                             ))}
 
                             {m.estado === 'pendente' && (
@@ -565,7 +568,7 @@ export default function FechamentoMensal() {
       <div style={notaBox}>
         <strong>Como o sistema decide:</strong> competência do lançamento = data de emissão (competência) ou, sem ela, o vencimento ·
         <em> Extrato importado</em> = cada conta bancária ativa tem linhas no mês · <em>Conciliação completa</em> = nenhuma linha do extrato pendente (cartão incluído) ·
-        <em> Escrituração completa</em> = nenhum lançamento do mês a escriturar · <em>Sem NF pendente / Sem suspense</em> = nenhum lançamento nesses estados ·
+        <em> Escrituração completa</em> = nenhum lançamento do mês a escriturar · <em>Nenhuma nota a chegar / Sem suspense</em> = nenhum lançamento nesses estados ·
         <em> Contas do mês liquidadas</em> = tudo com vencimento no mês já pago/recebido · <em>Fatura do cartão paga</em> = compras com vencimento no mês ≤ transferências pro cartão no mês ·
         <em> DAS / impostos</em> = guias que a empresa recolhe (DAS, INSS/FGTS, taxas) já pagas · <em>Caixa de entrada</em> = NFs lidas do e-mail até o fim do mês já revisadas ·
         <em> Mês anterior fechado</em> = ordem cronológica. Provisões não contam. Obrigatórios travam o botão; avisos viram exceção registrada.

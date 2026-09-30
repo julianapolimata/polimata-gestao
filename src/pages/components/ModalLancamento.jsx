@@ -9,6 +9,7 @@ import { uploadAnexo, getAnexoSignedUrl, deleteAnexo, nomeAnexoFromPath } from '
 import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/parcelas'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../../lib/fechamento'
+import { SITUACOES_FISCAIS } from '../../lib/escrituracao'
 import SeletorNF from './SeletorNF'
 
 // =============================================================================
@@ -31,13 +32,9 @@ const FREQUENCIAS = [
 // Situação fiscal (doc_status) — os VALORES gravados no banco continuam os mesmos
 // ('vinculado' | 'pendente' | 'dispensado'); só os rótulos foram padronizados para
 // a linguagem das outras telas.
-// ⚠️ lib/escrituracao.js exporta SITUACOES_FISCAIS com outros textos ("Com nota
-// fiscal" / "Sem nota fiscal" / "NF pendente") — divergência a alinhar lá.
-const SITUACOES_FISCAIS_LABELS = [
-  { value: 'vinculado', label: '✓ Tenho a nota' },
-  { value: 'pendente', label: '📎 A nota vai chegar' },
-  { value: 'dispensado', label: '✓ Não tem nota' },
-]
+// Os rótulos vêm de lib/escrituracao.js — fonte única. Não copie: o texto da
+// situação fiscal aparece em cinco telas e tem que ser a mesma palavra em todas.
+const SITUACOES_FISCAIS_LABELS = SITUACOES_FISCAIS
 
 // Campos que a conciliação "congela": mexer neles quebra em silêncio a igualdade
 // com o extrato do banco já conferido.
