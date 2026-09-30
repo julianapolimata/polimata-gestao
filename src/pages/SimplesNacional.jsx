@@ -74,6 +74,7 @@ export default function SimplesNacional() {
   const [payable, setPayable] = useState([])       // linhas cruas {id, codigo, data}
   const [nfseCfg, setNfseCfg] = useState(null)     // nfse_config.data — fonte única do município do ISS
   const [plano, setPlano] = useState([])           // classificação de cada categoria (quem é distribuição de lucro)
+  const [extratoPendente, setExtratoPendente] = useState([])  // linhas do extrato sem conciliar
   const [gerandoDAS, setGerandoDAS] = useState(false)
   const [loading, setLoading] = useState(true)
   const [editando, setEditando] = useState(false)
@@ -91,13 +92,17 @@ export default function SimplesNacional() {
       // ISS da Conciliação ao recebível que sofreu a retenção.
       supabase.from('payable').select('id,codigo,extrato_id,data'),
       supabase.from('nfse_config').select('*').limit(1),
-    ]).then(([rC, rD, rR, rP, rN]) => {
+      // Saídas do extrato ainda não conciliadas: é aqui que se esconde folha
+      // paga e não lançada, que o Fator R não enxerga.
+      supabase.from('transacoes_extrato').select('id, status, dt:data->>data, tipo:data->>tipo, valor:data->>valor').eq('status', 'pendente'),
+    ]).then(([rC, rD, rR, rP, rN, rE]) => {
       setConfig(rC.data?.[0] || null)
       setDasHist(rD.data || [])
       // flatten() não carrega extrato_id — preservamos à mão.
       setReceivable((rR.data || []).map(r => ({ ...flatten(r), extrato_id: r.extrato_id })))
       setPayable(rP.data || [])
       setNfseCfg(rN.data?.[0]?.data || null)
+      setExtratoPendente(rE.data || [])
       setLoading(false)
     })
   }, [user])
@@ -282,6 +287,15 @@ export default function SimplesNacional() {
   const anexoDivergente = !!anexoGravado && anexoGravado !== anexoCalculado
   // O cálculo usa SEMPRE o anexo calculado — o gravado é só histórico.
   const anexoEfetivo = anexoCalculado
+  // Quanto saiu do banco na janela do Fator R e ainda não virou lançamento.
+  // Não afirma que é folha — afirma que o índice foi calculado sem ele.
+  const saidasNaoLancadas = useMemo(() => {
+    const meses = new Set(janela12)
+    const dentro = extratoPendente.filter(e =>
+      e.tipo === 'saida' && meses.has(String(e.dt || '').slice(0, 7)))
+    return { qtd: dentro.length, total: dentro.reduce((s, e) => s + Math.abs(Number(e.valor) || 0), 0) }
+  }, [extratoPendente, janela12])
+
   const folhaMinima = folhaMinimaParaAnexoIII(rbt12)
   const distanciaFatorR = folha12 - folhaMinima   // > 0 = folga; < 0 = falta folha
 
@@ -579,6 +593,17 @@ export default function SimplesNacional() {
             </div>
           )}
         </div>
+        {anexoEfetivo === 'V' && saidasNaoLancadas.qtd > 0 && (
+          <div style={avisoFolhaOculta}>
+            ⚠️ <strong>O Fator R só enxerga o que está lançado.</strong> Há{' '}
+            <strong>{saidasNaoLancadas.qtd} saída(s)</strong> do extrato nesta janela ainda não conciliadas, somando{' '}
+            <strong>{fmtMoney(saidasNaoLancadas.total)}</strong>. Se alguma delas for <strong>pró-labore ou salário</strong> ainda
+            não lançado, a folha acima está subestimada e o anexo pode estar errado —{' '}
+            <strong>distribuição de lucro não conta</strong> para o Fator R, mas pró-labore conta.
+            {' '}<Link to="/conciliacao" style={{ color: 'var(--navy)', fontWeight: 700 }}>Conferir na Conciliação →</Link>
+          </div>
+        )}
+
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 10, color: 'var(--text-mid)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>O que entrou na folha</div>
           {folhaInfo.porSub.length === 0 ? (
@@ -837,6 +862,7 @@ function Tributo({ label, valor, cor, sub }) {
 
 const parametrosBox = { background: 'var(--white)', borderRadius: 10, padding: 18, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 18, display: 'flex', gap: 16, alignItems: 'flex-start' }
 const projecaoCard = { background: 'var(--white)', borderRadius: 12, padding: 24, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', marginBottom: 18 }
+const avisoFolhaOculta = { marginTop: 14, padding: '12px 14px', borderRadius: 8, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', fontSize: 12, color: 'var(--navy)', lineHeight: 1.65 }
 const formulaBox = { background: 'rgba(204,145,94,0.06)', borderLeft: '3px solid var(--gold)', padding: 14, borderRadius: 6, fontSize: 12, color: 'var(--navy)', display: 'flex', flexDirection: 'column', gap: 4 }
 const composicaoGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }
 const tagIss = { marginLeft: 8, padding: '1px 7px', borderRadius: 10, background: 'rgba(204,145,94,0.16)', color: 'var(--gold-dark)', fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }
