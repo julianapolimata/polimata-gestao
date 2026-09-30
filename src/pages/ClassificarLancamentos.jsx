@@ -627,7 +627,7 @@ export default function ClassificarLancamentos() {
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 10, color: 'var(--text-mid)', flex: '1 1 240px' }}>
                         {comNF
-                          ? <>Os que <strong>já têm nota</strong> (✓) são escriturados direto no botão <strong>Escriturar</strong>. Só clique <strong>Vincular NF</strong> nos que ainda não têm.</>
+                          ? <>À esquerda, o <strong>dinheiro</strong>: verde com ✓ é o que já entrou/saiu; cinza com "venc." ainda não. À direita, o <strong>documento</strong>: o número da nota aparece nos que já têm prova — esses vão direto no <strong>Escriturar</strong>. Clique <strong>Vincular NF</strong> só nos que ainda não têm.</>
                           : <>Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.</>}
                       </div>
                       {comNF && itensSemNota(g).length > 1 && (
@@ -644,20 +644,31 @@ export default function ClassificarLancamentos() {
                     {g.itens.map(it => {
                       const marcado = !desmarcados.has(it.id)
                       const jaTem = temNF(it)
-                      const receb = it.data?.data_pagamento || it.due
-                      const labelReceb = aba === 'Entrada' ? 'receb.' : 'venc.'
+                      // Quitado = existe data de pagamento. Sem ela, o que se mostra é o
+                      // vencimento — data PREVISTA, e o rótulo tem que dizer isso.
+                      const quitado = !!it.data?.data_pagamento
+                      const dataMov = quitado ? it.data.data_pagamento : it.due
+                      const labelMov = quitado ? (aba === 'Entrada' ? 'receb.' : 'pago') : 'venc.'
                       return (
                         <div key={it.id} style={{ ...itemRow, opacity: marcado ? 1 : 0.5 }}>
                           <input type="checkbox" checked={marcado} onChange={() => toggleItem(it.id)} />
                           <span style={{ color: 'var(--text-mid)', width: 130, flexShrink: 0, fontSize: 10 }}>
                             comp {br(it.data?.data_competencia || it.due)}<br />
-                            <span style={{ color: it.data?.data_pagamento ? 'var(--green)' : 'var(--text-mid)' }}>{labelReceb} {br(receb)}{it.data?.data_pagamento ? ' ✓' : ''}</span>
+                            <span
+                              style={{ color: quitado ? 'var(--green)' : 'var(--text-mid)' }}
+                              title={quitado
+                                ? `${aba === 'Entrada' ? 'Recebido' : 'Pago'} em ${br(dataMov)}`
+                                : `Ainda não ${aba === 'Entrada' ? 'recebido' : 'pago'} — ${br(dataMov)} é a data prevista`}
+                            >{labelMov} {br(dataMov)}{quitado ? ' ✓' : ''}</span>
                           </span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.desc || it.data?.supplier || it.data?.client || '—'}</span>
                           <span style={{ fontWeight: 600, width: 96, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(it.value)}</span>
                           {comNF
                             ? (jaTem
-                                ? <span style={{ width: 110, textAlign: 'right', color: 'var(--green)', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>✓ NF {it.data?.numero_nf || ''}</span>
+                                ? <span
+                                    style={{ width: 110, textAlign: 'right', color: 'var(--green)', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
+                                    title="Este lançamento já tem a prova fiscal"
+                                  >{it.data?.numero_nf ? `NF ${it.data.numero_nf}` : 'nota anexada'}</span>
                                 : <button
                                     onClick={() => { if (!s.cat) { showToast('Escolha a categoria antes de vincular.', 'warning'); return } setSeletorNF({ compra: it, tabela: aba === 'Saída' ? 'payable' : 'receivable', classificacao: { cat: s.cat, subcat: s.subcat || '' } }) }}
                                     style={btnVincularItem}
