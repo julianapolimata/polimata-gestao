@@ -11,6 +11,8 @@ import {
   SITUACOES_FISCAIS, rotuloSituacaoFiscal, semDocumentoDe,
 } from '../lib/escrituracao'
 import SeletorNF from './components/SeletorNF'
+import { rankearNFs, notaObvia, motivosDoMatch } from '../lib/nfMatch'
+import { vincularNFEmail } from '../lib/vincularNF'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento } from '../lib/fechamento'
 import { useConfirm } from '../components/ConfirmDialog'
 
@@ -53,6 +55,7 @@ export default function ClassificarLancamentos() {
   const [expandido, setExpandido] = useState(new Set())   // grupos abertos p/ ver os itens
   const [desmarcados, setDesmarcados] = useState(new Set()) // itens DESmarcados dentro de um grupo aberto
   const [seletorNF, setSeletorNF] = useState(null)          // { compra, tabela, classificacao } p/ vincular NF
+  const [vinculandoLote, setVinculandoLote] = useState(null)  // key do grupo em vínculo automático
   const [fechamentos, setFechamentos] = useState([])        // meses fechados (portão)
 
   // Lançamento em mês fechado não pode ser escriturado/movido (o banco recusa a
@@ -226,6 +229,102 @@ export default function ClassificarLancamentos() {
   // Escritura em lote todos os grupos que têm regra aprendida (recorrentes).
   const [confirmar, dialogoConfirmacao] = useConfirm()
 
+  // ── Vincular de uma vez as notas de um grupo inteiro ──────────────────────
+  //
+  // Um fornecedor recorrente acumula vários lançamentos "Tenho a nota", e cada
+  // um exigia abrir o seletor, achar a nota e clicar. Três cliques viram nove.
+  //
+  // O lote só age onde a resposta é ÓBVIA (a mesma regra do seletor: nota forte
+  // e claramente à frente da segunda) e onde cada nota serve a um único
+  // lançamento. O que sobra continua no botão individual — não é falha, é o
+  // sistema não decidindo o que não sabe.
+  async function vincularNotasDoGrupo(g) {
+    const s = selDe(g)
+    if (!s.cat) { showToast('Escolha a categoria antes de vincular.', 'warning'); return }
+    const alvo = g.itens.filter(it => !desmarcados.has(it.id) && !temNF(it) && !emMesFechado(it))
+    if (!alvo.length) { showToast('Todos os lançamentos marcados deste grupo já têm nota.', 'info'); return }
+
+    setVinculandoLote(g.key)
+    const tabela = aba === 'Saída' ? 'payable' : 'receivable'
+    try {
+      const { data: nfs, error } = await supabase.from('nf_pending').select('*').in('status', ['pendente', 'aprovado'])
+      if (error) throw error
+
+      // Uma nota por lançamento, e um lançamento por nota: se a mesma nota é a
+      // resposta óbvia de dois lançamentos, ela não é óbvia para nenhum.
+      const propostas = []
+      for (const it of alvo) {
+        const escolha = notaObvia(rankearNFs(it, nfs || [], tabela))
+        if (escolha) propostas.push({ item: it, nf: escolha.nf })
+      }
+      const usos = new Map()
+      for (const p of propostas) usos.set(p.nf.id, (usos.get(p.nf.id) || 0) + 1)
+      const plano = propostas.filter(p => usos.get(p.nf.id) === 1)
+      const semProposta = alvo.length - plano.length
+
+      if (!plano.length) {
+        showToast(`Nenhuma nota bateu sozinha com estes ${alvo.length} lançamento(s). Use o "Vincular NF" de cada um.`, 'warning')
+        return
+      }
+
+      const ok = await confirmar({
+        titulo: `Vincular ${plano.length} nota(s) de uma vez?`,
+        texto: (
+          <>
+            <div>Isto é o que vai ser vinculado:</div>
+            <ul style={listaGrupos}>
+              {plano.map(({ item, nf }) => (
+                <li key={item.id} style={itemGrupo}>
+                  <strong>{fmtMoney(item.value)}</strong>
+                  <span style={{ color: 'var(--text-mid)' }}> · {br(item.data?.data_competencia || item.due)}</span>
+                  <div style={classificacaoGrupo}>
+                    → NF {nf.data?.numero || '—'} · {nf.data?.emitente_nome || nf.data?.parte || '—'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-mid)' }}>
+                    bate por: {motivosDoMatch(item, nf).join(' · ')}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {semProposta > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--gold-dark)' }}>
+                {semProposta} lançamento(s) ficam de fora — nenhuma nota bateu sozinha com eles. Continuam no "Vincular NF" individual.
+              </div>
+            )}
+          </>
+        ),
+        consequencias: [
+          'Cada nota vira a prova fiscal do seu lançamento.',
+          'Onde a nota já é um lançamento, os dois são unidos: a nota fica e a compra duplicada sai.',
+          'Lançamento em mês fechado fica de fora.',
+        ],
+        confirmarLabel: `Vincular ${plano.length}`,
+        width: 560,
+      })
+      if (!ok) return
+
+      let n = 0
+      const erros = []
+      for (const { item, nf } of plano) {
+        try {
+          await vincularNFEmail({
+            nf, compra: item, compraTabela: tabela,
+            classificacao: { cat: s.cat, subcat: s.subcat || '' },
+            modo: 'consolidar', user,
+          })
+          n++
+        } catch (e) { erros.push(`${fmtMoney(item.value)}: ${e.message}`) }
+      }
+      if (n) showToast(`${n} nota(s) vinculada(s).`, 'success')
+      if (erros.length) showToast(`${erros.length} não deu(ram): ${erros[0]}`, 'error')
+      carregar()
+    } catch (e) {
+      showToast('Erro ao vincular em lote: ' + (e.message || e), 'error')
+    } finally {
+      setVinculandoLote(null)
+    }
+  }
+
   async function escriturarAutomaticas() {
     const alvo = gruposComRegra
     if (!alvo.length) { showToast('Nenhuma recorrente reconhecida agora.', 'info'); return }
@@ -302,6 +401,8 @@ export default function ClassificarLancamentos() {
   // "Pronto" é o que depende de DECISÃO dela. O que o sistema já sabe fazer
   // sozinho é do outro botão — e só sai de lá se ela mudar a classificação.
   const gruposProntos = grupos.filter(g => !seguiuARegra(g) && !validar(selDe(g)))
+  // Lançamentos do grupo que ainda esperam a prova fiscal.
+  const itensSemNota = g => g.itens.filter(it => !desmarcados.has(it.id) && !temNF(it) && !emMesFechado(it))
   const itensProntosDe = g => {
     const s = selDe(g)
     const base = g.itens.filter(it => !desmarcados.has(it.id) && !emMesFechado(it)) // mês fechado fica de fora
@@ -523,10 +624,22 @@ export default function ClassificarLancamentos() {
                 )}
                 {aberto && (
                   <div style={itensBox}>
-                    <div style={{ fontSize: 10, color: 'var(--text-mid)', marginBottom: 6 }}>
-                      {comNF
-                        ? <>Os que <strong>já têm nota</strong> (✓) são escriturados direto no botão <strong>Escriturar</strong>. Só clique <strong>Vincular NF</strong> nos que ainda não têm.</>
-                        : <>Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.</>}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-mid)', flex: '1 1 240px' }}>
+                        {comNF
+                          ? <>Os que <strong>já têm nota</strong> (✓) são escriturados direto no botão <strong>Escriturar</strong>. Só clique <strong>Vincular NF</strong> nos que ainda não têm.</>
+                          : <>Desmarque os que <strong>não</strong> são desta classificação (ex.: no Sicoob, separe tarifa de IOF). Só os marcados serão escriturados.</>}
+                      </div>
+                      {comNF && itensSemNota(g).length > 1 && (
+                        <button
+                          onClick={() => vincularNotasDoGrupo(g)}
+                          disabled={vinculandoLote === g.key}
+                          style={{ ...btnVincularLote, opacity: vinculandoLote === g.key ? 0.5 : 1 }}
+                          title="Vincula de uma vez as notas que batem sozinhas com estes lançamentos"
+                        >
+                          {vinculandoLote === g.key ? 'Vinculando…' : `🔗 Vincular as ${itensSemNota(g).length} notas`}
+                        </button>
+                      )}
                     </div>
                     {g.itens.map(it => {
                       const marcado = !desmarcados.has(it.id)
@@ -595,6 +708,7 @@ export default function ClassificarLancamentos() {
 const listaGrupos = { margin: '8px 0 0', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '32vh', overflowY: 'auto' }
 const itemGrupo = { fontSize: 12.5, lineHeight: 1.45, color: 'var(--navy)' }
 const classificacaoGrupo = { fontSize: 11.5, color: 'var(--gold-dark)', fontWeight: 600 }
+const btnVincularLote = { padding: '6px 12px', background: 'var(--white)', color: 'var(--navy)', border: '1.5px solid var(--navy)', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'var(--body)', whiteSpace: 'nowrap' }
 const emptyState = { padding: '60px 24px', textAlign: 'center', fontFamily: 'var(--body)', color: 'var(--text-mid)', fontSize: 13 }
 const card = { background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', padding: 14 }
 const autoBox = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--cream)', border: '1px solid var(--gold)', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }
