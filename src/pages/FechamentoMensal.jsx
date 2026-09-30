@@ -182,8 +182,22 @@ function montarChecklist(comp, ctx) {
     }
   }
 
-  return items
+  // Cada item pertence a uma ponta: o dinheiro, o documento, ou a ordem do
+  // fechamento (que não é nem uma nem outra — é a regra cronológica).
+  return items.map(i => ({ ...i, ponta: PONTA_DO_ITEM[i.key] || 'ordem' }))
 }
+
+const PONTA_DO_ITEM = {
+  extrato: 'caixa', conciliacao: 'caixa', liquidadas: 'caixa',
+  conferencia_bancaria: 'caixa', fatura: 'caixa', impostos: 'caixa', suspense: 'caixa',
+  escrituracao: 'documento', nf_pendente: 'documento', caixa_entrada: 'documento',
+  anterior: 'ordem',
+}
+const PONTAS = [
+  { id: 'caixa', label: 'Caixa', sub: 'o dinheiro entrou e saiu, e o extrato prova' },
+  { id: 'documento', label: 'Documento', sub: 'a nota foi emitida/recebida e está escriturada' },
+  { id: 'ordem', label: 'Ordem', sub: 'o fechamento anda do mês mais antigo para o mais novo' },
+]
 
 export default function FechamentoMensal() {
   const { user } = useAuth()
@@ -263,6 +277,18 @@ export default function FechamentoMensal() {
       return { comp, items, reg, obrigFalta, avisosFalta, estado, podeFechar }
     })
   }, [extratos, receivable, payable, contas, transferencias, fechamentos, nfPend])
+
+  // O ano de relance + qual é o PRÓXIMO mês a fechar.
+  const anoAtual = String(new Date().getFullYear())
+  const resumoAno = useMemo(() => {
+    const doAno = meses.filter(m => m.comp.startsWith(anoAtual))
+    const fechados = doAno.filter(m => m.estado === 'fechado')
+    // Cronológico: o próximo é o mais antigo que ainda não fechou e já terminou.
+    const proximo = meses.find(m => m.estado !== 'fechado' && m.estado !== 'corrente')
+    const trava = proximo ? proximo.obrigFalta : []
+    const porPonta = ponta => trava.filter(i => i.ponta === ponta)
+    return { doAno, fechados, proximo, trava, porPonta }
+  }, [meses, anoAtual])
 
   const revisarCount = useMemo(() => (extratos || []).filter(e => e.rev === 'true' || e.rev === true).length, [extratos])
 
@@ -358,6 +384,51 @@ export default function FechamentoMensal() {
         <span style={{ marginLeft: 6 }}><span style={{ color: 'var(--red)' }}>vermelho = obrigatório faltando</span> · <span style={{ color: 'var(--gold-dark)' }}>dourado = aviso (vira exceção registrada)</span> · <span style={{ color: 'var(--green)' }}>verde = ok</span></span>
       </div>
 
+      {meses.length > 0 && (
+        <div style={painelAno}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <div style={painelTitulo}>Seu {anoAtual}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-mid)' }}>
+              <strong style={{ color: 'var(--navy)' }}>{resumoAno.fechados.length}</strong> de {resumoAno.doAno.length} mês(es) fechado(s)
+            </div>
+          </div>
+
+          {!resumoAno.proximo ? (
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
+              ✅ Nenhum mês em aberto. O ano está fechado até aqui.
+            </div>
+          ) : resumoAno.trava.length === 0 ? (
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
+              ✅ <strong>{mesLabel(resumoAno.proximo.comp)}</strong> está pronto pra fechar — é o próximo da fila.
+            </div>
+          ) : (
+            <>
+              <div style={{ marginTop: 8, fontSize: 13, color: 'var(--navy)' }}>
+                O próximo da fila é <strong>{mesLabel(resumoAno.proximo.comp)}</strong>. Enquanto ele não fechar, nenhum mês
+                depois dele fecha — o fechamento anda em ordem. Falta:
+              </div>
+              <div style={pontasGrid}>
+                {PONTAS.filter(pt => resumoAno.porPonta(pt.id).length > 0).map(pt => (
+                  <div key={pt.id} style={pontaCard}>
+                    <div style={pontaLabel}>{pt.label}</div>
+                    <div style={pontaSub}>{pt.sub}</div>
+                    {resumoAno.porPonta(pt.id).map(i => (
+                      <div key={i.key} style={{ marginTop: 7, fontSize: 12 }}>
+                        <span style={{ color: 'var(--red)', fontWeight: 600 }}>{i.label}</span>
+                        <span style={{ color: 'var(--text-mid)' }}> — {i.detalhe}</span>
+                        {i.link && i.link !== '/fechamento-mensal' && (
+                          <> <Link to={i.link} style={linkResolver}>resolver →</Link></>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {revisarCount > 0 && (
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: 'rgba(204,145,94,0.12)', borderLeft: '3px solid var(--gold-dark)', color: 'var(--gold-dark)', fontSize: 13, fontWeight: 600 }}>
           ⚠️ Ação pendente: {revisarCount} linha(s) do extrato marcada(s) para revisar (ex.: possível Pix duplicado). Resolva na tela de <strong>Conciliação</strong> — procure o selo <strong>⚠️ REVISAR</strong>.
@@ -421,8 +492,11 @@ export default function FechamentoMensal() {
                             {m.estado === 'corrente' && (
                               <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 10 }}>⏳ O mês ainda não terminou — o checklist vai se atualizando; o botão de fechar aparece no mês seguinte.</div>
                             )}
+                            {PONTAS.filter(pt => m.items.some(i => i.ponta === pt.id)).map(pt => (
+                            <div key={pt.id} style={{ marginBottom: 10 }}>
+                            <div style={tituloPonta}>{pt.label} <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-mid)' }}>— {pt.sub}</span></div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr auto', gap: '6px 14px', alignItems: 'center', fontSize: 12 }}>
-                              {m.items.map(i => (
+                              {m.items.filter(i => i.ponta === pt.id).map(i => (
                                 <Fragment key={i.key}>
                                   <div style={{ fontWeight: 600, color: i.ok ? 'var(--green)' : i.obrigatorio ? 'var(--red)' : 'var(--gold-dark)' }}>
                                     {i.ok ? '✅' : i.obrigatorio ? '🔴' : '⚠️'} {i.label}
@@ -435,6 +509,8 @@ export default function FechamentoMensal() {
                                 </Fragment>
                               ))}
                             </div>
+                            </div>
+                            ))}
 
                             {m.estado === 'pendente' && (
                               <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-mid)' }}>
@@ -499,6 +575,13 @@ export default function FechamentoMensal() {
   )
 }
 
+const painelAno = { background: 'var(--white)', border: '1px solid var(--cream-dark)', borderLeft: '3px solid var(--navy)', borderRadius: 10, padding: '14px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }
+const painelTitulo = { fontSize: 15, fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--heading, var(--body))' }
+const pontasGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 12 }
+const pontaCard = { background: 'var(--cream)', borderRadius: 8, padding: '10px 12px' }
+const pontaLabel = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--navy)' }
+const pontaSub = { fontSize: 10.5, color: 'var(--text-mid)', marginTop: 1 }
+const tituloPonta = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--navy)', marginBottom: 6 }
 const tableCard = { background: 'var(--white)', borderRadius: 12, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)', overflow: 'hidden' }
 const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--body)' }
 const th = { textAlign: 'left', fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-mid)', padding: '14px 18px', borderBottom: '1px solid var(--cream-dark)', background: 'var(--cream)' }
