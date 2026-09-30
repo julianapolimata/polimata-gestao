@@ -70,38 +70,70 @@ function linhaPodeSerNota(ln) {
 }
 
 /**
- * Pareia linhas da fatura com notas que JÁ viraram lançamento.
- * @returns {Map<string, object>} id da linha → lançamento da nota
+ * Pareia linhas da fatura com lançamentos que já existem, por VALOR e DATA.
+ *
+ * O nome não serve de chave (o cartão escreve "ANTHROPIC* CLAUDE SU
+ * ANTHROPIC.COM..." e a nota, "Anthropic, PBC"), então sobram valor e data — e
+ * o par só vale se for ÚNICO nos dois sentidos. Onde há ambiguidade o sistema
+ * não escolhe: cria, e a decisão volta pra quem escritura.
+ *
+ * @returns {Map<string, object>} id da linha → lançamento
  */
-export function parearNotasJaLancadas({ linhas, notas }) {
-  const candidatos = []
+function parearPorValorEData({ linhas, candidatos, janelaDias }) {
+  const pares = []
   for (const ln of (linhas || []).filter(linhaPodeSerNota)) {
     const t = ln.data || {}
-    for (const n of notas || []) {
-      const nd = n.data || {}
-      if (!nd.numero_nf) continue
+    for (const c of candidatos || []) {
+      const cd = c.data || {}
       // Compara em CENTAVOS inteiros. Com float, 550 − 549,99 dá
       // 0,00999999999999, que passa por "menos de um centavo" — a diferença de
       // um centavo entrava como se fosse valor igual.
-      if (Math.round(abs(nd.value) * 100) !== Math.round(abs(t.valor) * 100)) continue
-      const dNota = nd.data_competencia || nd.due
-      if (!dNota || !t.data) continue
-      const dias = Math.abs((new Date(t.data) - new Date(dNota)) / 86400000)
-      if (dias > JANELA_DIAS_NOTA) continue
-      candidatos.push({ linhaId: ln.id, nota: n })
+      if (Math.round(abs(cd.value) * 100) !== Math.round(abs(t.valor) * 100)) continue
+      const dCand = cd.data_competencia || cd.due
+      if (!dCand || !t.data) continue
+      if (Math.abs((new Date(t.data) - new Date(dCand)) / 86400000) > janelaDias) continue
+      pares.push({ linhaId: ln.id, lanc: c })
     }
   }
-  // Só sobrevive o par que é único dos DOIS lados.
-  const porLinha = new Map(), porNota = new Map()
-  for (const c of candidatos) {
-    porLinha.set(c.linhaId, (porLinha.get(c.linhaId) || 0) + 1)
-    porNota.set(c.nota.id, (porNota.get(c.nota.id) || 0) + 1)
+  const porLinha = new Map(), porLanc = new Map()
+  for (const p of pares) {
+    porLinha.set(p.linhaId, (porLinha.get(p.linhaId) || 0) + 1)
+    porLanc.set(p.lanc.id, (porLanc.get(p.lanc.id) || 0) + 1)
   }
-  const pares = new Map()
-  for (const c of candidatos) {
-    if (porLinha.get(c.linhaId) === 1 && porNota.get(c.nota.id) === 1) pares.set(c.linhaId, c.nota)
+  const unicos = new Map()
+  for (const p of pares) {
+    if (porLinha.get(p.linhaId) === 1 && porLanc.get(p.lanc.id) === 1) unicos.set(p.linhaId, p.lanc)
   }
-  return pares
+  return unicos
+}
+
+/** Linhas da fatura × notas do e-mail que já viraram lançamento. */
+export function parearNotasJaLancadas({ linhas, notas }) {
+  return parearPorValorEData({
+    linhas,
+    candidatos: (notas || []).filter(n => n.data?.numero_nf),
+    janelaDias: JANELA_DIAS_NOTA,
+  })
+}
+
+/**
+ * Linhas da fatura × compras do cartão que JÁ estão no sistema sem linha.
+ *
+ * Existem 241 compras assim: nasceram de um importador antigo, "Pago" e sem
+ * conciliação. A trava atual é o fit_id do OFX — mas 15 delas não têm fit_id e
+ * não são parcela, então reimportar a fatura daquele mês criaria a compra de
+ * novo, em silêncio.
+ *
+ * Janela de ZERO dia: a fatura traz a data da própria compra: se a data não
+ * bate exatamente, não é a mesma linha. Parcela fica de fora — ela tem caminho
+ * próprio (série + número da parcela), que é mais forte que valor+data.
+ */
+export function parearComprasJaLancadas({ linhas, compras }) {
+  return parearPorValorEData({
+    linhas,
+    candidatos: (compras || []).filter(c => !c.extrato_id && !c.data?.parcela_total),
+    janelaDias: 0,
+  })
 }
 
 /**
@@ -113,14 +145,15 @@ export function parearNotasJaLancadas({ linhas, notas }) {
  * @param {Array}  p.compras   payable do cartão (linhas cruas: {id, parent_id, extrato_id, data})
  * @param {Array}  [p.notas]   payable de notas do e-mail ainda sem linha de fatura
  * @param {string} [p.hoje]    YYYY-MM-DD
- * @returns {{criar: Array, casar: Array, pagamentos: Array, ambiguas: Array, notasCasadas: Array}}
+ * @returns {{criar: Array, casar: Array, pagamentos: Array, ambiguas: Array, notasCasadas: Array, comprasRecasadas: Array}}
  *   criar: [{extrato_id|null, id?, parent_id?, data}] — sem código (o chamador numera)
  *   casar: [{extrato_id, lanc_id, data}]
  */
 export function planejarCompras({ conta, linhas, compras, notas, hoje }) {
   const H = hoje || new Date().toISOString().slice(0, 10)
-  const criar = [], casar = [], pagamentos = [], ambiguas = [], notasCasadas = []
+  const criar = [], casar = [], pagamentos = [], ambiguas = [], notasCasadas = [], comprasRecasadas = []
   const notaDaLinha = parearNotasJaLancadas({ linhas, notas })
+  const compraDaLinha = parearComprasJaLancadas({ linhas, compras })
   const livres = (compras || []).filter(c => !c.extrato_id)
   const usados = new Set()
 
@@ -201,6 +234,19 @@ export function planejarCompras({ conta, linhas, compras, notas, hoje }) {
         notasCasadas.push({ numero_nf: nd.numero_nf, fornecedor: nd.supplier || '—', valor, descricao_fatura: t.descricao })
         continue
       }
+      // 1c) a compra já está no sistema (importador antigo, sem fit_id) → casa.
+      // A nota tem prioridade: ela carrega documento fiscal, a compra não.
+      const jaExiste = compraDaLinha.get(ln.id)
+      if (jaExiste && !usados.has(jaExiste.id)) {
+        usados.add(jaExiste.id)
+        casar.push({
+          extrato_id: ln.id,
+          lanc_id: jaExiste.id,
+          data: { ...(jaExiste.data || {}), ...pago(t), due: jaExiste.data?.due || venc, fit_id_ofx: t.fit_id || jaExiste.data?.fit_id_ofx || null },
+        })
+        comprasRecasadas.push({ descricao: t.descricao, valor, data: t.data })
+        continue
+      }
       criar.push({ extrato_id: ln.id, data: { ...base(t, venc), ...pago(t), value: valor } })
       continue
     }
@@ -247,7 +293,7 @@ export function planejarCompras({ conta, linhas, compras, notas, hoje }) {
     })
     series.set(kSerie, { parentId, dcomp: dataCompra })
   }
-  return { criar, casar, pagamentos, ambiguas, notasCasadas }
+  return { criar, casar, pagamentos, ambiguas, notasCasadas, comprasRecasadas }
 }
 
 /** Resumo em português para o confirm() antes de gravar. */
@@ -256,9 +302,11 @@ export function resumoPlano(plano) {
   const futuras = plano.criar.length - ligadas
   const partes = []
   const notas = plano.notasCasadas?.length || 0
+  const recasadas = plano.comprasRecasadas?.length || 0
   if (ligadas) partes.push(`${ligadas} compra(s) nova(s)`)
   if (notas) partes.push(`${notas} linha(s) reconhecida(s) como nota que já está no sistema (não duplica)`)
-  if (plano.casar.length - notas > 0) partes.push(`${plano.casar.length - notas} parcela(s) casada(s) com compras já registradas`)
+  if (recasadas) partes.push(`${recasadas} linha(s) reconhecida(s) como compra que já está no sistema (não duplica)`)
+  if (plano.casar.length - notas - recasadas > 0) partes.push(`${plano.casar.length - notas - recasadas} parcela(s) casada(s) com compras já registradas`)
   if (futuras) partes.push(`${futuras} parcela(s) futura(s)/anterior(es) de séries novas`)
   if (plano.pagamentos.length) partes.push(`${plano.pagamentos.length} pagamento(s) da fatura deixado(s) para conciliar como transferência`)
   if (plano.ambiguas.length) partes.push(`${plano.ambiguas.length} crédito(s) ambíguo(s) deixado(s) para decisão manual`)

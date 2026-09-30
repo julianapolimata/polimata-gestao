@@ -21,3 +21,8 @@ jobs:
         run: npm run lint
       - name: Build (Vite)
         run: npm run build
+      # Provas das regras que decidem se um lançamento nasce ou é reaproveitado.
+      # Foi uma delas que pegou o valor comparado em float deixando passar um
+      # centavo de diferença — lint e build não veriam isso.
+      - name: Provas das regras
+        run: npm run provas

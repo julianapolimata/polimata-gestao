@@ -622,6 +622,9 @@ export default function Conciliacao() {
           ...(plano.notasCasadas?.length
             ? [`Reconhecidas como nota já lançada (não viram compra nova): ${plano.notasCasadas.map(n => `${n.fornecedor} · NF ${n.numero_nf}`).join('; ')}.`]
             : []),
+          ...(plano.comprasRecasadas?.length
+            ? [`${plano.comprasRecasadas.length} linha(s) já existiam como compra no sistema e foram ligadas à fatura em vez de duplicadas.`]
+            : []),
         ],
         confirmarLabel: 'Criar compras',
         width: 560,
