@@ -21,6 +21,12 @@
 export const CATEGORIAS_SEM_NOTA_FISCAL = [
   // Banco: o documento é o extrato.
   'Despesas Financeiras',
+  // No plano de contas a categoria é "Receita Financeira" — singular nas duas
+  // palavras. A lista dizia "Receitas Financeiras" e por isso não reconhecia
+  // NENHUM juro recebido: o sistema pedia justificativa para um crédito do
+  // banco cujo documento é o próprio extrato. As duas grafias ficam aceitas,
+  // porque o plano é de cada empresa e a regra é de metodologia.
+  'Receita Financeira',
   'Receitas Financeiras',
   // Empréstimo: o documento é o contrato.
   'Empréstimos e Financiamentos',
@@ -64,7 +70,8 @@ export function exigeJustificativaNaBaixa(data) {
 /** Por que esta natureza dispensa — a frase que aparece na tela. */
 export function motivoDaDispensa(data) {
   const cat = normal(data?.cat)
-  if (cat === normal('Despesas Financeiras') || cat === normal('Receitas Financeiras')) {
+  if (cat === normal('Despesas Financeiras')
+    || cat === normal('Receita Financeira') || cat === normal('Receitas Financeiras')) {
     return 'Cobrança do banco: o documento dela é o próprio extrato.'
   }
   if (cat === normal('Empréstimos e Financiamentos')) {
