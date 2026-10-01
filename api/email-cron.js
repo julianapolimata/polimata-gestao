@@ -1333,6 +1333,19 @@ CAMPOS OBRIGATÓRIOS (extraia com muito cuidado, mesmo se aparecem em rodapé/ca
 SE FOR FOLHA OU PRÓ-LABORE, o "periodo_apuracao" é a COMPETÊNCIA da folha
 (o mês trabalhado), não a data de pagamento. Formato "YYYY-MM".
 
+COMO RECONHECER FOLHA E PRÓ-LABORE (não caia em "Outro"):
+- "Recibo de pagamento de salário", "Recibo mensal", "Recibo de pró-labore",
+  "Pró-labore", "Pro labore", "Demonstrativo de pagamento", "Holerite",
+  "Contracheque" → tipo_documento "Pró-labore" quando o beneficiário é sócio,
+  ou "Folha" quando é empregado.
+- Esses documentos NÃO são nota fiscal e nunca têm número de NF: devolva
+  numero_nf vazio se não houver um número próprio do recibo.
+- O valor_total é o valor BRUTO da remuneração (antes de INSS e IRRF), porque é
+  o bruto que a lei conta na folha do Fator R. Se o documento trouxer bruto,
+  descontos e líquido, use o BRUTO.
+- O emitente costuma ser a própria empresa (ela é quem paga). Isso NÃO faz do
+  documento uma receita.
+
 SE FOR GUIA DE IMPOSTO (DAS, DARF, GPS, GNRE), extraia também:
 - periodo_apuracao: o campo "Período de Apuração" (ou "PA", "Competência"), SEMPRE no formato "YYYY-MM". Ex.: "agosto/2026" → "2026-08"; "08/2026" → "2026-08". Se não achar, string vazia.
 - numero_documento: o campo "Número do Documento" (ou "Nº do Documento", "Documento de Arrecadação"), exatamente como impresso. Se não achar, string vazia.
