@@ -94,15 +94,21 @@ export default function SimplesNacional() {
       supabase.from('nfse_config').select('*').limit(1),
       // Saídas do extrato ainda não conciliadas: é aqui que se esconde folha
       // paga e não lançada, que o Fator R não enxerga.
-      supabase.from('transacoes_extrato').select('id, status, dt:data->>data, tipo:data->>tipo, valor:data->>valor').eq('status', 'pendente'),
-    ]).then(([rC, rD, rR, rP, rN, rE]) => {
+      supabase.from('transacoes_extrato').select('id, status, conta_id, dt:data->>data, tipo:data->>tipo, valor:data->>valor').eq('status', 'pendente'),
+      // Só contas bancárias: linha de CARTÃO é compra, não pagamento a pessoa
+      // física. Contá-la aqui encheria o aviso de folha oculta com software.
+      supabase.from('contas_bancarias').select('id,data'),
+    ]).then(([rC, rD, rR, rP, rN, rE, rB]) => {
       setConfig(rC.data?.[0] || null)
       setDasHist(rD.data || [])
       // flatten() não carrega extrato_id — preservamos à mão.
       setReceivable((rR.data || []).map(r => ({ ...flatten(r), extrato_id: r.extrato_id })))
       setPayable(rP.data || [])
       setNfseCfg(rN.data?.[0]?.data || null)
-      setExtratoPendente(rE.data || [])
+      const idsBanco = new Set((rB.data || [])
+        .filter(c => c.data?.tipo !== 'cartao')
+        .map(c => c.id))
+      setExtratoPendente((rE.data || []).filter(e => idsBanco.has(e.conta_id)))
       setLoading(false)
     })
   }, [user])

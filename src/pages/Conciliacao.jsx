@@ -13,6 +13,7 @@ import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } fr
 import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
+import { traduzErroFechamento } from '../lib/fechamento'
 import { useConfirm } from '../components/ConfirmDialog'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
@@ -436,19 +437,24 @@ export default function Conciliacao() {
   // conta). Por isso o painel não junta só as linhas — ele pede a divisão.
 
   // Candidatas: pendentes da MESMA conta e do MESMO sentido, menos a âncora.
+  // Olha TODAS as linhas da conta, não as filtradas: o filtro é da lista, não
+  // da verdade. Um pagamento picado atravessa meses, e esconder metade dele
+  // porque a tela está filtrada por data fecharia a divisão num total menor —
+  // em silêncio.
   const candidatasAJuntar = useMemo(() => {
-    const ext = extratosFiltrados.find(e => e.id === selecionado)
+    const ext = extratos.find(e => e.id === selecionado)
     if (!ext) return []
-    return extratosFiltrados.filter(e =>
-      e.id !== ext.id && e.status === 'pendente'
-      && e.conta_id === ext.conta_id && e.data?.tipo === ext.data?.tipo)
-  }, [extratosFiltrados, selecionado])
+    return extratos
+      .filter(e => e.id !== ext.id && e.status === 'pendente'
+        && e.conta_id === ext.conta_id && e.data?.tipo === ext.data?.tipo)
+      .sort((a, b) => (a.data?.data || '').localeCompare(b.data?.data || ''))
+  }, [extratos, selecionado])
 
   const linhasDoGrupo = useMemo(() => {
-    const ext = extratosFiltrados.find(e => e.id === selecionado)
+    const ext = extratos.find(e => e.id === selecionado)
     if (!ext) return []
     return [ext, ...candidatasAJuntar.filter(e => juntas.has(e.id))]
-  }, [extratosFiltrados, selecionado, candidatasAJuntar, juntas])
+  }, [extratos, selecionado, candidatasAJuntar, juntas])
 
   const totalDoGrupo = useMemo(() => somarLinhas(linhasDoGrupo), [linhasDoGrupo])
   const erroDivisao = useMemo(
@@ -504,7 +510,10 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`${linhasDoGrupo.length} transferência(s) conciliada(s) em ${lancs.length} lançamento(s). Próximo passo: Escrituração.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro ao juntar: ' + (e.message || e), 'error') }
+    } catch (e) {
+      // Mês fechado é barrado pelo trigger do banco, com mensagem técnica.
+      showToast(traduzErroFechamento(e) || ('Erro ao juntar: ' + (e.message || e)), 'error')
+    }
     finally { setConciliando(false) }
   }
 
@@ -1118,6 +1127,9 @@ export default function Conciliacao() {
 
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '10px 0 4px' }}>
                         Linhas deste pagamento
+                        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
+                          — todas as pendentes desta conta, inclusive fora do filtro da lista
+                        </span>
                       </div>
                       <div style={listaJuntar}>
                         <label style={{ ...linhaJuntar, opacity: 0.7 }}>
