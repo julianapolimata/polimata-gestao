@@ -10,6 +10,8 @@ import {
 } from '../lib/finance'
 import { fetchPlanoContas } from '../lib/planoContas'
 import { calcMRR, calcDespesaRecorrente, calcInadimplencia, calcMargem, calcLiquidez, calcConcentracao } from '../lib/indicadores'
+import ProximoPasso from '../components/ProximoPasso'
+import { useProximoPasso } from '../lib/useProximoPasso'
 
 // =====================================================================
 // PAINEL FINANCEIRO — 4 KPIs enxutos decididos na auditoria 26/abr/2026:
@@ -27,6 +29,8 @@ import { calcMRR, calcDespesaRecorrente, calcInadimplencia, calcMargem, calcLiqu
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  // O que fazer AGORA — mesma verdade que o Fechamento usa.
+  const { passo, loading: passoCarregando } = useProximoPasso(user)
   const [receivable, setReceivable] = useState([])
   const [payable, setPayable] = useState([])
   const [recurringMasters, setRecurringMasters] = useState([])
@@ -475,6 +479,10 @@ export default function Dashboard() {
 
   return (
     <AppLayout title="Início">
+      {/* Primeira coisa da tela: o que fazer agora. Vem ANTES dos alertas de
+          propósito — alerta diz o que está errado; isto diz o que fazer. */}
+      <ProximoPasso passo={passo} loading={passoCarregando} />
+
       {alerts.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           {alerts.map((a, i) => (

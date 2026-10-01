@@ -26,6 +26,96 @@ const mesAnterior = comp => {
 //   feito — havia trabalho e está resolvido
 //   nada  — "ok" só porque não havia nada a fazer. Não é conquista, e mostrar
 //           isso em verde ensina a pessoa a não confiar no checklist.
+// De item do checklist para ORDEM. O texto é imperativo de propósito: quem
+// abre o sistema quer saber o que FAZER, não qual verificação falhou.
+//
+// "Olho pra ele e não sei o que fazer" (Juliana, 01/10). O checklist dizia
+// "✕ Extrato importado" — o nome do item que falhou. Entre ler isso e saber
+// que precisa gerar o OFX no banco e importar, há um salto que o sistema
+// deixava para ela.
+const ACAO_DO_ITEM = {
+  extrato: {
+    verbo: 'Importe o extrato',
+    onde: '/conciliacao',
+    botao: 'Ir para Conciliação',
+    porque: 'sem o extrato do mês não dá para provar o que entrou e saiu',
+  },
+  conciliacao: {
+    verbo: 'Concilie as linhas do extrato',
+    onde: '/conciliacao',
+    botao: 'Ir para Conciliação',
+    porque: 'cada linha do banco precisa achar o lançamento dela',
+  },
+  escrituracao: {
+    verbo: 'Escriture os lançamentos',
+    onde: '/classificar',
+    botao: 'Ir para Escrituração',
+    porque: 'lançamento sem categoria e situação fiscal não entra na DRE',
+  },
+  anterior: {
+    verbo: 'Feche o mês anterior primeiro',
+    onde: '/fechamento-mensal',
+    botao: 'Ver o fechamento',
+    porque: 'o fechamento anda do mês mais antigo para o mais novo',
+  },
+  nf_pendente: { verbo: 'Resolva as notas que faltam chegar', onde: '/classificar', botao: 'Ir para Escrituração', porque: 'são lançamentos esperando documento' },
+  suspense: { verbo: 'Esclareça o que está em suspense', onde: '/conciliacao', botao: 'Ir para Conciliação', porque: 'é dinheiro sem destino contábil definido' },
+  liquidadas: { verbo: 'Dê baixa no que foi pago ou recebido', onde: '/pagar', botao: 'Ver contas a pagar', porque: 'contas do mês ainda figuram em aberto' },
+  conferencia_bancaria: { verbo: 'Confira as baixas no extrato', onde: '/conciliacao', botao: 'Ir para Conciliação', porque: 'há baixa feita à mão, sem prova no banco' },
+  fatura: { verbo: 'Registre o pagamento da fatura do cartão', onde: '/conferencia-fatura', botao: 'Conferir fatura', porque: 'a fatura do mês não aparece paga' },
+  impostos: { verbo: 'Pague ou registre as guias de imposto', onde: '/simples-nacional', botao: 'Ver o Simples', porque: 'há guia do mês em aberto' },
+  caixa_entrada: { verbo: 'Revise a caixa de entrada', onde: '/importar-nfs', botao: 'Abrir caixa de entrada', porque: 'há documento do e-mail esperando decisão' },
+}
+
+/**
+ * Qual é a ÚNICA próxima coisa a fazer?
+ *
+ * O fechamento é cronológico: só um mês pode ser o próximo, e dentro dele só
+ * o primeiro item obrigatório importa. Mostrar dez pendências de uma vez é o
+ * que faz a pessoa olhar a tela e não saber por onde começar.
+ *
+ * @param {Array} meses        [{ comp, estado, obrigFalta, avisosFalta }]
+ * @param {function} rotuloMes formata a competência para leitura
+ * @returns {object|null}      null = não há mês em aberto
+ */
+export function proximoPasso(meses, rotuloMes = c => c) {
+  const mes = (meses || []).find(m => m.estado !== 'fechado' && m.estado !== 'corrente')
+  if (!mes) return null
+
+  const trava = (mes.obrigFalta || [])[0]
+  if (!trava) {
+    return {
+      comp: mes.comp,
+      pronto: true,
+      titulo: rotuloMes(mes.comp) + ' está pronto para fechar',
+      detalhe: (mes.avisosFalta || []).length
+        ? (mes.avisosFalta.length + ' aviso(s) ficam registrados como exceção aceita.')
+        : 'Nenhuma pendência.',
+      link: '/fechamento-mensal',
+      botao: 'Fechar o mês',
+      restantes: 0,
+    }
+  }
+
+  const acao = ACAO_DO_ITEM[trava.key] || {
+    verbo: 'Resolva "' + trava.label + '"',
+    onde: trava.link || '/fechamento-mensal',
+    botao: 'Resolver',
+    porque: 'é obrigatório para fechar o mês',
+  }
+  return {
+    comp: mes.comp,
+    pronto: false,
+    titulo: acao.verbo + ' de ' + rotuloMes(mes.comp),
+    detalhe: trava.detalhe,
+    porque: acao.porque,
+    link: acao.onde,
+    botao: acao.botao,
+    // Honestidade sem despejo: diz que ainda vem mais, sem listar tudo.
+    restantes: (mes.obrigFalta || []).length - 1,
+  }
+}
+
 export function estadoDoItem(i) {
   if (!i.ok) return i.obrigatorio ? 'trava' : 'aviso'
   return i.vazio ? 'nada' : 'feito'
