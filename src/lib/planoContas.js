@@ -37,9 +37,13 @@ export async function fetchPlanoContas() {
     .from('plano_contas')
     .select('tipo,categoria,subcategoria,classificacao,na_dre,ordem')
     .order('ordem')
-    .then(({ data }) => {
-      _cache = data || []
+    .then(({ data, error }) => {
       _carregando = null
+      // Falha NÃO vira cache: lista vazia é truthy e ficaria para sempre. Sem o plano,
+      // a DRE zera e a Escrituração fica sem categorias — melhor tentar de novo
+      // na próxima chamada do que servir vazio pelo resto da sessão.
+      if (error || !data) return []
+      _cache = data
       return _cache
     })
   return _carregando

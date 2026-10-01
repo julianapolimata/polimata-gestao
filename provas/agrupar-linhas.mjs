@@ -134,6 +134,11 @@ const pix = (valor, data, over = {}) => ({
     /2 transferência\(s\) entre 05\/03\/2026 e 20\/03\/2026/.test(lancs[0].data.desc), lancs[0].data.desc)
   ok('dispensa nota com motivo escrito',
     lancs.every(l => l.data.doc_status === 'dispensado' && l.data.doc_motivo_dispensa.length > 10))
+  // Sem esta marca, desfazer o agrupamento não acha o que apagar e deixa
+  // lançamentos órfãos (pagos, conciliados com nada). Achado na auditoria.
+  ok('levam a marca que permite desfazer o agrupamento',
+    lancs.every(l => l.data.criado_via_agrupamento === true),
+    JSON.stringify(lancs.map(l => l.data.criado_via_agrupamento)))
   ok('NÃO nascem escriturados — isso é decisão dela',
     lancs.every(l => l.data.escriturado === undefined), JSON.stringify(lancs[0].data.escriturado))
 

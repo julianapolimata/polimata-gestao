@@ -767,13 +767,20 @@ export default function Conciliacao() {
       if (error) { showToast('Erro: ' + error.message, 'error'); return }
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar(); return
     }
+    const nGrupo = Array.isArray(extrato.data?.extrato_grupo) ? extrato.data.extrato_grupo.length : 0
     const ok = await confirmar({
-      titulo: 'Desfazer esta conciliação?',
-      consequencias: [
-        'Os lançamentos vinculados voltam para pendente.',
-        'Os ajustes criados aqui — retenções, tarifas, juros — são removidos.',
-        'A linha do extrato volta a esperar decisão.',
-      ],
+      titulo: nGrupo > 1 ? `Desfazer o agrupamento de ${nGrupo} transferências?` : 'Desfazer esta conciliação?',
+      consequencias: nGrupo > 1
+        ? [
+          `As ${nGrupo} transferências do grupo voltam para a fila — não só esta.`,
+          'Os lançamentos criados pelo agrupamento são apagados (eles nasceram aqui).',
+          'A divisão entre as naturezas se perde: você refaz na próxima vez.',
+        ]
+        : [
+          'Os lançamentos vinculados voltam para pendente.',
+          'Os ajustes criados aqui — retenções, tarifas, juros — são removidos.',
+          'A linha do extrato volta a esperar decisão.',
+        ],
       confirmarLabel: 'Desconciliar',
       variante: 'perigo',
     })
@@ -786,6 +793,26 @@ export default function Conciliacao() {
       // ficavam presas como conciliadas com nada, sumindo do pool pra sempre.
       const idsMulti = Array.isArray(d.lancamento_ids) ? d.lancamento_ids
         : (Array.isArray(d.lancamento_pares_ids) ? d.lancamento_pares_ids : null)
+
+      // Agrupamento de transferências: VÁRIAS linhas para um pagamento só. Tem
+      // que desfazer o grupo inteiro — soltar só a linha clicada deixaria as
+      // outras 'conciliado' para sempre, fora da lista de pendentes.
+      const grupo = Array.isArray(d.extrato_grupo) ? d.extrato_grupo : null
+      if (grupo && grupo.length) {
+        // Os lançamentos nasceram deste agrupamento: desfazer apaga.
+        await supabase.from('receivable').delete()
+          .in('extrato_id', grupo).eq('data->>criado_via_agrupamento', 'true')
+        await supabase.from('payable').delete()
+          .in('extrato_id', grupo).eq('data->>criado_via_agrupamento', 'true')
+        // E TODAS as linhas do grupo voltam para a fila.
+        const { error: eGrupo } = await supabase.from('transacoes_extrato')
+          .update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null })
+          .in('id', grupo)
+        if (eGrupo) throw eGrupo
+        showToast(`Agrupamento desfeito: ${grupo.length} transferência(s) voltaram para a fila.`, 'info')
+        setSelecionado(null); carregar(); return
+      }
+
       if (idsMulti && (d.conciliado_multiplo || d.conciliado_como === 'fatura_cartao')) {
         // Volta cada lançamento pra Pendente e apaga os ajustes.
         for (const lid of idsMulti) {

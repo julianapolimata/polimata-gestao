@@ -115,6 +115,10 @@ export function montarLancamentos({ linhas, partes, tabela = 'payable', parte: n
       // Escriturar é decisão dela; aqui só se registra o que o dinheiro foi.
       created: hoje || new Date().toISOString().slice(0, 10),
       notes: `Baixa agrupada de ${quantas} linha(s) do extrato.`,
+      // Marca para o desfazer: estes lançamentos NASCERAM do agrupamento, então
+      // desfazer tem que apagá-los — devolvê-los a "Pendente" deixaria uma
+      // conta a pagar que nunca existiu.
+      criado_via_agrupamento: true,
     },
   }))
 }

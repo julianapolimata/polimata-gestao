@@ -76,7 +76,9 @@ export default function Dashboard() {
       setFechamentos(rFe.data || [])
       setNfsCaixa(rNf.count || 0)
       setReceivable((rRec.data || []).map(flatten))
-      setPayable((rPay.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id })))
+      // flatten() só preserva 5 das 14 colunas reais — conciliado_em é uma das
+      // descartadas, e o alerta de "aguardando escrituração" depende dela.
+      setPayable((rPay.data || []).map(r => ({ ...flatten(r), cartao_id: r.cartao_id, conciliado_em: r.conciliado_em })))
       setRecurringMasters(rRm.data || [])
       setContas((rCt.data || []).filter(c => c.data?.ativo !== false))
       const cfg = rCfg.data?.[0] || null
@@ -165,7 +167,9 @@ export default function Dashboard() {
     if (semDocPay.length) out.push({ kind: 'warning', to: '/pagar?filtro=sem_doc', text: `📎 ${semDocPay.length} conta(s) a pagar aguardando a nota — ${fmtMoney(semDocPay.reduce((a, r) => a + r.value, 0))}` })
     if (semDocRec.length) out.push({ kind: 'warning', to: '/receber?filtro=sem_doc', text: `📎 ${semDocRec.length} recebível(is) aguardando a nota — ${fmtMoney(semDocRec.reduce((a, r) => a + r.value, 0))}` })
     // A escriturar: a porta que trava tudo o resto — sempre visível quando há fila.
-    const aEscriturar = [...receivable, ...payable].filter(r => ehOperacional(r) && r.data?.escriturado !== true && !r.data?.conciliado_em)
+    // conciliado_em é COLUNA, não campo do jsonb: lido de dentro do jsonb ele
+    // é sempre undefined, e a guarda nunca excluía nada.
+    const aEscriturar = [...receivable, ...payable].filter(r => ehOperacional(r) && r.data?.escriturado !== true && !r.conciliado_em)
     if (aEscriturar.length) out.push({ kind: 'warning', to: '/classificar', text: `📋 ${aEscriturar.length} lançamento(s) aguardando escrituração — não entram na conciliação até serem revisados` })
     return out
   }, [receivable, payable])
