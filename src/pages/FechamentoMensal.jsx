@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { invalidarFechamentos, mesLabel, traduzErroFechamento } from '../lib/fechamento'
-import { montarChecklist, PONTAS } from '../lib/fechamentoChecklist'
+import { montarChecklist, PONTAS, estadoDoItem, ordenarPorUrgencia, VISUAL_ESTADO } from '../lib/fechamentoChecklist'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import AppLayout from '../components/AppLayout'
@@ -222,7 +222,13 @@ export default function FechamentoMensal() {
         e não muda lançamento, extrato nem transferência daquela competência. O que ainda pode mudar num mês fechado: <em>baixa de
         pagamento/recebimento</em> (status e data) e <em>prova fiscal</em> (NF, anexo, situação do documento). Pra mexer em outra coisa,
         reabra com justificativa — fica no log.
-        <span style={{ marginLeft: 6 }}><span style={{ color: 'var(--red)' }}>vermelho = obrigatório faltando</span> · <span style={{ color: 'var(--gold-dark)' }}>dourado = aviso (vira exceção registrada)</span> · <span style={{ color: 'var(--green)' }}>verde = ok</span></span>
+        <span style={{ marginLeft: 6 }}>
+          <span style={{ color: 'var(--red)' }}>✕ trava o mês</span> ·{' '}
+          <span style={{ color: 'var(--gold-dark)' }}>! aviso (vira exceção registrada)</span> ·{' '}
+          <span style={{ color: 'var(--green)' }}>✓ feito</span> ·{' '}
+          <span style={{ color: 'var(--text-mid)' }}>– não havia nada a fazer</span>.
+          Os selos vêm na ordem da urgência: o que trava primeiro.
+        </span>
       </div>
 
       {meses.length > 0 && (
@@ -302,11 +308,14 @@ export default function FechamentoMensal() {
                         <td style={td}>{estadoPill(m)}</td>
                         <td style={td}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                            {m.items.map(i => (
-                              <Pill key={i.key} tom={i.ok ? 'ok' : i.obrigatorio ? 'ruim' : 'alerta'} title={i.detalhe}>
-                                {i.ok ? '✓' : i.obrigatorio ? '✕' : '!'} {i.label}
-                              </Pill>
-                            ))}
+                            {ordenarPorUrgencia(m.items).map(i => {
+                              const v = VISUAL_ESTADO[estadoDoItem(i)]
+                              return (
+                                <Pill key={i.key} tom={v.tom} title={i.detalhe}>
+                                  {v.simbolo} {i.label}
+                                </Pill>
+                              )
+                            })}
                           </div>
                         </td>
                         <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
@@ -340,11 +349,13 @@ export default function FechamentoMensal() {
                                   <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-mid)' }}> — {pt.sub}</span>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr auto', gap: '6px 14px', alignItems: 'center', fontSize: 12 }}>
-                                  {m.items.filter(i => i.ponta === pt.id).map(i => (
+                                  {ordenarPorUrgencia(m.items.filter(i => i.ponta === pt.id)).map(i => (
                                     <Fragment key={i.key}>
-                                      <div style={{ fontWeight: 600, color: i.ok ? 'var(--green)' : i.obrigatorio ? 'var(--red)' : 'var(--gold-dark)' }}>
-                                        {i.ok ? '✅' : i.obrigatorio ? '🔴' : '⚠️'} {i.label}
-                                        {!i.obrigatorio && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginLeft: 6 }}>aviso</span>}
+                                      <div style={{ fontWeight: 600, color: VISUAL_ESTADO[estadoDoItem(i)].cor }}>
+                                        {VISUAL_ESTADO[estadoDoItem(i)].icone} {i.label}
+                                        {estadoDoItem(i) === 'nada'
+                                          ? <span style={etiqueta}>nada a fazer</span>
+                                          : (!i.obrigatorio && <span style={etiqueta}>aviso</span>)}
                                       </div>
                                       <div style={{ color: 'var(--navy)' }}>{i.detalhe}</div>
                                       <div style={{ textAlign: 'right' }}>
@@ -419,6 +430,7 @@ export default function FechamentoMensal() {
   )
 }
 
+const etiqueta = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginLeft: 6 }
 const painelAno = { background: 'var(--white)', border: '1px solid var(--cream-dark)', borderLeft: '3px solid var(--navy)', borderRadius: 10, padding: '14px 16px', marginBottom: 16, boxShadow: 'var(--shadow)' }
 const painelTitulo = { fontSize: 15, fontWeight: 700, color: 'var(--navy)', fontFamily: 'var(--heading, var(--body))' }
 const pontasGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 12 }
