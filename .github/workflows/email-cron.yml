@@ -2,9 +2,15 @@ name: Email Cron — Polímata Gestão
 
 on:
   schedule:
-    # A cada 15 minutos. A janela de 365 dias faz o robô descer o histórico
-    # sozinho, 8 documentos por rodada (o que cabe no tempo da função); o que
-    # já foi lido fica etiquetado no Gmail e não volta.
+    # A cada 15 minutos, 8 documentos por rodada (o que cabe no tempo da
+    # função); o que já foi lido fica etiquetado no Gmail e não volta.
+    #
+    # A JANELA (days) precisa ser MAIOR que a distância até
+    # config_empresa.documentos_desde: a busca no Gmail usa os dois juntos
+    # ("after:AAAA/MM/DD ... newer_than:Nd") e o menor vence. Com 365 dias e a
+    # janela aberta em 01/05/2025, mai a set/25 não apareciam — faltavam 519
+    # dias de distância. 760 cobre ~2 anos; quem limita de verdade é o
+    # documentos_desde.
     - cron: '*/15 * * * *'
   workflow_dispatch:
     # Acionamento manual. O "reprocessar" existe para recuperar e-mails que
@@ -18,7 +24,7 @@ on:
         default: false
       days:
         description: 'Quantos dias para trás procurar'
-        default: '365'
+        default: '760'
       max:
         description: 'Quantos e-mails por rodada (máximo 10)'
         default: '8'
@@ -30,7 +36,7 @@ jobs:
     steps:
       - name: Acionar /api/email-cron na Vercel
         env:
-          DAYS: ${{ inputs.days || '365' }}
+          DAYS: ${{ inputs.days || '760' }}
           MAX: ${{ inputs.max || '8' }}
           REPROCESS: ${{ inputs.reprocess && '1' || '0' }}
         run: |
