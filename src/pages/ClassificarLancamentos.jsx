@@ -277,21 +277,23 @@ export default function ClassificarLancamentos() {
       }
       const usos = new Map()
       for (const p of propostas) usos.set(p.nf.id, (usos.get(p.nf.id) || 0) + 1)
-      const plano = propostas.filter(p => usos.get(p.nf.id) === 1)
-      const semProposta = alvo.length - plano.length
+      // NÃO chamar de "plano": o componente já tem um `plano` (o plano de
+      // contas). Dois nomes iguais em escopos diferentes é pedir erro.
+      const paresUnicos = propostas.filter(p => usos.get(p.nf.id) === 1)
+      const semProposta = alvo.length - paresUnicos.length
 
-      if (!plano.length) {
+      if (!paresUnicos.length) {
         showToast(`Nenhuma nota bateu sozinha com estes ${alvo.length} lançamento(s). Use o "Vincular NF" de cada um.`, 'warning')
         return
       }
 
       const ok = await confirmar({
-        titulo: `Vincular ${plano.length} nota(s) de uma vez?`,
+        titulo: `Vincular ${paresUnicos.length} nota(s) de uma vez?`,
         texto: (
           <>
             <div>Isto é o que vai ser vinculado:</div>
             <ul style={listaGrupos}>
-              {plano.map(({ item, nf }) => (
+              {paresUnicos.map(({ item, nf }) => (
                 <li key={item.id} style={itemGrupo}>
                   <strong>{fmtMoney(item.value)}</strong>
                   <span style={{ color: 'var(--text-mid)' }}> · {br(item.data?.data_competencia || item.due)}</span>
@@ -316,14 +318,14 @@ export default function ClassificarLancamentos() {
           'Onde a nota já é um lançamento, os dois são unidos: a nota fica e a compra duplicada sai.',
           'Lançamento em mês fechado fica de fora.',
         ],
-        confirmarLabel: `Vincular ${plano.length}`,
+        confirmarLabel: `Vincular ${paresUnicos.length}`,
         width: 560,
       })
       if (!ok) return
 
       let n = 0
       const erros = []
-      for (const { item, nf } of plano) {
+      for (const { item, nf } of paresUnicos) {
         try {
           await vincularNFEmail({
             nf, compra: item, compraTabela: tabela,

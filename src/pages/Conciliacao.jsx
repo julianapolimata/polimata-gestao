@@ -601,12 +601,6 @@ export default function Conciliacao() {
     finally { setConciliando(false) }
   }
 
-  useEffect(() => {
-    if (!propostaDaLinha) return
-    setNCat(propostaDaLinha.cat || '')
-    setNSubcat(propostaDaLinha.subcat || '')
-  }, [propostaDaLinha])
-
   async function criarLancamento(extrato) {
     if (!user) return
     if (!nCat) { showToast('Escolha a categoria do lançamento.', 'warning'); return }
@@ -891,6 +885,15 @@ export default function Conciliacao() {
     () => regraParaLinha(selecionadoExt?.data?.descricao, regras),
     [selecionadoExt, regras],
   )
+
+  // Fica logo abaixo de `propostaDaLinha` de propósito: o array de dependências
+  // é avaliado durante o render, então um efeito que observa uma constante
+  // PRECISA vir depois dela. Lá em cima, isto derrubava a tela inteira.
+  useEffect(() => {
+    if (!propostaDaLinha) return
+    setNCat(propostaDaLinha.cat || '')
+    setNSubcat(propostaDaLinha.subcat || '')
+  }, [propostaDaLinha])
 
   const lancsRank = useMemo(() => {
     if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
