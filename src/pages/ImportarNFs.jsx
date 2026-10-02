@@ -363,10 +363,17 @@ export default function ImportarNFs() {
   async function rejeitarComMotivo(pending, motivo, opcoes = {}) {
     const d = pending.data || {}
     try {
+      // A lista vem da view, que NÃO traz o arquivo (data - 'anexo'). Gravar
+      // esse objeto de volta substituiria o jsonb inteiro e apagaria o
+      // documento — rejeitado hoje, irrecuperável amanhã. Relê a linha inteira
+      // antes de escrever, como Pagar e Receber já fazem.
+      const { data: inteira } = await supabase
+        .from('nf_pending').select('data').eq('id', pending.id).maybeSingle()
+      const base = inteira?.data || d
       const { error } = await supabase.from('nf_pending').update({
         status: 'rejeitado',
         rejected_at: new Date().toISOString(),
-        data: { ...d, motivo_rejeicao: motivo },
+        data: { ...base, motivo_rejeicao: motivo },
       }).eq('id', pending.id)
       if (error) throw error
       if (!opcoes.emLote) showToast('Documento rejeitado. O motivo ficou no histórico.', 'info')
