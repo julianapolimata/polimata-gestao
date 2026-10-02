@@ -1,0 +1,46 @@
+name: Reconhecer o papel dos documentos já na fila — Polímata Gestão
+
+# Só acionamento manual: é uma correção de acervo, não rotina. O robô já
+# reconhece o papel de tudo que chega — este workflow é para os documentos que
+# entraram ANTES do reconhecedor existir.
+#
+# Não custa nada: o papel sai do texto do próprio PDF, sem chamada de IA.
+on:
+  workflow_dispatch:
+    inputs:
+      tudo:
+        description: 'Refazer TODOS (inclusive os que já têm papel) — usar quando marcadores novos forem acrescentados'
+        type: boolean
+        default: false
+
+jobs:
+  reconhecer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Acionar /api/backfill-papel na Vercel
+        env:
+          TUDO: ${{ inputs.tudo && '1' || '0' }}
+        run: |
+          url="https://polimata-gestao.vercel.app/api/backfill-papel?tudo=${TUDO}"
+          # Cada chamada reconhece um lote e diz quantos faltam; repete até zerar.
+          for i in $(seq 1 10); do
+            echo "--- lote $i"
+            response=$(curl -sS -X POST "$url" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -w "\n---HTTP_CODE---\n%{http_code}" \
+              --max-time 310)
+            status=$(echo "$response" | sed -n '/---HTTP_CODE---/{n;p}')
+            body=$(echo "$response" | sed '/---HTTP_CODE---/,$d')
+            echo "Status: $status"
+            echo "$body"
+            if [ "$status" -ge 400 ] || [ -z "$status" ]; then
+              echo "::error::backfill-papel falhou com HTTP $status"
+              exit 1
+            fi
+            faltam=$(echo "$body" | grep -o '"faltam":[0-9]*' | head -1 | cut -d: -f2)
+            if [ "${faltam:-0}" -eq 0 ]; then
+              echo "Acabou: não falta documento nenhum."
+              break
+            fi
+          done
