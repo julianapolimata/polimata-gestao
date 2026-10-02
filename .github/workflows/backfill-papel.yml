@@ -8,6 +8,10 @@ name: Reconhecer o papel dos documentos já na fila — Polímata Gestão
 on:
   workflow_dispatch:
     inputs:
+      seco:
+        description: 'Só RELATAR o que reconheceria, sem gravar nada (confira antes de soltar a escrita)'
+        type: boolean
+        default: true
       tudo:
         description: 'Refazer TODOS (inclusive os que já têm papel) — usar quando marcadores novos forem acrescentados'
         type: boolean
@@ -21,8 +25,10 @@ jobs:
       - name: Acionar /api/backfill-papel na Vercel
         env:
           TUDO: ${{ inputs.tudo && '1' || '0' }}
+          SECO: ${{ inputs.seco && '1' || '0' }}
         run: |
-          url="https://polimata-gestao.vercel.app/api/backfill-papel?tudo=${TUDO}"
+          url="https://polimata-gestao.vercel.app/api/backfill-papel?tudo=${TUDO}&seco=${SECO}"
+          [ "$SECO" = "1" ] && echo "Modo SECO: nada será gravado."
           # Cada chamada reconhece um lote e diz quantos faltam; repete até zerar.
           for i in $(seq 1 10); do
             echo "--- lote $i"
