@@ -653,6 +653,14 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   <span style={chipTipo} title={isSaida ? 'Receita — nota emitida pela empresa' : 'Despesa — nota recebida'}>
                     {d.tipo_documento || 'NF'}
                   </span>
+                  {papelDoDoc(d) && !papelDoDoc(d).lanca && (
+                    <div
+                      style={chipProva}
+                      title={`Reconhecido pelo texto do documento${d.papel_marcadores?.length ? `: "${d.papel_marcadores.join('", "')}"` : ''}. Não é conta a pagar.`}
+                    >
+                      prova
+                    </div>
+                  )}
                 </td>
                 <td style={{ ...tdFila, fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.numero || ''}>{d.numero || '—'}</td>
                 <td style={tdFila}>
@@ -684,12 +692,28 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   <button onClick={() => onVer(p)} style={btnLinhaGhost} title="Ver o documento como ele chegou">
                     👁
                   </button>
-                  <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinha} title="Aprovar e lançar">
-                    {ocupada ? '…' : '✓ Aprovar'}
-                  </button>
-                  <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Anexar a um lançamento que já existe — o valor não é lançado de novo">
-                    🔗
-                  </button>
+                  {/* A ordem dos botões É a recomendação do sistema. Para um
+                      comprovante ou uma base de cálculo, o certo é ANEXAR à
+                      guia que já existe — lançar duplicaria a despesa. */}
+                  {papelDoDoc(d) && !papelDoDoc(d).lanca ? (
+                    <>
+                      <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinha} title="Anexar à guia que já existe — o valor não é lançado de novo">
+                        🔗 Anexar
+                      </button>
+                      <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Lançar mesmo assim (o sistema entende que este documento é prova, não desembolso)">
+                        {ocupada ? '…' : 'Lançar'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinha} title="Aprovar e lançar">
+                        {ocupada ? '…' : '✓ Aprovar'}
+                      </button>
+                      <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Anexar a um lançamento que já existe — o valor não é lançado de novo">
+                        🔗
+                      </button>
+                    </>
+                  )}
                   <button onClick={() => onRejeitar(p)} disabled={ocupada || emLote} style={btnLinhaPerigo} title="Rejeitar (pede o motivo)">
                     ✕
                   </button>
@@ -702,6 +726,43 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
     </div>
   )
 }
+
+// ── O PAPEL do documento, na tela ──────────────────────────────────────────
+//
+// Um documento pode ser três coisas bem diferentes e parecer a mesma:
+//
+//   a GPS de INSS            é o que se PAGA          → vira conta a pagar
+//   o Relatório do eSocial   é o CÁLCULO que gerou    → é prova
+//   o Recibo da DCTFWeb      é a PROVA DA ENTREGA     → é prova
+//
+// No banco, R$ 932,31 chegou nos três e R$ 10.319,71 em quatro. Enquanto a
+// tela oferecia "✓ Aprovar" para todos por igual, aprovar os três era o
+// caminho natural — e a despesa triplicava sem ninguém errar nada.
+//
+// Então a tela passa a dizer o que o documento é, e oferece a ação certa
+// PRIMEIRO. Ela não bloqueia: se a Juliana discordar, "Aprovar" continua ali.
+const PAPEL_NA_TELA = {
+  obrigacao: { rotulo: 'Obrigação', lanca: true },
+  documento_fiscal: { rotulo: 'Nota fiscal', lanca: true },
+  pagamento_pf: { rotulo: 'Pagamento PF', lanca: true },
+  comprovante: {
+    rotulo: 'Comprovante',
+    lanca: false,
+    explica: 'É a PROVA de que a declaração foi entregue — o valor que aparece nele é o da guia, que já é lançada à parte. Anexe à guia; não lance de novo.',
+  },
+  base_de_calculo: {
+    rotulo: 'Base de cálculo',
+    lanca: false,
+    explica: 'É o CÁLCULO que gerou a guia (eSocial/folha). Alimenta o Fator R como base, mas não é desembolso: quem se paga é a guia.',
+  },
+  declaracao: {
+    rotulo: 'Declaração',
+    lanca: false,
+    explica: 'É a declaração entregue ao governo, não uma conta. Serve de evidência da apuração do mês.',
+  },
+}
+
+const papelDoDoc = d => PAPEL_NA_TELA[String(d?.papel_documento || '')] || null
 
 // O que cada documento alimenta no sistema. Documento sem contexto vira
 // decisão sem contexto — e decisão sem contexto vira imposto errado.
@@ -716,6 +777,10 @@ const PARA_QUE_SERVE = {
 }
 
 function paraQueServe(d) {
+  // O papel vem antes do tipo: ele foi reconhecido pelo texto oficial do
+  // documento, e o tipo pode ter vindo de um palpite da IA.
+  const papel = papelDoDoc(d)
+  if (papel?.explica) return papel.explica
   if (d?.apuracao_simples) {
     return 'Traz a apuração do Simples: receita declarada, anexo e a divisão por tributo — é com isso que se confere o que o contador declarou.'
   }
@@ -831,6 +896,7 @@ function UploadManualCard({ emailEntrada }) {
 const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
 const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
 const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const chipProva = { display: 'inline-block', marginTop: 3, fontSize: 8.5, fontWeight: 700, color: 'var(--navy)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'var(--cream)', border: '1px solid var(--cream-dark)', padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap', cursor: 'help' }
 const paraQueServeEstilo = { fontSize: 10.5, color: 'var(--gold-dark)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }
 const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const btnLinha = { padding: '4px 9px', marginLeft: 3, borderRadius: 5, border: 'none', background: 'var(--gold-dark)', color: '#fff', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }

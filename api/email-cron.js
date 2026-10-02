@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 import { peneirarPdf } from '../lib/peneiraPdf.js';
+import { reconhecerPapel } from '../lib/papelDocumento.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 // CNPJ da empresa dona do sistema. A verdade é a configuração dela
@@ -1062,6 +1063,9 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
         cnpjEmpresa,
         maximoPaginas: EMAIL_DOC_MAXIMO_PAGINAS,
       });
+      // O texto que a peneira extraiu fica guardado: é com ele que o papel do
+      // documento é reconhecido mais abaixo, sem abrir o PDF de novo.
+      const textoDoDocumento = peneira.texto || '';
       if (!peneira.ler) {
         descartadosCount++;
         console.log(`[não vale ler] ${att.filename}: ${peneira.detalhe}`);
@@ -1124,6 +1128,43 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
       if (!parsed) {
         leituraInfo.meta = { motivo: leitura.motivo || 'resposta_nao_json' };
         continue;
+      }
+
+      // ── O QUE ESTE DOCUMENTO É (ver lib/papelDocumento.js) ──────────────
+      //
+      // A IA responde "que documento é este?" e muda de resposta. Medido: o
+      // mesmo `Recibo_1201_*.pdf` voltou como DARF, como Folha e como "Outro"
+      // em leituras diferentes; e o recibo de entrega da DCTFWeb voltou como
+      // DARF — porque ele traz o valor do DARF impresso dentro.
+      //
+      // Consequência disso no banco: R$ 932,31 de INSS entrou em três
+      // documentos do mesmo mês (a guia, o relatório do eSocial e o recibo da
+      // DCTFWeb) e R$ 10.319,71 em quatro. Um desembolso, três despesas.
+      //
+      // O texto oficial do documento não muda de opinião, e é igual em
+      // qualquer contador — "S-5011" e "Recibo de Entrega" vêm do leiaute do
+      // governo, não de quem imprimiu o PDF. Então ele decide, e a IA fica
+      // com o que ela faz bem: valor, data e partes.
+      if (leitura.modelo === LEITOR_XML) {
+        // Lido do XML: o próprio leitor já provou que é nota fiscal.
+        parsed.papel_documento = 'documento_fiscal';
+        parsed.papel_origem = 'xml';
+      } else {
+        const papel = reconhecerPapel(textoDoDocumento, att.filename);
+        if (papel) {
+          parsed.papel_documento = papel.papel;
+          parsed.papel_origem = 'marcadores';
+          // A evidência fica gravada: quem conferir depois vê qual palavra do
+          // documento decidiu, em vez de ter que confiar no sistema.
+          parsed.papel_marcadores = papel.marcadores;
+          if (papel.tipo_documento && papel.tipo_documento !== parsed.tipo_documento) {
+            console.log(`[papel] ${att.filename}: a IA disse "${parsed.tipo_documento || 'nada'}", o texto diz "${papel.tipo_documento}" (${papel.marcadores.join(', ')}) — vale o texto`);
+            parsed.tipo_documento = papel.tipo_documento;
+          }
+          if (!papel.vira_lancamento) {
+            console.log(`[papel] ${att.filename}: é ${papel.rotulo.toLowerCase()} — prova, não desembolso. Não deve virar conta a pagar.`);
+          }
+        }
       }
 
       // Documento anterior ao início do uso do sistema não entra na fila. O
@@ -1863,6 +1904,13 @@ async function createLancamento(parsed, att, base64) {
     fileName: att.filename,
     tipo: parsed.tipo,
     tipo_documento: tipoDoc,
+    // O PAPEL: obrigação, documento fiscal, pagamento a PF, comprovante de
+    // entrega, base de cálculo ou declaração. Os três últimos são prova, não
+    // desembolso — e é o que impede o mesmo INSS de entrar como guia, como
+    // relatório do eSocial e como recibo da DCTFWeb (ver lib/papelDocumento.js).
+    papel_documento: parsed.papel_documento || null,
+    papel_origem: parsed.papel_origem || null,
+    papel_marcadores: parsed.papel_marcadores || null,
     numero: numero,
     numero_documento: numeroDoc || null,
     periodo_apuracao: periodoApuracao || null,
@@ -1913,6 +1961,7 @@ async function createLancamento(parsed, att, base64) {
       fileName: att.filename,
       tipo: parsed.tipo,
       tipo_documento: tipoDoc,
+      papel_documento: parsed.papel_documento || null,
       numero: numero || null,
       numero_documento: numeroDoc || null,
       periodo_apuracao: periodoApuracao || null,
