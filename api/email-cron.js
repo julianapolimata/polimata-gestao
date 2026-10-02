@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 import { peneirarPdf } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
+import { naoEhDocumentoFiscal } from '../lib/documentoFiscal.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 // CNPJ da empresa dona do sistema. A verdade é a configuração dela
@@ -877,16 +878,6 @@ function triarAnexos(brutos) {
 // Esse é exatamente o retrato da assinatura de e-mail ("Assinatura de e-mail
 // corporativo, sem informações fiscais"). Com valor > 0 continua entrando —
 // pode ser fatura que o modelo não soube classificar.
-function naoEhDocumentoFiscal(parsed) {
-  const tipoDoc = String(parsed?.tipo_documento || '').trim().toLowerCase();
-  const valor = parseFloat(parsed?.valor_total);
-  const valorOrig = parseFloat(parsed?.valor_original);
-  // valor_original entra como proteção: documento em moeda estrangeira pode vir
-  // com valor_total 0 e o valor só no original — esse NÃO é descarte.
-  const semValor = !(Number.isFinite(valor) && valor > 0)
-                && !(Number.isFinite(valorOrig) && valorOrig > 0);
-  return tipoDoc === 'outro' && semValor;
-}
 
 // Trilha do que NÃO virou pendência. Sem isto o descarte seria invisível e
 // ninguém saberia que o robô viu o arquivo e decidiu não criar nada.
@@ -1186,15 +1177,18 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
 
       // 2ª trava: a própria IA disse que não é documento fiscal ("Outro" sem
       // valor). Não vira pendência — vira trilha em nf_history.
-      if (naoEhDocumentoFiscal(parsed)) {
+      const porqueNaoEhFiscal = naoEhDocumentoFiscal(parsed);
+      if (porqueNaoEhFiscal) {
         descartadosCount++;
-        leituraInfo.meta = { motivo: 'nao_e_documento_fiscal' };
-        console.log(`[descarte] ${att.filename}: nao_e_documento_fiscal (${parsed.tipo_documento || 'sem tipo'}, R$ ${parsed.valor_total || 0})`);
+        leituraInfo.meta = { motivo: porqueNaoEhFiscal };
+        console.log(`[descarte] ${att.filename}: ${porqueNaoEhFiscal} (${parsed.tipo_documento || 'sem tipo'}, R$ ${parsed.valor_total || 0})`);
         await registrarDescarte({
           att, parsed,
           status: 'descartado',
-          motivo: 'nao_e_documento_fiscal',
-          detalhe: `tipo_documento="${parsed.tipo_documento || ''}" e valor 0`
+          motivo: porqueNaoEhFiscal,
+          detalhe: porqueNaoEhFiscal === 'sem_nenhuma_das_partes'
+            ? `nem emitente nem destinatário identificados — R$ ${parsed.valor_total || 0} saiu de um número solto no documento, não de uma cobrança`
+            : `tipo_documento="${parsed.tipo_documento || ''}" e valor 0`,
         });
         continue;
       }
