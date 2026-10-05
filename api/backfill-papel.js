@@ -73,6 +73,10 @@ export default async function handler(req, res) {
       const d = l.data || {};
       if (!d.anexo) return false;                       // sem arquivo não há texto para ler
       if (!refazerTudo && d.papel_documento) return false;
+      // Já tentado e não reconhecido (tem amostra guardada): não entra de novo,
+      // senão o lote reprocessaria sempre os mesmos 25 e nunca chegaria no fim.
+      // Quando marcadores novos forem acrescentados, é o ?tudo=1 que relê estes.
+      if (!refazerTudo && d.papel_amostra !== undefined) return false;
       return true;
     });
 
@@ -84,6 +88,7 @@ export default async function handler(req, res) {
       const d = linha.data || {};
       const nome = d.anexoNome || d.fileName || '';
       let papel = null;
+      let textoLido = '';
 
       if (/\.xml$/i.test(nome) || String(d.anexoTipo || '').includes('xml')) {
         // Nota em XML: foi o leitor de XML que a validou (número, valor, partes
@@ -94,6 +99,7 @@ export default async function handler(req, res) {
         // Só o texto VISÍVEL da página: procurar marcador no arquivo inteiro
         // casa por acaso dentro dos blocos binários (ver lib/peneiraPdf.js).
         try { texto = textoVisivel(textoDoPdf(Buffer.from(d.anexo, 'base64'))); } catch { texto = ''; }
+        textoLido = texto;
         const r = texto ? reconhecerPapel(texto, nome) : null;
         if (r) papel = { papel: r.papel, marcadores: r.marcadores, origem: 'marcadores' };
       }
@@ -101,7 +107,30 @@ export default async function handler(req, res) {
       if (!papel) {
         // Não reconheceu: fica como está. Um papel chutado é pior que nenhum,
         // porque erra com a autoridade de quem é determinístico.
-        semMarcador.push({ arquivo: nome, tipo_da_ia: d.tipo_documento || null, valor: d.valor ?? null });
+        //
+        // Mas guarda uma AMOSTRA do que leu. A primeira lista de marcadores
+        // foi escrita de cabeça, a partir do que se supõe que um documento do
+        // eSocial diga — e acertou 7 de 43 PDFs. A amostra é o que troca esse
+        // chute por medição: a lista definitiva sai dos documentos reais do
+        // contador, não da suposição de quem escreveu o código.
+        //
+        // Ela também separa as duas falhas possíveis, que pedem consertos
+        // opostos: amostra ilegível = a EXTRAÇÃO falhou; amostra em português
+        // legível = a extração foi bem e falta o MARCADOR.
+        if (!seco) {
+          await getSupabase().rpc('gravar_amostra_papel', {
+            p_id: linha.id,
+            p_amostra: textoLido.slice(0, 600),
+            p_chars: textoLido.length,
+          });
+        }
+        semMarcador.push({
+          arquivo: nome,
+          tipo_da_ia: d.tipo_documento || null,
+          valor: d.valor ?? null,
+          chars_lidos: textoLido.length,
+          amostra: textoLido.slice(0, 200),
+        });
         continue;
       }
 
