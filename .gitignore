@@ -6,3 +6,9 @@ public/
 *.log
 .vercel/
 vite.config.js.timestamp-*.mjs
+
+# Rascunhos de sessão (scripts de patch, amostras de documento). Já entraram
+# no repositório duas vezes por descuido; esta linha fecha a porta.
+.*.cjs
+.*.tmp
+.amostra/
