@@ -760,6 +760,11 @@ const PAPEL_NA_TELA = {
     lanca: false,
     explica: 'É a declaração entregue ao governo, não uma conta. Serve de evidência da apuração do mês.',
   },
+  contrato: {
+    rotulo: 'Contrato',
+    lanca: false,
+    explica: 'É um contrato, proposta ou orçamento — o acordo que um dia gera uma conta, não a conta. Guarde junto ao cliente ou fornecedor; a despesa entra quando a nota ou o boleto chegar.',
+  },
 }
 
 const papelDoDoc = d => PAPEL_NA_TELA[String(d?.papel_documento || '')] || null

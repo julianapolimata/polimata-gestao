@@ -171,17 +171,19 @@ ok('e o recibo da DCTFWeb não ganhou chave de acesso por isso',
 //
 // A causa 1 se resolve em quem chama (passar só o texto visível da página). A
 // causa 2 se resolve aqui, e é esta prova.
-ok('"DARF" dentro de outra palavra NÃO conta',
-  reconhecerPapel('CONTRATO DE LOCACAO XADARFOO LTDA EMPILHADEIRA') === null,
-  JSON.stringify(reconhecerPapel('CONTRATO DE LOCACAO XADARFOO LTDA EMPILHADEIRA')))
+const contratoComRuido = reconhecerPapel('CONTRATO DE LOCACAO XADARFOO LTDA EMPILHADEIRA')
+ok('"DARF" dentro de outra palavra NÃO vira guia de imposto',
+  contratoComRuido?.papel === 'contrato' && !contratoComRuido.marcadores.includes('DARF'),
+  JSON.stringify(contratoComRuido))
 ok('"GNRE" colado em dígitos NÃO conta',
   reconhecerPapel('REF 99GNRE42 LOCACAO TRANSPALETEIRA') === null)
 ok('mas o DARF de verdade, cercado de espaço, conta',
   papelDe('DARF - Documento de Arrecadacao de Receitas Federais') === 'obrigacao')
 ok('e no fim da linha também',
   papelDe('Guia de recolhimento: DARF') === 'obrigacao')
-ok('um contrato de aluguel comum não vira nada',
-  reconhecerPapel('CONTRATO DE LOCACAO DE EMPILHADEIRA - valor mensal R$ 5.875,00 - prazo 12 meses') === null)
+ok('um contrato de aluguel é contrato, e contrato não é conta a pagar',
+  papelDe('CONTRATO DE LOCACAO DE EMPILHADEIRA - valor mensal R$ 5.875,00 - prazo 12 meses')
+    === 'contrato')
 
 // ── 13. Nenhum marcador pode ter caractere especial de expressão ──────────
 //
@@ -253,6 +255,47 @@ ok('a NFS-e de Barueri (ordem invertida) é documento fiscal',
 ok('o DANFSe do Padrão Nacional também',
   papelDe('DANFSe Documento Auxiliar da NFS-e Prefeitura da Cidade de Sao Paulo')
     === 'documento_fiscal')
+
+
+// ── 16. Contrato, proposta e orçamento NÃO são conta a pagar ─────────────
+//
+// Na caixa de entrada dela havia R$ 90 mil assim, todos oferecendo
+// "✓ Aprovar" como se fossem despesas do mês:
+//
+//   P010_Aditivo Brascabos_2026.pdf   R$ 80.010   proposta de aditivo
+//   Contrato aluguel empilhadeira      R$  5.875   contrato de locação
+//   Contrato aluguel transpaleteira    R$  2.850   contrato de locação
+//   Termo de Distrato e Quitação       R$  1.600   distrato
+//   OrcamentoVidas.pdf                 R$  1.923   orçamento de plano de saúde
+//
+// Nenhum é desembolso. São o acordo que um dia gera um.
+ok('proposta de aditivo é contrato',
+  papelDe('Proposta de Aditivo de Prestacao de Servicos - Brascabos') === 'contrato')
+ok('termo de distrato é contrato',
+  papelDe('TERMO DE DISTRATO E QUITACAO do Contrato de Prestacao de Servico') === 'contrato')
+ok('orçamento é contrato',
+  papelDe('NUMERO DO ORCAMENTO UN2258219 PORTO SAUDE ORCAMENTO PME 3-9 VIDAS') === 'contrato')
+ok('e nenhum deles vira lançamento',
+  !['contrato'].some(p => viraLancamento(p)))
+
+// Mas o BOLETO que vem junto com o contrato é o que se paga — por isso
+// 'contrato' é o último degrau, e perde para a obrigação.
+ok('o boleto vence o contrato que o originou',
+  papelDe('CONTRATO DE LOCACAO ... Beneficiario Vencimento VALOR DO DOCUMENTO Nosso Numero')
+    === 'obrigacao')
+
+// ── 17. O boleto, lido do leiaute real ───────────────────────────────────
+//
+// Dois boletos dela não eram reconhecidos. O leiaute da FEBRABAN traz estes
+// campos em todos eles, com estas palavras.
+ok('boleto comum é obrigação',
+  papelDe('Beneficiario Vencimento Valor do Documento Nosso numero Nome do pagador')
+    === 'obrigacao')
+ok('nota de débito também',
+  papelDe('NOTA DE DEBITO N04 2025 POLIMATA CONSULTORIA') === 'obrigacao')
+ok('a relação de líquido da folha é base de cálculo',
+  papelDe('Relacao de liquido referente a FOLHA MENSAL competencia 05/2026')
+    === 'base_de_calculo')
 
 console.log(falhas ? `\n${falhas} falha(s).` : '\n  todas passaram.')
 process.exit(falhas ? 1 : 0)
