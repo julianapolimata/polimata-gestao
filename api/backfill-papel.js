@@ -26,7 +26,7 @@
 // =============================================================================
 
 import { createClient } from '@supabase/supabase-js';
-import { textoDoPdf } from '../lib/peneiraPdf.js';
+import { textoDoPdf, textoVisivel } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
@@ -91,7 +91,9 @@ export default async function handler(req, res) {
         papel = { papel: 'documento_fiscal', marcadores: null, origem: 'xml' };
       } else {
         let texto = '';
-        try { texto = textoDoPdf(Buffer.from(d.anexo, 'base64')); } catch { texto = ''; }
+        // Só o texto VISÍVEL da página: procurar marcador no arquivo inteiro
+        // casa por acaso dentro dos blocos binários (ver lib/peneiraPdf.js).
+        try { texto = textoVisivel(textoDoPdf(Buffer.from(d.anexo, 'base64'))); } catch { texto = ''; }
         const r = texto ? reconhecerPapel(texto, nome) : null;
         if (r) papel = { papel: r.papel, marcadores: r.marcadores, origem: 'marcadores' };
       }

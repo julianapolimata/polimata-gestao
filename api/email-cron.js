@@ -1056,7 +1056,10 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
       });
       // O texto que a peneira extraiu fica guardado: é com ele que o papel do
       // documento é reconhecido mais abaixo, sem abrir o PDF de novo.
-      const textoDoDocumento = peneira.texto || '';
+      // O VISÍVEL, não o arquivo inteiro: nos blocos binários do PDF qualquer
+      // sequência curta aparece por acaso. Dois contratos de aluguel viraram
+      // "guia de imposto" porque "DARF" e "GNRE" estavam no ruído.
+      const textoDoDocumento = peneira.visivel || '';
       if (!peneira.ler) {
         descartadosCount++;
         console.log(`[não vale ler] ${att.filename}: ${peneira.detalhe}`);

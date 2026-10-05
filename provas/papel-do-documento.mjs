@@ -152,5 +152,67 @@ ok('a NFS-e em PDF também',
 ok('e o recibo da DCTFWeb não ganhou chave de acesso por isso',
   papelDe(reciboDctfweb) === 'comprovante')
 
+
+// ── 12. O FALSO POSITIVO REAL: contrato de aluguel virou guia de imposto ──
+//
+// Rodado contra os documentos de verdade em 05/10, dois contratos entraram
+// como "obrigação":
+//
+//   Contrato aluguel empilhadeira cd.pdf          → marcador "DARF"
+//   Contrato aluguel transpaleteira eletrica.pdf  → marcador "GNRE"
+//
+// Nenhum dos dois tem imposto nenhum. Duas causas se somaram, e as duas
+// precisavam morrer:
+//
+//   1. a busca varria o ARQUIVO INTEIRO, incluindo os blocos binários — e numa
+//      massa de bytes comprimidos qualquer sequência de 4 letras aparece;
+//   2. o casamento era por `includes`, então "DARF" casava dentro de qualquer
+//      palavra maior.
+//
+// A causa 1 se resolve em quem chama (passar só o texto visível da página). A
+// causa 2 se resolve aqui, e é esta prova.
+ok('"DARF" dentro de outra palavra NÃO conta',
+  reconhecerPapel('CONTRATO DE LOCACAO XADARFOO LTDA EMPILHADEIRA') === null,
+  JSON.stringify(reconhecerPapel('CONTRATO DE LOCACAO XADARFOO LTDA EMPILHADEIRA')))
+ok('"GNRE" colado em dígitos NÃO conta',
+  reconhecerPapel('REF 99GNRE42 LOCACAO TRANSPALETEIRA') === null)
+ok('mas o DARF de verdade, cercado de espaço, conta',
+  papelDe('DARF - Documento de Arrecadacao de Receitas Federais') === 'obrigacao')
+ok('e no fim da linha também',
+  papelDe('Guia de recolhimento: DARF') === 'obrigacao')
+ok('um contrato de aluguel comum não vira nada',
+  reconhecerPapel('CONTRATO DE LOCACAO DE EMPILHADEIRA - valor mensal R$ 5.875,00 - prazo 12 meses') === null)
+
+// ── 13. Nenhum marcador pode ter caractere especial de expressão ──────────
+//
+// O casamento monta uma expressão com o marcador cru. Marcador com "(" ou "*"
+// quebraria em tempo de execução, num documento qualquer, sem aviso. Esta
+// prova trava isso agora, na bancada, e não lá.
+import { PAPEIS as _P } from '../lib/papelDocumento.js'
+void _P
+const TODOS_MARCADORES = [
+  'DANFE', 'DOCUMENTO AUXILIAR DA NOTA FISCAL', 'CHAVE DE ACESSO',
+  'NOTA FISCAL DE SERVICOS ELETRONICA', 'NFS-E',
+  'RECIBO DE ENTREGA', 'COMPROVANTE DE ENTREGA', 'RECIBO DA DECLARACAO', 'NUMERO DO RECIBO',
+  'S-5011', 'S-5012', 'S5011', 'S5012', 'RELATORIO TOTALIZADOR', 'TOTALIZADOR DA EMPRESA',
+  'ESPELHO DE PONTO', 'ESPELHO DA FOLHA', 'RESUMO DA FOLHA', 'FOLHA DE PAGAMENTO - RESUMO',
+  'RECIBO DE PAGAMENTO DE SALARIO', 'RECIBO DE PRO-LABORE', 'RECIBO DE PRO LABORE',
+  'RECIBO MENSAL', 'DEMONSTRATIVO DE PAGAMENTO', 'CONTRACHEQUE', 'HOLERITE',
+  'PRO-LABORE', 'PRO LABORE',
+  'PGDAS-D', 'PGDAS', 'DECLARACAO DE DEBITOS E CREDITOS',
+  'DOCUMENTO DE ARRECADACAO', 'GUIA DA PREVIDENCIA SOCIAL', 'GUIA DE RECOLHIMENTO',
+  'SIMPLES NACIONAL - DAS', 'DARF', 'GNRE',
+]
+// A lista sem barra invertida literal, que não sobrevive a um heredoc.
+const ESPECIAIS = ['.','*','+','?','^','$','{','}','(',')','|','[',']', String.fromCharCode(92)]
+const comEspecial = TODOS_MARCADORES.filter(m => [...m].some(c => ESPECIAIS.includes(c)))
+ok('nenhum marcador tem caractere de expressão regular',
+  comEspecial.length === 0, comEspecial.join(', '))
+// E cada um deles tem que se achar a si mesmo — se um marcador foi renomeado
+// na lib e esquecido aqui, esta prova avisa.
+const orfaos = TODOS_MARCADORES.filter(m => reconhecerPapel(`TEXTO ${m} TEXTO`) === null)
+ok('todo marcador declarado ainda reconhece alguma coisa',
+  orfaos.length === 0, orfaos.join(', '))
+
 console.log(falhas ? `\n${falhas} falha(s).` : '\n  todas passaram.')
 process.exit(falhas ? 1 : 0)
