@@ -672,6 +672,11 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   >
                     {d.descricao || d.fileName || '—'}
                   </div>
+                  {remetenteDe(d) && (
+                    <div style={remetenteEstilo} title={tituloRemetente(d)}>
+                      ✉ de {remetenteDe(d).endereco}
+                    </div>
+                  )}
                   {paraQueServe(d) && (
                     <div style={paraQueServeEstilo} title={paraQueServe(d)}>
                       ⓘ {paraQueServe(d)}
@@ -768,6 +773,35 @@ const PAPEL_NA_TELA = {
 }
 
 const papelDoDoc = d => PAPEL_NA_TELA[String(d?.papel_documento || '')] || null
+
+// ── QUEM MANDOU ────────────────────────────────────────────────────────────
+//
+// Em frente a um documento desconhecido, a primeira pergunta é "isso é meu?".
+// O remetente responde na hora — e responde o que nenhuma regra do sistema
+// consegue: um contrato de locação de cliente e um contrato de locação dela
+// são o mesmo documento; só o endereço de quem enviou os separa.
+//
+// Já entraram três assim: dois relatórios de contas a receber de cliente
+// (R$ 260 milhões somados) e dois contratos de locação de empilhadeira.
+//
+// O cabeçalho do e-mail vem como 'Fulano <fulano@empresa.com.br>'. O que
+// identifica é o endereço; o nome o remetente escolhe sozinho.
+function tituloRemetente(d) {
+  const r = remetenteDe(d)
+  if (!r) return ''
+  const linhas = ['Chegou por e-mail de ' + (r.nome ? r.nome + ' — ' : '') + r.endereco]
+  if (d.email_assunto) linhas.push('Assunto: ' + d.email_assunto)
+  return linhas.join('\n')
+}
+
+function remetenteDe(d) {
+  const cru = String(d?.email_de || '').trim()
+  if (!cru) return null
+  const m = cru.match(/<([^>]+)>/)
+  const endereco = (m ? m[1] : cru).trim()
+  const nome = m ? cru.slice(0, m.index).trim().replace(/^"|"$/g, '') : ''
+  return { endereco, nome, dominio: endereco.split('@')[1] || '' }
+}
 
 // O que cada documento alimenta no sistema. Documento sem contexto vira
 // decisão sem contexto — e decisão sem contexto vira imposto errado.
@@ -901,6 +935,7 @@ function UploadManualCard({ emailEntrada }) {
 const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
 const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
 const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const remetenteEstilo = { fontSize: 10.5, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, cursor: 'help' }
 const chipProva = { display: 'inline-block', marginTop: 3, fontSize: 8.5, fontWeight: 700, color: 'var(--navy)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'var(--cream)', border: '1px solid var(--cream-dark)', padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap', cursor: 'help' }
 const paraQueServeEstilo = { fontSize: 10.5, color: 'var(--gold-dark)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }
 const linhaSecundaria = { fontSize: 11, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }

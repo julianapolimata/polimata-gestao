@@ -1196,7 +1196,7 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
         continue;
       }
 
-      const lancamentoId = await createLancamento(parsed, att, base64);
+      const lancamentoId = await createLancamento(parsed, att, base64, { from, subject });
       if (lancamentoId) {
         lancamentosCount++;
         lancamentoIds.push(lancamentoId);
@@ -1646,7 +1646,7 @@ function apuracaoValida(ap) {
   return (Number(ap.receita_bruta_pa) || 0) > 0 ? ap : null;
 }
 
-async function createLancamento(parsed, att, base64) {
+async function createLancamento(parsed, att, base64, email = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const due = (parsed.data_vencimento || parsed.data_emissao || today).slice(0, 10);
   const desc = String(parsed.descricao || 'Documento Fiscal').trim();
@@ -1939,6 +1939,21 @@ async function createLancamento(parsed, att, base64) {
     // foi baixado de um link do corpo, e de qual URL.
     origem_anexo: att.origem === 'link' ? 'link' : 'mime',
     origem_url: att.origem === 'link' ? att.url : null,
+    // ── QUEM MANDOU ──────────────────────────────────────────────────────
+    //
+    // A pergunta mais frequente em frente a um documento desconhecido é "isso
+    // é meu?", e o remetente responde num relance — melhor do que qualquer
+    // regra que o sistema possa inventar.
+    //
+    // Importa porque a dona é consultora: os clientes dela encaminham os
+    // documentos financeiros DELES como material de trabalho, e no e-mail do
+    // financeiro ficam idênticos aos dela. Três casos já entraram assim — dois
+    // relatórios de contas a receber de cliente somando R$ 260 milhões e dois
+    // contratos de locação. Nenhuma leitura de texto distingue um contrato de
+    // locação do cliente de um contrato de locação dela; o endereço de quem
+    // enviou distingue.
+    email_de: email.from || null,
+    email_assunto: email.subject || null,
   };
   const { error } = await getSupabase().from('nf_pending').insert({
     id: pendingId,
