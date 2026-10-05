@@ -7,7 +7,7 @@
 // incluindo os três de R$ 932,31 e os três de R$ 10.319,71.
 //
 // CUSTO ZERO: nenhuma chamada de IA. O texto é extraído do PDF aqui mesmo
-// (lib/peneiraPdf.js → textoDoPdf) e os marcadores são lidos desse texto.
+// (lib/peneiraPdf.js → extrairDoPdf) e os marcadores são lidos desse texto.
 // Por isso o lote pode ser grande — o limite é o tempo da Vercel, não dinheiro.
 //
 // POR QUE PELO TEXTO E NÃO PELO NOME: nestes próprios documentos há a prova de
@@ -26,13 +26,25 @@
 // =============================================================================
 
 import { createClient } from '@supabase/supabase-js';
-import { textoDoPdf, textoVisivel } from '../lib/peneiraPdf.js';
+import { extrairDoPdf } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 // Sem IA no caminho, o gargalo é só baixar os base64. 25 por chamada cabe
 // folgado nos 60 s da Vercel; o retorno diz quantos ainda faltam.
 const MAX_POR_RODADA = 25;
+
+/**
+ * O texto reduzido às PALAVRAS, para a amostra ser legível por um humano.
+ *
+ * Num PDF o começo do arquivo é cabeçalho e bytes comprimidos; uma amostra
+ * tirada dali sai ilegível mesmo quando a leitura funcionou perfeitamente —
+ * foi assim que a primeira amostra enganou. Guardando só as sequências de
+ * letras, a amostra mostra o que o documento DIZ, e o silêncio passa a
+ * significar de verdade que não há texto nenhum.
+ */
+const palavrasDe = texto =>
+  (String(texto || '').match(/[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]{2,}/g) || []).join(' ');
 
 let _supabase = null;
 function getSupabase() {
@@ -88,19 +100,17 @@ export default async function handler(req, res) {
       const d = linha.data || {};
       const nome = d.anexoNome || d.fileName || '';
       let papel = null;
-      let textoLido = '';
+      let leitura = null;
 
       if (/\.xml$/i.test(nome) || String(d.anexoTipo || '').includes('xml')) {
         // Nota em XML: foi o leitor de XML que a validou (número, valor, partes
         // e CNPJ da empresa). Não há o que reconhecer — é nota fiscal.
         papel = { papel: 'documento_fiscal', marcadores: null, origem: 'xml' };
       } else {
-        let texto = '';
+        try { leitura = extrairDoPdf(Buffer.from(d.anexo, 'base64')); } catch { leitura = null; }
         // Só o texto VISÍVEL da página: procurar marcador no arquivo inteiro
         // casa por acaso dentro dos blocos binários (ver lib/peneiraPdf.js).
-        try { texto = textoVisivel(textoDoPdf(Buffer.from(d.anexo, 'base64'))); } catch { texto = ''; }
-        textoLido = texto;
-        const r = texto ? reconhecerPapel(texto, nome) : null;
+        const r = leitura?.visivel ? reconhecerPapel(leitura.visivel, nome) : null;
         if (r) papel = { papel: r.papel, marcadores: r.marcadores, origem: 'marcadores' };
       }
 
@@ -120,16 +130,24 @@ export default async function handler(req, res) {
         if (!seco) {
           await getSupabase().rpc('gravar_amostra_papel', {
             p_id: linha.id,
-            p_amostra: textoLido.slice(0, 600),
-            p_chars: textoLido.length,
-          });
+            // A amostra é feita de PALAVRAS, não dos primeiros caracteres: num
+            // PDF o começo do arquivo é cabeçalho e bytes comprimidos, e uma
+            // amostra tirada dali sai ilegível mesmo quando a leitura deu certo.
+            // Juntando só as sequências de letras eu vejo o que o documento diz
+            // — ou vejo que ele não diz nada, que é a outra resposta possível.
+            p_amostra: palavrasDe(leitura?.visivel).slice(0, 600),
+            p_chars: leitura?.visivel?.length || 0,
+            p_diag: leitura
+              ? { bytes: leitura.bytes, blocos: leitura.blocos, inflados: leitura.inflados, falhos: leitura.falhos }
+              : null,          });
         }
         semMarcador.push({
           arquivo: nome,
           tipo_da_ia: d.tipo_documento || null,
           valor: d.valor ?? null,
-          chars_lidos: textoLido.length,
-          amostra: textoLido.slice(0, 200),
+          chars_lidos: leitura?.visivel?.length || 0,
+          leitura: leitura ? leitura.inflados + "/" + leitura.blocos + " blocos abertos" : "nao li",
+          amostra: palavrasDe(leitura?.visivel).slice(0, 200),
         });
         continue;
       }

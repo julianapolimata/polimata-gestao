@@ -138,5 +138,64 @@ function pdf({ paginas = 1, palavras = 0, cnpj = '', pedacos = false } = {}) {
   ok('mas documento curto continua sendo lido', curto.ler === true, JSON.stringify(curto))
 }
 
+
+// ── O relatório da leitura: qual das duas falhas aconteceu? ───────────────
+//
+// Quando nenhum marcador é encontrado num documento há duas explicações, com
+// consertos OPOSTOS, e sem números não dá para saber qual é:
+//
+//   blocos > 0 e inflados = 0   → a descompactação falhou. O "texto" lido é o
+//                                 arquivo binário cru, e procurar palavra ali
+//                                 é procurar no escuro. Conserta-se o extrator.
+//   inflados > 0 e nada casou   → leu bem; falta o MARCADOR na lista.
+//
+// Isto não é hipótese: a primeira lista de marcadores acertou 7 de 43 PDFs
+// reais, e eu não sabia dizer qual das duas coisas tinha acontecido. Por isso
+// o extrator passou a contar.
+import zlib from 'node:zlib'
+import { extrairDoPdf } from '../lib/peneiraPdf.js'
+
+const pdfComBloco = conteudo => {
+  const z = zlib.deflateSync(Buffer.from(conteudo, 'latin1'))
+  return Buffer.concat([
+    Buffer.from('%PDF-1.7\n1 0 obj\n<</Filter/FlateDecode>>stream\n', 'latin1'),
+    z,
+    Buffer.from('\nendstream\nendobj\n', 'latin1'),
+  ])
+}
+
+const bom = extrairDoPdf(pdfComBloco('BT (GUIA DA PREVIDENCIA SOCIAL) Tj ET'))
+ok('bloco que abre é contado como aberto', bom.blocos === 1 && bom.inflados === 1,
+  JSON.stringify({ b: bom.blocos, i: bom.inflados }))
+ok('e o texto da página aparece no visível',
+  bom.visivel.includes('GUIA DA PREVIDENCIA SOCIAL'), bom.visivel.slice(0, 80))
+
+const ruim = Buffer.concat([
+  Buffer.from('%PDF-1.7\n1 0 obj\n<</Filter/FlateDecode>>stream\n', 'latin1'),
+  Buffer.from([0x78, 0x9c, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]),
+  Buffer.from('\nendstream\nendobj\n', 'latin1'),
+])
+const falho = extrairDoPdf(ruim)
+ok('bloco que não abre é contado como falho',
+  falho.blocos === 1 && falho.inflados === 0 && falho.falhos === 1,
+  JSON.stringify({ b: falho.blocos, i: falho.inflados, f: falho.falhos }))
+
+// ── Bloco cortado no fim: o estrito joga fora TUDO ───────────────────────
+//
+// zlib no modo estrito entende "faltou o fim" como "não li nada" e descarta até
+// o que já tinha aberto. Meia página de texto vale mais que nenhuma — e um
+// recorte que erra por poucos bytes é comum num PDF.
+const inteiro = pdfComBloco('BT (DOCUMENTO DE ARRECADACAO) Tj ET')
+const cortado = Buffer.concat([
+  inteiro.slice(0, inteiro.length - 22),           // tira o fim do bloco
+  Buffer.from('\nendstream\nendobj\n', 'latin1'),
+])
+const recuperado = extrairDoPdf(cortado)
+ok('bloco cortado no fim ainda entrega o que deu para abrir',
+  recuperado.inflados === 1, JSON.stringify({ i: recuperado.inflados, f: recuperado.falhos }))
+
+ok('o que não é PDF devolve relatório zerado, não exceção',
+  extrairDoPdf(Buffer.from('isto nao e um pdf')).blocos === 0)
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)
