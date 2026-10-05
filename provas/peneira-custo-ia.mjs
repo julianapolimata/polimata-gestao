@@ -197,5 +197,34 @@ ok('bloco cortado no fim ainda entrega o que deu para abrir',
 ok('o que não é PDF devolve relatório zerado, não exceção',
   extrairDoPdf(Buffer.from('isto nao e um pdf')).blocos === 0)
 
+
+// ── O visível é a PÁGINA, não o arquivo ──────────────────────────────────
+//
+// Os dois erros que custaram esta rodada vieram de misturar as duas coisas:
+// "DARF" casou dentro do ruído binário do arquivo (dois contratos de aluguel
+// viraram guia de imposto), e a amostra de diagnóstico, tirada do começo, só
+// mostrava lixo — escondendo que o texto da página estava lá, mais adiante.
+const comRuido = Buffer.concat([
+  Buffer.from('%PDF-1.7\n% DARF GNRE ruido solto no arquivo\n1 0 obj\n<</Filter/FlateDecode>>stream\n', 'latin1'),
+  zlib.deflateSync(Buffer.from('BT (RECIBO DE ENTREGA) Tj ET', 'latin1')),
+  Buffer.from('\nendstream\nendobj\n', 'latin1'),
+])
+const r = extrairDoPdf(comRuido)
+ok('o visível traz o texto da página', r.visivel.includes('RECIBO DE ENTREGA'), r.visivel)
+ok('e NÃO traz o que está solto no arquivo',
+  !r.visivel.includes('DARF') && !r.visivel.includes('GNRE'), r.visivel)
+ok('o texto completo continua tendo tudo (a peneira usa ele p/ CNPJ e páginas)',
+  r.texto.includes('DARF') && r.texto.includes('RECIBO DE ENTREGA'))
+
+// Quando NADA abre, o arquivo cru é tudo que existe — e é lá que mora o texto
+// dos PDFs que não comprimem nada (as notas da prefeitura de Barueri são
+// assim: 4 blocos, nenhum aberto, e o texto legível no arquivo).
+const semCompressao = Buffer.from(
+  '%PDF-1.7\n1 0 obj\n<<>>stream\nBT (NOTA FISCAL ELETRONICA DE SERVICOS) Tj ET\nendstream\nendobj\n', 'latin1')
+const r2 = extrairDoPdf(semCompressao)
+ok('PDF sem compressão nenhuma ainda entrega o texto',
+  r2.inflados === 0 && r2.visivel.includes('NOTA FISCAL ELETRONICA DE SERVICOS'),
+  JSON.stringify({ i: r2.inflados, v: r2.visivel.slice(0, 60) }))
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)
