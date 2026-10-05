@@ -35,16 +35,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.s
 const MAX_POR_RODADA = 25;
 
 /**
- * O texto reduzido às PALAVRAS, para a amostra ser legível por um humano.
+ * O texto limpo para a amostra ser legível por um humano — e HONESTA.
  *
- * Num PDF o começo do arquivo é cabeçalho e bytes comprimidos; uma amostra
- * tirada dali sai ilegível mesmo quando a leitura funcionou perfeitamente —
- * foi assim que a primeira amostra enganou. Guardando só as sequências de
- * letras, a amostra mostra o que o documento DIZ, e o silêncio passa a
- * significar de verdade que não há texto nenhum.
+ * A versão anterior guardava só sequências de 3+ letras. Parecia razoável e
+ * mentiu duas vezes: nos PDFs do contador o texto sai desenhado letra por
+ * letra ("R E C I B O"), e um filtro de palavras apaga exatamente isso. A
+ * amostra vinha com o nome da fundição da fonte ("URW URW URW") e eu concluía
+ * que não havia texto, quando havia — só não em forma de palavra.
+ *
+ * Agora só os bytes não imprimíveis saem. Se o documento estiver letra a
+ * letra, a amostra mostra isso, que é a informação que interessa.
  */
 const palavrasDe = texto =>
-  (String(texto || '').match(/[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]{2,}/g) || []).join(' ');
+  String(texto || '')
+    .replace(/[^A-Za-zÀ-ÿ0-9 .,:/()%$-]+/g, ' ')
+    .replace(/s+/g, ' ')
+    .trim();
 
 let _supabase = null;
 function getSupabase() {

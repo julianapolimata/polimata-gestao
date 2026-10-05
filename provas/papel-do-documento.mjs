@@ -214,5 +214,45 @@ const orfaos = TODOS_MARCADORES.filter(m => reconhecerPapel(`TEXTO ${m} TEXTO`) 
 ok('todo marcador declarado ainda reconhece alguma coisa',
   orfaos.length === 0, orfaos.join(', '))
 
+
+// ── 14. O PDF não guarda frases, guarda instruções de desenho ────────────
+//
+// Medido nos documentos reais (05/10). O mesmo texto sai de três jeitos:
+//
+//   inteiro        "Recibo de Entrega"            (notas de Barueri)
+//   picotado       "Pre stação de Servi ços"      (aditivo da Brascabos)
+//   letra a letra  "R E C I B O"                  (PDFs do contador)
+//
+// O terceiro caso é o pior e o mais comum na fila dela: nenhuma palavra
+// inteira sobrevive. Procurar a frase com os espaços no lugar é procurar algo
+// que o arquivo nunca escreveu.
+ok('frase picotada pelo PDF ainda é reconhecida',
+  papelDe('RECIBO DE ENTRE GA da DCTFWeb') === 'comprovante',
+  papelDe('RECIBO DE ENTRE GA da DCTFWeb'))
+ok('texto desenhado letra a letra também',
+  papelDe('D O C U M E N T O  D E  A R R E C A D A C A O') === 'obrigacao',
+  papelDe('D O C U M E N T O  D E  A R R E C A D A C A O'))
+ok('e a precedência continua valendo no texto picotado',
+  papelDe('DARF Recibo de Entre ga Numero do Recibo') === 'comprovante')
+
+// Marcador CURTO não entra nessa: compactar "DARF" acharia-o dentro de
+// qualquer sequência de letras. Ele continua exigindo fronteira de palavra.
+ok('"DARF" colado em outra palavra continua sem casar',
+  reconhecerPapel('CONTRATO XADARFOO LOCACAO') === null)
+ok('e "GNRE" entre dígitos também não',
+  reconhecerPapel('REF 99GNRE42 TRANSPALETEIRA') === null)
+
+// ── 15. Os marcadores lidos dos documentos reais ─────────────────────────
+//
+// A primeira lista foi escrita de cabeça. Estes três vieram do que os
+// arquivos dizem: Barueri inverte a ordem das palavras, e o Padrão Nacional
+// da NFS-e emite um "DANFSe".
+ok('a NFS-e de Barueri (ordem invertida) é documento fiscal',
+  papelDe('PREFEITURA MUNICIPAL DE BARUERI NOTA FISCAL ELETRONICA DE SERVICOS - NFE')
+    === 'documento_fiscal')
+ok('o DANFSe do Padrão Nacional também',
+  papelDe('DANFSe Documento Auxiliar da NFS-e Prefeitura da Cidade de Sao Paulo')
+    === 'documento_fiscal')
+
 console.log(falhas ? `\n${falhas} falha(s).` : '\n  todas passaram.')
 process.exit(falhas ? 1 : 0)
