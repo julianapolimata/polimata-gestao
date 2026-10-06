@@ -42,12 +42,12 @@ export function linhaAncora(linhas) {
  */
 export function podeJuntar(linhas) {
   const ls = linhas || []
-  if (ls.length < 2) return 'Escolha pelo menos duas linhas para juntar.'
+  if (ls.length < 2) return 'Marque pelo menos duas parcelas deste pagamento.'
   const contas = new Set(ls.map(l => l.conta_id))
-  if (contas.size > 1) return 'As linhas são de contas diferentes — só dá para juntar linhas da mesma conta.'
+  if (contas.size > 1) return 'As parcelas são de contas diferentes — só é possível reunir parcelas da mesma conta.'
   const sentidos = new Set(ls.map(l => l?.data?.tipo ?? l?.tipo))
-  if (sentidos.size > 1) return 'Há entradas e saídas misturadas — junte só linhas do mesmo sentido.'
-  if (ls.some(l => (l.status || 'pendente') !== 'pendente')) return 'Alguma linha já foi conciliada.'
+  if (sentidos.size > 1) return 'Há entradas e saídas misturadas — um pagamento só tem um sentido.'
+  if (ls.some(l => (l.status || 'pendente') !== 'pendente')) return 'Uma das parcelas já foi conciliada — recarregue a tela.'
   return null
 }
 
@@ -65,20 +65,24 @@ export function validarDivisao({ linhas, partes }) {
   const impedimento = podeJuntar(linhas)
   if (impedimento) return impedimento
 
+  // As mensagens são lidas por quem está classificando dinheiro, não por quem
+  // escreveu o código: dizem o que fazer, não o que está errado.
   const ps = partes || []
-  if (!ps.length) return 'Diga como esse valor se divide — pelo menos uma natureza.'
+  if (!ps.length) return 'Diga em que esse valor se divide — comece por uma natureza.'
   if (ps.some(p => !String(p?.cat || '').trim())) {
-    return 'Toda parte precisa de uma categoria: é ela que diz se o valor conta no Fator R.'
+    return 'Falta escolher a categoria de uma das naturezas: é ela que diz se o valor conta no Fator R.'
   }
-  if (ps.some(p => centavos(p?.valor) === 0)) return 'Há parte com valor zerado — tire ou preencha.'
+  if (ps.some(p => centavos(p?.valor) === 0)) {
+    return 'Uma das naturezas está sem valor — preencha ou remova a linha.'
+  }
 
   const totalLinhas = centavos(somarLinhas(linhas))
   const totalPartes = ps.reduce((s, p) => s + centavos(p.valor), 0)
   if (totalPartes !== totalLinhas) {
     const falta = (totalLinhas - totalPartes) / 100
     return falta > 0
-      ? `Faltam R$ ${falta.toFixed(2).replace('.', ',')} para fechar o valor das linhas.`
-      : `Sobram R$ ${Math.abs(falta).toFixed(2).replace('.', ',')} além do valor das linhas.`
+      ? `Faltam R$ ${falta.toFixed(2).replace('.', ',')} para fechar o valor do pagamento.`
+      : `Sobram R$ ${Math.abs(falta).toFixed(2).replace('.', ',')} além do valor do pagamento.`
   }
   return null
 }

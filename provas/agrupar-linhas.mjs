@@ -104,8 +104,15 @@ const pix = (valor, data, over = {}) => ({
     validarDivisao({ linhas, partes: [{ cat: '', valor: 1000 }] }))
   ok('a mensagem explica que a categoria decide o Fator R',
     /Fator R/.test(validarDivisao({ linhas, partes: [{ cat: '  ', valor: 1000 }] }) || ''))
-  ok('parte zerada é recusada',
-    /zerado/i.test(validarDivisao({ linhas, partes: [{ cat: 'X', valor: 1000 }, { cat: 'Y', valor: 0 }] }) || ''))
+  // Natureza sem valor é recusada — e a mensagem tem que dizer O QUE FAZER,
+  // não só o que está errado. Quem está classificando dinheiro precisa da
+  // saída, não do diagnóstico.
+  {
+    const msg = validarDivisao({ linhas, partes: [{ cat: 'X', valor: 1000 }, { cat: 'Y', valor: 0 }] }) || ''
+    ok('natureza sem valor é recusada', msg !== '', msg)
+    ok('e a mensagem diz o que fazer (preencher ou remover)',
+      /preench/i.test(msg) && /remov/i.test(msg), msg)
+  }
   ok('sem nenhuma parte é recusada', validarDivisao({ linhas, partes: [] }) !== null)
 }
 

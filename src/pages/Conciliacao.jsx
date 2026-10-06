@@ -577,11 +577,11 @@ export default function Conciliacao() {
         p_meta: { juntado_manualmente: true, total_do_grupo: totalDoGrupo },
       })
       if (error) throw error
-      showToast(`${linhasDoGrupo.length} transferência(s) conciliada(s) em ${lancs.length} lançamento(s). Próximo passo: Escrituração.`, 'success')
+      showToast(`Pagamento registrado: ${linhasDoGrupo.length} parcelas viraram ${lancs.length} lançamento(s), um por natureza.`, 'success')
       setSelecionado(null); carregar()
     } catch (e) {
       // Mês fechado é barrado pelo trigger do banco, com mensagem técnica.
-      showToast(traduzErroFechamento(e) || ('Erro ao juntar: ' + (e.message || e)), 'error')
+      showToast(traduzErroFechamento(e) || ('Não consegui registrar o pagamento: ' + (e.message || e)), 'error')
     }
     finally { setConciliando(false) }
   }
@@ -1208,8 +1208,15 @@ export default function Conciliacao() {
                       <button
                         onClick={() => { setJuntarAberto(v => !v); setCriarAberto(false); setTransfAberto(false) }}
                         style={juntarAberto ? { ...btnAcao, borderColor: 'var(--navy)', color: 'var(--navy)' } : btnAcao}
-                        title="Um pagamento que saiu em várias transferências (ex.: pró-labore picado)"
-                      >⊞ Juntar transferências</button>
+                        // O nome era "Juntar transferências" e enganava: a
+                        // Juliana clicou nele para registrar as 4 transferências
+                        // vindas do Itaú, e caiu num painel que pede categoria —
+                        // onde "transferência entre contas" não existe, nem
+                        // deveria. Este botão NÃO é sobre mover dinheiro entre
+                        // contas suas (isso é o ↔ Transferência); é sobre UM
+                        // pagamento a alguém que saiu picado em várias parcelas.
+                        title="Um pagamento único que saiu picado, em várias parcelas (ex.: o pró-labore mandado aos poucos). Para dinheiro indo de uma conta sua para outra, use ↔ Transferência."
+                      >⊞ Pagamento em parcelas</button>
                     )}
                     <button onClick={() => arquivar(selecionadoExt)} style={{ ...btnAcao, color: 'var(--text-mid)' }}>🗄 Arquivar</button>
                   </div>
@@ -1263,16 +1270,25 @@ export default function Conciliacao() {
                   {juntarAberto && !ehCartao && (
                     <div style={criarBox}>
                       <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.55 }}>
-                        Para quando <strong>um pagamento saiu em várias transferências</strong> — o pró-labore mandado picado, por
-                        exemplo. Marque as outras linhas que fazem parte do mesmo pagamento e diga <strong>como o total se divide</strong>.
+                        Para quando <strong>um pagamento único saiu picado</strong>, em várias parcelas — o pró-labore mandado
+                        aos poucos, por exemplo. Marque as outras linhas do mesmo pagamento e diga <strong>como o total se divide</strong>.
                         {' '}A divisão importa: <strong>pró-labore conta no Fator R</strong> e decide o anexo do Simples;
                         {' '}<strong>antecipação de lucro não conta</strong>.
                       </div>
+                      {/* A confusão que a Juliana encontrou: ela veio para cá
+                          registrar dinheiro que veio da própria conta do Itaú, e
+                          o painel pediu categoria — mas transferência entre
+                          contas não tem categoria, porque não é receita nem
+                          despesa. O aviso manda de volta para o lugar certo. */}
+                      <div style={{ fontSize: 11, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 6, padding: '8px 10px', marginBottom: 8, lineHeight: 1.5 }}>
+                        Isto <strong>não</strong> é para dinheiro que veio (ou foi) de outra conta sua — esse não tem categoria,
+                        porque não é receita nem despesa. Para isso use <strong>↔ Transferência</strong>, uma linha de cada vez.
+                      </div>
 
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '10px 0 4px' }}>
-                        Linhas deste pagamento
+                        Parcelas deste pagamento
                         <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>
-                          — todas as pendentes desta conta, inclusive fora do filtro da lista
+                          — marque as que fazem parte; aparecem todas as pendentes desta conta, inclusive fora do filtro
                         </span>
                       </div>
                       <div style={listaJuntar}>
@@ -1326,14 +1342,45 @@ export default function Conciliacao() {
                               value={pt.valor} onChange={e => updParte(pt.id, 'valor', e.target.value)}
                               placeholder="0,00" inputMode="decimal" style={inpValorParte}
                             />
-                            <button onClick={() => completarResto(pt.id)} style={btnLink} title="Preenche com tudo que falta para fechar">o resto</button>
+                            {/* O gesto exato do pró-labore: ela digita o valor
+                                do recibo numa natureza e clica aqui na outra,
+                                que recebe o saldo. "o resto" era o nome que eu
+                                tinha dado — linguagem de quem escreve código,
+                                não de quem classifica dinheiro. */}
+                            <button onClick={() => completarResto(pt.id)} style={btnLink}
+                                    title="Preenche esta natureza com o valor que falta para fechar o pagamento">completar</button>
                             <button onClick={() => rmParte(pt.id)} style={btnLink}>remover</button>
                           </div>
                         )
                       })}
-                      <button onClick={addParte} style={btnAcao}>+ natureza</button>
+                      <button onClick={addParte} style={btnAcao}>+ outra natureza</button>
 
-                      <div style={{ marginTop: 10, fontSize: 12, color: erroDivisao ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 600 }}>
+                      {/* ── O PLACAR DA DIVISÃO ────────────────────────────
+                          Pedido da Juliana: "se eu colocar só 1000, ele já
+                          indica quanto falta classificar?". A mensagem de erro
+                          embaixo já dizia, mas em letra pequena e só quando
+                          não fechava. Somar de cabeça enquanto se reparte um
+                          valor em três naturezas é onde entra o centavo que
+                          trava tudo — e aí a pessoa desiste achando que o
+                          sistema está quebrado. */}
+                      {(() => {
+                        const somado = partes.reduce((s, p) => s + Math.abs(Number(String(p.valor).replace(',', '.')) || 0), 0)
+                        const resta = Math.round((totalDoGrupo - somado) * 100) / 100
+                        return (
+                          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', fontSize: 12, borderTop: '1px dashed var(--cream-dark)', paddingTop: 8 }}>
+                            <span style={{ color: 'var(--text-mid)' }}>
+                              Classificado <strong style={{ color: 'var(--navy)' }}>{fmtMoney(somado)}</strong> de {fmtMoney(totalDoGrupo)}
+                            </span>
+                            <span style={{ fontWeight: 700, color: Math.abs(resta) < 0.005 ? 'var(--green)' : 'var(--red)' }}>
+                              {Math.abs(resta) < 0.005
+                                ? '✓ fecha exato'
+                                : (resta > 0 ? `faltam ${fmtMoney(resta)}` : `sobram ${fmtMoney(Math.abs(resta))}`)}
+                            </span>
+                          </div>
+                        )
+                      })()}
+
+                      <div style={{ marginTop: 6, fontSize: 12, color: erroDivisao ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 600 }}>
                         {erroDivisao || '✓ A divisão fecha o valor das transferências.'}
                       </div>
                       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -1341,7 +1388,7 @@ export default function Conciliacao() {
                           onClick={conciliarJuntas}
                           disabled={!!erroDivisao || conciliando}
                           style={{ ...btnConciliar, width: 'auto', marginTop: 0, padding: '8px 16px', opacity: erroDivisao || conciliando ? 0.5 : 1, cursor: erroDivisao || conciliando ? 'not-allowed' : 'pointer' }}
-                        >{conciliando ? 'Conciliando…' : `✓ Juntar e conciliar ${linhasDoGrupo.length} linha(s)`}</button>
+                        >{conciliando ? 'Registrando…' : `✓ Registrar o pagamento (${linhasDoGrupo.length} parcelas)`}</button>
                         <button onClick={() => setJuntarAberto(false)} style={btnAcao}>Cancelar</button>
                       </div>
                     </div>
