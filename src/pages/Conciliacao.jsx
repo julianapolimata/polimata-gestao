@@ -760,17 +760,38 @@ export default function Conciliacao() {
   }
 
   async function arquivar(extrato) {
-    const ok = await confirmar({
+    // ── ARQUIVAR PEDE O MOTIVO ────────────────────────────────────────────
+    //
+    // Arquivar é a única decisão da tela que faz um movimento do banco sumir
+    // sem virar lançamento. Era a única também que não registrava POR QUÊ:
+    // gravava status='ignorado' e pronto.
+    //
+    // Numa consultoria de governança isso não passa. A própria metodologia da
+    // casa manda: tudo auditável, com autor e data. Seis meses depois, "por que
+    // estes R$ 3.741,09 não estão na DRE?" precisa ter resposta no sistema, não
+    // na memória de quem clicou.
+    //
+    // O mesmo padrão que a Caixa de entrada já usa para rejeitar documento.
+    const motivo = await confirmar({
       titulo: 'Arquivar esta linha?',
-      texto: 'Use para movimento que não é da empresa.',
+      texto: `${extrato.data?.descricao || ''} · ${fmtMoney(extrato.data?.valor)}`,
       consequencias: [
-        'Ela não vira lançamento nenhum.',
-        'Sai da lista de pendentes, mas continua guardada — dá para restaurar depois.',
+        'Ela não vira lançamento nenhum — não entra na DRE nem no fluxo de caixa.',
+        'Sai da lista de pendentes, mas continua guardada: dá para restaurar depois.',
+        'O motivo abaixo fica registrado junto com a decisão.',
       ],
+      exigeTexto: {
+        label: 'Por que está arquivando?',
+        minimo: 3,
+        placeholder: 'Ex.: débito estornado no mesmo dia · não é movimento da empresa · duplicidade do banco',
+      },
       confirmarLabel: 'Arquivar',
     })
-    if (!ok) return
-    await supabase.from('transacoes_extrato').update({ status: 'ignorado' }).eq('id', extrato.id)
+    if (!motivo) return
+    await supabase.from('transacoes_extrato').update({
+      status: 'ignorado',
+      data: { ...(extrato.data || {}), arquivada_motivo: motivo, arquivada_em: new Date().toISOString() },
+    }).eq('id', extrato.id)
     showToast('Arquivada.', 'info'); setSelecionado(null); carregar()
   }
   async function restaurar(extrato) {
@@ -1100,7 +1121,14 @@ export default function Conciliacao() {
                       <div style={{ fontSize: 10, color: 'var(--text-mid)' }}>
                         {fmtDataBR(ext.data?.data)}
                         {ext.status === 'conciliado' && (ext.lancamento_tipo === 'transferencia' ? ' · ↔ transferência' : ' · ✓ conciliado')}
-                        {ext.status === 'ignorado' && ' · arquivada'}
+                        {/* O motivo fica no hover: quem olhar daqui a seis
+                            meses precisa saber por que este movimento não está
+                            na DRE, sem perguntar a ninguém. */}
+                        {ext.status === 'ignorado' && (
+                          <span title={ext.data?.arquivada_motivo || 'arquivada antes de o motivo passar a ser pedido'}>
+                            {' · arquivada'}{ext.data?.arquivada_motivo ? ' ⓘ' : ''}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: t === 'entrada' ? 'var(--green)' : 'var(--red)', whiteSpace: 'nowrap' }}>
