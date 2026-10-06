@@ -13,7 +13,7 @@
 //
 // Rodar: npm run provas
 // ===========================================================================
-import { agruparPendentes, chaveDoGrupo, resumoDoAgrupamento, lancamentosDoGrupo }
+import { agruparPendentes, chaveDoGrupo, resumoDoAgrupamento, lancamentosDoGrupo, grupoSem }
   from '../src/lib/agruparExtrato.js'
 
 let falhas = 0
@@ -127,6 +127,39 @@ ok('grupo vazio não gera lançamento', lancamentosDoGrupo(null, { cat: 'X' }).l
 ok('lista vazia devolve nenhum grupo', agruparPendentes([]).length === 0)
 ok('lista nula devolve nenhum grupo', agruparPendentes(null).length === 0)
 ok('resumo de nada não quebra', resumoDoAgrupamento(null).linhas === 0)
+
+// ── Tirar uma linha do lote recalcula TUDO ───────────────────────────────
+//
+// Pedido dela ao ver o grupo "JUROS CONTA GARANTIDA — 12 lançamentos de
+// valores diferentes": poder ver as linhas e excluir alguma.
+//
+// Tirar linha não é esconder. Se o total e o VALOR FIXO não forem recalculados,
+// a oferta de recorrência sai errada nos dois sentidos: um grupo quase-fixo do
+// qual ela tira a linha diferente continuaria "variável" e não ofereceria nada;
+// e — pior — um grupo do qual ela tira linhas até sobrarem valores iguais
+// ofereceria uma recorrência calculada sobre o que ficou de fora.
+const misto = agruparPendentes([
+  linha('j1', 'JUROS CONTA GARANTIDA', 10, '2026-01-10'),
+  linha('j2', 'JUROS CONTA GARANTIDA', 10, '2026-02-10'),
+  linha('j3', 'JUROS CONTA GARANTIDA', 77.5, '2026-03-10'),
+])[0]
+ok('o grupo inteiro tem valores diferentes', misto.valorUnico === null)
+
+const semAEstranha = grupoSem(misto, new Set(['j3']))
+ok('sem a linha diferente, sobram 2', semAEstranha.quantas === 2)
+ok('e o total é recalculado', Math.abs(semAEstranha.total - 20) < 0.001, String(semAEstranha.total))
+ok('e o valor passa a ser fixo', semAEstranha.valorUnico === 10, String(semAEstranha.valorUnico))
+ok('e o período encolhe junto',
+  semAEstranha.periodo.ate === '2026-02-10', semAEstranha.periodo.ate)
+ok('e os lançamentos criados são só os que ficaram',
+  lancamentosDoGrupo(semAEstranha, { cat: 'Despesas Financeiras' }).length === 2)
+
+ok('sem exclusão nenhuma, devolve o mesmo grupo', grupoSem(misto, new Set()) === misto)
+ok('excluir todas devolve null (não há lote vazio)',
+  grupoSem(misto, new Set(['j1', 'j2', 'j3'])) === null)
+ok('grupo nulo não quebra', grupoSem(null, new Set(['x'])) === null)
+ok('id que não existe no grupo não tira nada',
+  grupoSem(misto, new Set(['nao-existe'])).quantas === 3)
 
 console.log(falhas ? `\n${falhas} falha(s).` : '\n  todas passaram.')
 process.exit(falhas ? 1 : 0)

@@ -59,26 +59,50 @@ export function agruparPendentes(linhas) {
   }
 
   const grupos = [];
-  for (const [chave, itens] of mapa) {
-    const d0 = itens[0].data || {};
-    const datas = itens.map(l => String(l.data?.data || '')).filter(Boolean).sort();
-    const valores = new Set(itens.map(l => centavos(l.data?.valor)));
-    grupos.push({
-      chave,
-      descricao: String(d0.descricao || '').trim(),
-      tipo: d0.tipo === 'entrada' ? 'entrada' : 'saida',
-      linhas: itens,
-      quantas: itens.length,
-      total: itens.reduce((s, l) => s + Math.abs(Number(l.data?.valor) || 0), 0),
-      periodo: { de: datas[0] || null, ate: datas[datas.length - 1] || null },
-      // Valor sempre igual é sinal de cobrança fixa (mensalidade, tarifa) — a
-      // tela usa isso para dizer "22x R$ 0,82" em vez de só somar.
-      valorUnico: valores.size === 1 ? Math.abs(Number(d0.valor) || 0) : null,
-    });
-  }
+  for (const [chave, itens] of mapa) grupos.push(montarGrupo(chave, itens));
 
   // Os maiores primeiro: é onde está o ganho de quem está com pressa.
   return grupos.sort((a, b) => b.quantas - a.quantas || b.total - a.total);
+}
+
+/** O grupo e tudo que se calcula a partir das linhas dele. */
+function montarGrupo(chave, itens) {
+  const d0 = itens[0].data || {};
+  const datas = itens.map(l => String(l.data?.data || '')).filter(Boolean).sort();
+  const valores = new Set(itens.map(l => centavos(l.data?.valor)));
+  return {
+    chave,
+    descricao: String(d0.descricao || '').trim(),
+    tipo: d0.tipo === 'entrada' ? 'entrada' : 'saida',
+    linhas: itens,
+    quantas: itens.length,
+    total: itens.reduce((s, l) => s + Math.abs(Number(l.data?.valor) || 0), 0),
+    periodo: { de: datas[0] || null, ate: datas[datas.length - 1] || null },
+    // Valor sempre igual é sinal de cobrança fixa (mensalidade, tarifa) — a
+    // tela usa isso para dizer "22x R$ 0,82" em vez de só somar.
+    valorUnico: valores.size === 1 ? Math.abs(Number(itens[0].data?.valor) || 0) : null,
+  };
+}
+
+/**
+ * O grupo sem as linhas que ela tirou do lote.
+ *
+ * Tirar linha não é esconder: tudo que o grupo calcula muda junto — o total, o
+ * período e, principalmente, o VALOR FIXO. Sem recalcular, um grupo de 12
+ * valores diferentes do qual ela deixa só os 10 iguais continuaria parecendo
+ * variável, e a oferta de recorrência não apareceria; pior, o contrário também
+ * vale — tirar a linha diferente de um grupo quase-fixo faria o sistema
+ * oferecer uma recorrência baseada num valor que ela acabou de excluir.
+ *
+ * As linhas tiradas continuam pendentes na lista, para decisão própria.
+ */
+export function grupoSem(grupo, idsFora) {
+  if (!grupo?.linhas?.length) return null;
+  const fora = idsFora instanceof Set ? idsFora : new Set(idsFora || []);
+  if (!fora.size) return grupo;
+  const restantes = grupo.linhas.filter(l => !fora.has(l.id));
+  if (!restantes.length) return null;
+  return montarGrupo(grupo.chave, restantes);
 }
 
 /**

@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 import { fmtMoney } from '../../lib/finance'
 import { categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { showToast } from '../../components/Toast'
-import { agruparPendentes, resumoDoAgrupamento, lancamentosDoGrupo } from '../../lib/agruparExtrato'
+import { agruparPendentes, resumoDoAgrupamento, lancamentosDoGrupo, grupoSem } from '../../lib/agruparExtrato'
 import { detectarRecorrencia, frasesDaOferta } from '../../lib/recorrenciaDoGrupo'
 import { msgErro } from '../../lib/erros'
 
@@ -35,6 +35,8 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   // grupo já saiu da lista, então ela precisa viver fora dele.
   const [oferta, setOferta] = useState(null)   // {deteccao, frases}
   const [criandoRec, setCriandoRec] = useState(false)
+  const [verLinhas, setVerLinhas] = useState(false)      // lista aberta dentro do grupo
+  const [fora, setFora] = useState(new Set())            // linhas tiradas do lote
 
   const grupos = useMemo(() => agruparPendentes(linhas), [linhas])
   const resumo = useMemo(() => resumoDoAgrupamento(grupos), [grupos])
@@ -45,10 +47,26 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   function abrir(g) {
     setAberto(a => (a === g.chave ? null : g.chave))
     setCat(''); setSubcat(''); setParte('')
+    // As exclusões são do grupo que estava aberto; mudar de grupo zera, senão
+    // ela tiraria uma linha de um e perderia outra em outro, sem ver.
+    setFora(new Set()); setVerLinhas(false)
   }
 
-  async function criarGrupo(g) {
+  function alternarLinha(id) {
+    setFora(s => {
+      const novo = new Set(s)
+      if (novo.has(id)) novo.delete(id); else novo.add(id)
+      return novo
+    })
+  }
+
+  async function criarGrupo(grupoCheio) {
     if (!cat) { showToast('Escolha a categoria do grupo.', 'warning'); return }
+    // O que vai para o banco é o grupo JÁ SEM as linhas que ela tirou — e
+    // recalculado, porque o total e o valor fixo mudam com elas (o valor fixo
+    // é o que decide se a recorrência é oferecida).
+    const g = grupoSem(grupoCheio, fora)
+    if (!g) { showToast('Nenhuma linha selecionada.', 'warning'); return }
     const itens = lancamentosDoGrupo(g, { cat, subcat, parte })
     if (!itens.length) return
     setSalvando(true)
@@ -70,6 +88,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
       setOferta(d ? { deteccao: d, frases: frasesDaOferta(d) } : null)
 
       setAberto(null); setCat(''); setSubcat(''); setParte('')
+      setFora(new Set()); setVerLinhas(false)
       onPronto?.()
     } catch (e) {
       showToast(msgErro(e), 'error')
@@ -169,9 +188,48 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                 {' · '}{fmtData(g.periodo.de)} a {fmtData(g.periodo.ate)}
               </div>
 
-              {expandido && (
+              {expandido && (() => {
+                // O que de fato vai ser criado, já sem as linhas tiradas.
+                const efetivo = grupoSem(g, fora)
+                const quantasVao = efetivo?.quantas || 0
+                return (
                 <div style={formulario}>
-                  <div style={rotulo}>Classifique o grupo — vão nascer {g.quantas} lançamentos, um por linha, cada um na data da sua.</div>
+                  {/* Ver as linhas antes de decidir. Num grupo de valores
+                      diferentes — "12 lançamentos de valores diferentes" —
+                      classificar sem olhar é assinar em branco. */}
+                  <button onClick={() => setVerLinhas(v => !v)} style={linkVer} type="button">
+                    {verLinhas ? '▾' : '▸'} {verLinhas ? 'ocultar' : 'ver'} as {g.quantas} linhas
+                    {fora.size > 0 && ` · ${fora.size} fora do lote`}
+                  </button>
+
+                  {verLinhas && (
+                    <div style={listaLinhas}>
+                      {[...g.linhas]
+                        .sort((a, b) => String(a.data?.data || '').localeCompare(String(b.data?.data || '')))
+                        .map(l => {
+                          const dentro = !fora.has(l.id)
+                          return (
+                            <label key={l.id} style={{ ...itemLinha, opacity: dentro ? 1 : 0.45 }}>
+                              <input type="checkbox" checked={dentro} onChange={() => alternarLinha(l.id)} />
+                              <span style={{ color: 'var(--text-mid)', minWidth: 78 }}>{fmtData(l.data?.data)}</span>
+                              <span style={{ flex: 1, textAlign: 'right', fontWeight: 600, color: g.tipo === 'entrada' ? 'var(--green)' : 'var(--red)' }}>
+                                {fmtMoney(Math.abs(Number(l.data?.valor) || 0))}
+                              </span>
+                            </label>
+                          )
+                        })}
+                      {fora.size > 0 && (
+                        <div style={notaFora}>
+                          As desmarcadas continuam na lista do extrato, para você decidir uma a uma.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={rotulo}>
+                    Classifique o grupo — vão nascer {quantasVao} lançamento(s), um por linha, cada um na data da sua.
+                    {efetivo && efetivo.total !== g.total && ` Somam ${fmtMoney(efetivo.total)}.`}
+                  </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <select value={cat} onChange={e => { setCat(e.target.value); setSubcat('') }} style={campo}>
                       <option value="">Categoria…</option>
@@ -189,15 +247,16 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                       placeholder={g.tipo === 'entrada' ? 'Cliente (opcional)' : 'Fornecedor (opcional)'}
                       style={{ ...campo, minWidth: 190 }}
                     />
-                    <button onClick={() => criarGrupo(g)} disabled={!cat || salvando} style={botao} type="button">
-                      {salvando ? 'Criando…' : `Criar ${g.quantas} e conciliar`}
+                    <button onClick={() => criarGrupo(g)} disabled={!cat || salvando || !quantasVao} style={botao} type="button">
+                      {salvando ? 'Criando…' : `Criar ${quantasVao} e conciliar`}
                     </button>
                   </div>
                   <div style={aviso}>
                     Cada lançamento nasce sem documento fiscal — a linha do banco é a evidência dele.
                   </div>
                 </div>
-              )}
+                )
+              })()}
             </div>
           )
         })}
@@ -222,5 +281,11 @@ const rotulo = { fontSize: 11.5, color: 'var(--navy)', marginBottom: 8 }
 const campo = { padding: '7px 9px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const botao = { padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }
 const aviso = { fontSize: 10.5, color: 'var(--text-mid)', marginTop: 7 }
+const linkVer = { background: 'none', border: 'none', padding: 0, marginBottom: 8, color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }
+// Altura limitada e rolagem: um grupo de 43 linhas não pode empurrar o botão
+// de criar para fora da tela — ela precisa ver a lista E a ação ao mesmo tempo.
+const listaLinhas = { maxHeight: 190, overflowY: 'auto', border: '1px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', padding: '4px 0', marginBottom: 10 }
+const itemLinha = { display: 'flex', alignItems: 'center', gap: 9, padding: '4px 10px', fontSize: 11.5, cursor: 'pointer' }
+const notaFora = { fontSize: 10.5, color: 'var(--text-mid)', padding: '6px 10px 2px', borderTop: '1px dashed var(--cream-dark)', marginTop: 4 }
 const caixaOferta = { background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.40)', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }
 const botaoGhost = { padding: '8px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
