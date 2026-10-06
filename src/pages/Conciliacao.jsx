@@ -67,7 +67,8 @@ function fmtDataBR(s) {
 
 export default function Conciliacao() {
   const { user } = useAuth()
-  const [contas, setContas] = useState([])
+  const [contas, setContas] = useState([])          // ativas — o seletor do topo
+  const [todasContas, setTodasContas] = useState([]) // + encerradas — contraparte de transferência
   const [contaId, setContaId] = useState('')
   const [extratos, setExtratos] = useState([])
   const [receivable, setReceivable] = useState([])
@@ -130,9 +131,24 @@ export default function Conciliacao() {
         if (error) { setErro(error); return }
         setErro(null)
         // Contas e cartões na mesma lista: o cartão é uma conta de saldo negativo.
-        const ativos = (data || []).filter(c => c.data?.ativo !== false)
-          .sort((a, b) => ((a.data?.tipo === 'cartao') - (b.data?.tipo === 'cartao')))
+        const porTipo = (a, b) => ((a.data?.tipo === 'cartao') - (b.data?.tipo === 'cartao'))
+        const ativos = (data || []).filter(c => c.data?.ativo !== false).sort(porTipo)
         setContas(ativos)
+        // ── CONTA ENCERRADA AINDA É CONTRAPARTE DO PASSADO ────────────────
+        //
+        // A Juliana cadastrou o Itaú e marcou como inativa — correto, a conta
+        // foi encerrada em jun/2025. E ele sumiu do "de qual conta veio?",
+        // porque a lista filtrava inativas.
+        //
+        // Mas conciliar 2025 exige exatamente as contas que EXISTIAM em 2025.
+        // "Inativa" quer dizer "não me ofereça para o dia a dia", não "nunca
+        // existiu". Sem ela, os R$ 3.215,81 que vieram do Itaú virariam
+        // receita — e a DRE de 2025 ficaria maior do que foi.
+        //
+        // Então: o seletor lá em cima (onde ela escolhe em qual extrato
+        // trabalhar) continua só com as ativas; a lista de contrapartida de
+        // transferência passa a ter todas, com a encerrada marcada como tal.
+        setTodasContas((data || []).sort(porTipo))
         setContaId(id => (id || (ativos[0]?.id ?? '')))
       })
       .catch((e) => setErro(e))
@@ -197,7 +213,8 @@ export default function Conciliacao() {
 
   const conta = useMemo(() => contas.find(c => c.id === contaId), [contas, contaId])
   const ehCartao = conta?.data?.tipo === 'cartao'
-  const outrasContas = useMemo(() => contas.filter(c => c.id !== contaId), [contas, contaId])
+  // Contrapartida de transferência inclui as ENCERRADAS: ver carregarContas().
+  const outrasContas = useMemo(() => todasContas.filter(c => c.id !== contaId), [todasContas, contaId])
   // Compras que vivem NESTA conta (cartão) ou fora de qualquer cartão (banco).
   const payableDaConta = useMemo(
     () => payable.filter(p => ehCartao ? p.cartao_id === contaId : !p.cartao_id),
@@ -1221,7 +1238,12 @@ export default function Conciliacao() {
                       {!tLigar && (
                         <select value={tOutraConta} onChange={e => setTOutraConta(e.target.value)} style={ajSelect}>
                           <option value="">— {selecionadoExt.data?.tipo === 'saida' ? 'para qual conta foi?' : 'de qual conta veio?'} —</option>
-                          {outrasContas.map(c => <option key={c.id} value={c.id}>{c.data?.tipo === 'cartao' ? '💳 ' : '🏦 '}{c.data?.nome}</option>)}
+                          {outrasContas.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.data?.tipo === 'cartao' ? '💳 ' : '🏦 '}{c.data?.nome}
+                    {c.data?.ativo === false ? ' (encerrada)' : ''}
+                  </option>
+                ))}
                         </select>
                       )}
                       {outrasContas.length === 0 && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6 }}>Cadastre a outra conta (ou o cartão) em Contas e Cartões antes.</div>}
