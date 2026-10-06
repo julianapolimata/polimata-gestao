@@ -28,6 +28,7 @@ import Relatorios from './pages/Relatorios'
 import FechamentoMensal from './pages/FechamentoMensal'
 import ClassificarLancamentos from './pages/ClassificarLancamentos'
 import PlanoContas from './pages/PlanoContas'
+import AtualizacaoDisponivel from './components/AtualizacaoDisponivel'
 
 function RootRedirect() {
   const { user, loading } = useAuth()
@@ -39,6 +40,9 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastContainer />
+      {/* Fora do BrowserRouter de propósito: o aviso de versão nova não
+          pertence a nenhuma tela — vale em qualquer uma, inclusive no login. */}
+      <AtualizacaoDisponivel />
       <BrowserRouter>
         <ErrorBoundary>
         <Routes>
