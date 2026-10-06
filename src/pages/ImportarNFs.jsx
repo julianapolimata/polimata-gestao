@@ -11,6 +11,7 @@ import SeletorLancamento from './components/SeletorLancamento'
 import { useConfirm } from '../components/ConfirmDialog'
 import VisualizadorDocumento from '../components/VisualizadorDocumento'
 import { msgErro } from '../lib/erros'
+import { comprasQuePodemSerEsta, avisoDeCompraJaLancada } from '../lib/compraJaLancada'
 
 // O endereço que recebe as notas é configuração DA EMPRESA (tabela
 // config_empresa), não do build: num sistema usado por várias empresas, cada
@@ -229,11 +230,77 @@ export default function ImportarNFs() {
     return d?.data_emissao || null
   }
 
+  /**
+   * As compras de cartão do sistema, nos campos que a comparação usa.
+   *
+   * Consulta só valor, datas e descrição — trazer o `data` inteiro de centenas
+   * de lançamentos para ler quatro campos seria pagar caro por uma conferência
+   * que acontece a cada clique em Aprovar.
+   */
+  async function carregarComprasDeCartao() {
+    const { data: linhas, error } = await supabase
+      .from('payable')
+      .select('id, cartao_id, value:data->>value, data_competencia:data->>data_competencia, due:data->>due, desc:data->>desc, supplier:data->>supplier')
+      .not('cartao_id', 'is', null)
+    if (error) {
+      // Sem a consulta não dá para avisar. Na dúvida, deixa seguir: travar a
+      // aprovação por uma falha de rede seria pior que o risco que o aviso
+      // evita — e o aviso é um aviso, não uma trava.
+      console.warn('[compra no cartão] não consegui conferir:', error.message)
+      return []
+    }
+    return (linhas || []).map(l => ({
+      id: l.id, cartao_id: l.cartao_id,
+      data: { value: l.value, data_competencia: l.data_competencia, due: l.due, desc: l.desc, supplier: l.supplier },
+    }))
+  }
+
+  async function comprasDeCartaoProximas(d, lista = null) {
+    if (!Number(d?.valor || 0)) return []
+    return comprasQuePodemSerEsta(d, lista || await carregarComprasDeCartao())
+  }
+
   async function aprovar(pending, opcoes = {}) {
     if (!user) return
+    const d = pending.data || {}
+
+    // ── ESTA DESPESA JÁ FOI PAGA NO CARTÃO? ────────────────────────────────
+    //
+    // A assinatura chega duas vezes: a nota por e-mail e a mesma compra na
+    // fatura. O sistema já evitava a duplicidade, mas só de um lado — o
+    // pareamento roda ao IMPORTAR A FATURA. Quando a ordem se inverte (a
+    // compra chega primeiro, a nota depois), ninguém conferia, porque a
+    // aprovação acontece aqui.
+    //
+    // Caso real: a assinatura da Clicksign de dez/2025, R$ 40,88 — a compra
+    // está lançada desde junho e a nota continua na fila oferecendo Aprovar.
+    //
+    // O aviso não decide nada: pode haver duas despesas iguais no mesmo mês, e
+    // o sistema não tem como saber. Ele mostra QUAL é o lançamento suspeito e
+    // sugere Anexar; quem decide é ela.
+    // Em lote o aviso já foi dado uma vez, antes da confirmação — abrir um
+    // diálogo por documento no meio de uma aprovação de 20 seria pior que não
+    // avisar, porque ninguém lê o terceiro.
+    if (!opcoes.ignorarCompraDoCartao && !opcoes.emLote) {
+      const compras = await comprasDeCartaoProximas(d)
+      const aviso = avisoDeCompraJaLancada(compras)
+      if (aviso) {
+        const seguir = await confirmar({
+          titulo: aviso.titulo,
+          texto: `${d.parte || ''}${d.valor ? ' · ' + fmtMoney(d.valor) : ''}`,
+          consequencias: [aviso.detalhe, aviso.sugestao],
+          confirmarLabel: 'Lançar mesmo assim',
+          cancelarLabel: 'Voltar e anexar',
+          // 'perigo' faz o foco cair no botão SEGURO: quem aperta Enter sem
+          // ler acaba em Anexar, que é o caminho que não dobra a despesa.
+          variante: 'perigo',
+        })
+        if (!seguir) { setAnexando(pending); return }
+      }
+    }
+
     setConfirmando(pending.id)
     try {
-      const d = pending.data || {}
       const isSaida = d.is_saida || d.tipo === 'saida'
       const target = d.target_table || (isSaida ? 'receivable' : 'payable')
       // 1. Garante pessoa (auto-cadastra se preciso)
@@ -426,10 +493,19 @@ export default function ImportarNFs() {
 
   async function aprovarMarcadas() {
     if (!marcadas.length) return
+    // Conferência única para o lote inteiro: uma consulta, não uma por
+    // documento, e um aviso só — dentro da confirmação que ela já ia ler.
+    const comprasDoCartao = await carregarComprasDeCartao()
+    const suspeitas = marcadas.filter(p => comprasQuePodemSerEsta(p.data || {}, comprasDoCartao).length)
     const ok = await confirmar({
       titulo: `Aprovar ${marcadas.length} documento(s)?`,
       texto: `Somam ${fmtMoney(totalMarcado)}`,
       consequencias: [
+        ...(suspeitas.length ? [
+          `ATENÇÃO: ${suspeitas.length} destes já parecem estar lançados pelo cartão `
+          + `(${suspeitas.map(p => p.data?.parte || p.data?.fileName || 'sem nome').join(' · ')}). `
+          + 'Aprovar cria a despesa em dobro — o certo nesses é anexar a nota à compra.',
+        ] : []),
         'Cada um vira um lançamento novo nas suas contas.',
         'A categoria vem só como sugestão — a Escrituração continua sendo sua.',
         'Se algum falhar, ele fica na caixa de entrada e você é avisada.',
