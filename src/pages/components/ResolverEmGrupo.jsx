@@ -1,13 +1,32 @@
 // =============================================================================
-// RESOLVER EM GRUPO — as linhas do extrato que são a mesma coisa, de uma vez.
+// LANÇAR DO EXTRATO, EM GRUPO — e por que isto NÃO é conciliar.
 //
 // Medido no extrato dela: 393 linhas pendentes em 88 descrições distintas.
 // "DÉB.IOF" aparece 22 vezes e soma R$ 18,12 no período INTEIRO. A tela pedia
 // uma decisão por linha, e ninguém atravessa 393 decisões: desiste na quinta,
 // e aí o mês não fecha por causa de dezoito reais de IOF.
 //
-// Aqui ela classifica o GRUPO. A decisão continua humana — o que muda é o
-// sistema parar de perguntar 22 vezes a mesma coisa.
+// ── O NOME IMPORTA, E O PRIMEIRO ESTAVA ERRADO ──────────────────────────────
+//
+// Isto se chamava "Resolver em grupo", dentro de uma tela chamada Conciliação.
+// A Juliana leu e perguntou: "essa conciliação está cruzando o que com o quê?
+// Se é para gerar lançamento, não deveria estar na Escrituração?". A pergunta
+// estava certa e expôs o nome errado.
+//
+// CONCILIAR é cruzar duas fontes independentes: a linha do banco e um
+// lançamento que já existia. Das 393 pendentes dela, só 38 têm contrapartida —
+// para essas, a tela ao lado serve. As outras 355 nunca tiveram documento
+// (Pix, tarifa, imposto), então não há o que cruzar: há o que REGISTRAR.
+//
+// E isto não cabe na Escrituração: aquela tela trabalha sobre lançamentos que
+// já existem (lista o que está `escriturado != true`) e nunca vê linha de
+// extrato. Não dá para escriturar o que ainda não foi lançado.
+//
+// Então o painel faz as duas coisas de uma vez, e diz isso: cria o lançamento
+// a partir da linha E o escritura com a categoria que ela escolhe aqui. Por
+// isso nasce `escriturado: true` — a escrituração aconteceu, foi neste clique.
+// Eles não reaparecem na tela de Escrituração, e isso é correto, não um
+// atalho.
 //
 // A regra de agrupamento (e o que ela se RECUSA a juntar) está em
 // src/lib/agruparExtrato.js, com prova.
@@ -140,7 +159,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   if (!repetidos.length) {
     return (
       <div style={caixa}>
-        <div style={titulo}>Resolver em grupo</div>
+        <div style={titulo}>Lançar do extrato, em grupo</div>
         {painelOferta}
         {!oferta && (
           <div style={vazio}>
@@ -153,7 +172,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
 
   return (
     <div style={caixa}>
-      <div style={titulo}>Resolver em grupo</div>
+      <div style={titulo}>Lançar do extrato, em grupo</div>
       {painelOferta}
       {/* O número vem ANTES do trabalho: "345 linhas em 40 decisões" é o que
           faz alguém começar; "345 linhas" é o que faz desistir. */}
@@ -161,6 +180,16 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
         <strong>{resumo.linhasEmGrupo} linhas</strong> se repetem e cabem em{' '}
         <strong>{repetidos.length} decisões</strong>.
         {resumo.avulsas > 0 && ` As outras ${resumo.avulsas} são avulsas e continuam na lista ao lado.`}
+      </div>
+      {/* Dizer o que é, porque o lugar sugere outra coisa. Quem lê
+          "Conciliação" espera conferência de duas fontes; aqui não há segunda
+          fonte, e esconder isso faria o número da DRE parecer mais apurado do
+          que é. */}
+      <div style={explicacao}>
+        Estas linhas <strong>não têm lançamento correspondente</strong> no sistema — são Pix, tarifa,
+        imposto: coisas que nunca tiveram nota. Aqui você <strong>cria e escritura</strong> o lançamento
+        a partir da linha do banco, que passa a ser a evidência dele. Não é conferência de duas fontes;
+        é registro. Conferência é o que a lista abaixo faz, com as linhas que já têm contrapartida.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -252,7 +281,9 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                     </button>
                   </div>
                   <div style={aviso}>
-                    Cada lançamento nasce sem documento fiscal — a linha do banco é a evidência dele.
+                    Cada lançamento nasce <strong>já escriturado</strong> com esta categoria — não volta
+                    a aparecer na Escrituração — e <strong>sem documento fiscal</strong>: a linha do banco
+                    é a evidência dele. Se a nota chegar depois, anexe a este lançamento.
                   </div>
                 </div>
                 )
@@ -267,7 +298,8 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
 
 const caixa = { background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 10, padding: '14px 16px', marginBottom: 14, boxShadow: 'var(--shadow)' }
 const titulo = { fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 8 }
-const chamada = { fontSize: 13, color: 'var(--navy)', marginBottom: 12, lineHeight: 1.5 }
+const chamada = { fontSize: 13, color: 'var(--navy)', marginBottom: 6, lineHeight: 1.5 }
+const explicacao = { fontSize: 11.5, color: 'var(--text-mid)', marginBottom: 12, lineHeight: 1.55, paddingLeft: 10, borderLeft: '2px solid var(--cream-dark)' }
 const vazio = { fontSize: 12.5, color: 'var(--text-mid)' }
 const linhaGrupo = { border: '1px solid var(--cream-dark)', borderRadius: 8, padding: '8px 10px', background: 'var(--cream)' }
 const cabecalho = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--body)' }
