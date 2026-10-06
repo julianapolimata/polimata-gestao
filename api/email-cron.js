@@ -8,6 +8,7 @@ import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 import { peneirarPdf } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
 import { naoEhDocumentoFiscal } from '../lib/documentoFiscal.js';
+import { construirRegrasDeDispensa, dispensaPara } from '../lib/regrasDocumento.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 // CNPJ da empresa dona do sistema. A verdade é a configuração dela
@@ -1646,6 +1647,28 @@ function apuracaoValida(ap) {
   return (Number(ap.receita_bruta_pa) || 0) > 0 ? ap : null;
 }
 
+/**
+ * As regras de dispensa, montadas do histórico de decisões dela.
+ *
+ * A consulta pede só os campos da regra, nunca `data` inteiro: o anexo (o PDF
+ * em base64) mora lá dentro, e trazer 180 deles a cada documento seria baixar
+ * dezenas de megabytes para ler seis strings.
+ */
+async function regrasDeDispensa() {
+  const { data, error } = await getSupabase()
+    .from('nf_pending')
+    .select('status, papel_documento:data->>papel_documento, tipo_documento:data->>tipo_documento, email_de:data->>email_de, fileName:data->>fileName, rejeitado_por:data->>rejeitado_por')
+    .eq('user_id', process.env.POLIMATA_USER_ID)
+    .in('status', ['rejeitado', 'aprovado']);
+  if (error) {
+    // Sem o histórico não dá para saber o que ela dispensou. Na dúvida,
+    // perguntar: documento a mais na fila incomoda; documento a menos some.
+    console.warn('[dispensa] não consegui ler o histórico:', error.message);
+    return new Map();
+  }
+  return construirRegrasDeDispensa((data || []).map(l => ({ status: l.status, data: l })));
+}
+
 async function createLancamento(parsed, att, base64, email = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const due = (parsed.data_vencimento || parsed.data_emissao || today).slice(0, 10);
@@ -1955,12 +1978,38 @@ async function createLancamento(parsed, att, base64, email = {}) {
     email_de: email.from || null,
     email_assunto: email.subject || null,
   };
+
+  // ── O QUE ELA JÁ DISPENSOU, O SISTEMA PARA DE PERGUNTAR ────────────────
+  //
+  // A trava de duplicidade acima só olha a FILA de pendentes. Documento
+  // rejeitado voltava no mês seguinte, e voltava sempre — são os recibos da
+  // DCTFWeb e os relatórios do eSocial, que são prova e que ela rejeitava um
+  // por um, todo mês.
+  //
+  // A regra NÃO classifica nem lança nada (regra 6 do REGRAS.md: "nunca aplica
+  // sozinha"). Ela decide só que o documento não precisa da atenção dela: a
+  // linha é criada já arquivada, com o arquivo inteiro e o motivo escrito em
+  // português, em vez de entrar na fila. Nada some — devolver para reanálise
+  // traz de volta.
+  //
+  // As quatro condições que seguram isso estão em lib/regrasDocumento.js; a
+  // mais importante é que só vale para documento que é PROVA. Guia e nota
+  // fiscal rejeitadas foram rejeitadas por algo DAQUELE documento, e
+  // generalizar faria o sistema parar de trazer uma conta a pagar de verdade.
+  const dispensa = dispensaPara(pendingData, await regrasDeDispensa());
+  if (dispensa) {
+    console.log(`[dispensa] ${att.filename}: arquivado pela regra — ${dispensa.chave} (${dispensa.quantas} rejeição(ões) anteriores)`);
+  }
+
   const { error } = await getSupabase().from('nf_pending').insert({
     id: pendingId,
     user_id: process.env.POLIMATA_USER_ID,
-    status: 'pendente',
+    status: dispensa ? 'rejeitado' : 'pendente',
+    rejected_at: dispensa ? new Date().toISOString() : null,
     origem: 'email',
-    data: pendingData,
+    data: dispensa
+      ? { ...pendingData, rejeitado_por: 'regra', motivo_rejeicao: dispensa.motivo, regra_chave: dispensa.chave }
+      : pendingData,
   });
   if (error) throw new Error(`Insert nf_pending: ${error.message}`);
 

@@ -835,6 +835,7 @@ const TEXTO_STATUS = {
   duplicado: 'Já existia no sistema',
   error: 'Erro ao ler',
   rejeitado: 'Rejeitado por você',
+  arquivado_regra: 'Arquivado pela sua regra',
   aprovado: 'Aprovado e lançado',
 }
 
@@ -860,7 +861,10 @@ function HistoricoTable({ historico, decisoes = [] }) {
       numero: p.data?.numero,
       parte: p.data?.parte,
       valor: p.data?.valor,
-      status: p.status,
+      // Rejeitado POR ELA e arquivado PELA REGRA são coisas diferentes no
+      // histórico. Misturar os dois esconderia o que o sistema fez sozinho —
+      // e o que o sistema faz sozinho é justamente o que precisa de conferência.
+      status: p.data?.rejeitado_por === 'regra' ? 'arquivado_regra' : p.status,
       motivo: p.data?.motivo_rejeicao || '',
     })),
   ].sort((a, b) => String(b.quando || '').localeCompare(String(a.quando || '')))
