@@ -13,21 +13,28 @@
 // src/lib/agruparExtrato.js, com prova.
 // =============================================================================
 import { useMemo, useState } from 'react'
+import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fmtMoney } from '../../lib/finance'
 import { categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { showToast } from '../../components/Toast'
 import { agruparPendentes, resumoDoAgrupamento, lancamentosDoGrupo } from '../../lib/agruparExtrato'
+import { detectarRecorrencia, frasesDaOferta } from '../../lib/recorrenciaDoGrupo'
 import { msgErro } from '../../lib/erros'
 
 const fmtData = d => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—')
 
 export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
+  const { user } = useAuth()
   const [aberto, setAberto] = useState(null)   // chave do grupo expandido
   const [cat, setCat] = useState('')
   const [subcat, setSubcat] = useState('')
   const [parte, setParte] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // A oferta de recorrência que aparece DEPOIS de o grupo ser resolvido — o
+  // grupo já saiu da lista, então ela precisa viver fora dele.
+  const [oferta, setOferta] = useState(null)   // {deteccao, frases}
+  const [criandoRec, setCriandoRec] = useState(false)
 
   const grupos = useMemo(() => agruparPendentes(linhas), [linhas])
   const resumo = useMemo(() => resumoDoAgrupamento(grupos), [grupos])
@@ -52,6 +59,16 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
       const { error } = await supabase.rpc('conciliar_criar_lancamentos_em_lote', { p_itens: itens })
       if (error) throw error
       showToast(`${itens.length} lançamento(s) criado(s) e conciliado(s).`, 'success')
+
+      // O grupo acabou de provar que se repete. Em vez de ela ir cadastrar
+      // isso à mão na tela de Recorrências — que existe e está vazia, porque
+      // pede nove campos por linha — o sistema oferece, já preenchido.
+      //
+      // Oferece, não cria: recorrência errada gera despesa que não existe, mês
+      // após mês, e ninguém percebe porque o número aparece sozinho.
+      const d = detectarRecorrencia(g, { cat, subcat, parte })
+      setOferta(d ? { deteccao: d, frases: frasesDaOferta(d) } : null)
+
       setAberto(null); setCat(''); setSubcat(''); setParte('')
       onPronto?.()
     } catch (e) {
@@ -61,13 +78,56 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
     }
   }
 
+  async function criarRecorrencia() {
+    if (!oferta || !user) return
+    setCriandoRec(true)
+    try {
+      // user_id explícito, como todo insert deste sistema faz — a coluna é
+      // NOT NULL e sem ele a gravação falha no clique, não no build.
+      const { error } = await supabase
+        .from('recurring_masters')
+        .insert({ user_id: user.id, data: oferta.deteccao.mestre })
+      if (error) throw error
+      showToast('Recorrência criada — as próximas já nascem prontas.', 'success')
+      setOferta(null)
+    } catch (e) {
+      showToast(msgErro(e), 'error')
+    } finally {
+      setCriandoRec(false)
+    }
+  }
+
+  // A oferta sobrevive ao grupo que a gerou: ele já saiu da lista quando ela
+  // aparece. Fica no topo, porque é a única coisa esperando resposta.
+  const painelOferta = oferta && (
+    <div style={caixaOferta}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)' }}>{oferta.frases.titulo}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-mid)', marginTop: 3, lineHeight: 1.5 }}>
+        {oferta.frases.detalhe} {oferta.frases.acao}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button onClick={criarRecorrencia} disabled={criandoRec} style={botao} type="button">
+          {criandoRec ? 'Criando…' : `Sim, deixar as próximas prontas`}
+        </button>
+        <button onClick={() => setOferta(null)} style={botaoGhost} type="button">Agora não</button>
+      </div>
+      <div style={aviso}>
+        Começa só depois da última que já aconteceu, então não duplica o que acabou de ser lançado.
+        Dá para pausar ou apagar em Recorrências.
+      </div>
+    </div>
+  )
+
   if (!repetidos.length) {
     return (
       <div style={caixa}>
         <div style={titulo}>Resolver em grupo</div>
-        <div style={vazio}>
-          Nenhuma linha pendente se repete neste período — cada uma precisa de uma decisão própria.
-        </div>
+        {painelOferta}
+        {!oferta && (
+          <div style={vazio}>
+            Nenhuma linha pendente se repete neste período — cada uma precisa de uma decisão própria.
+          </div>
+        )}
       </div>
     )
   }
@@ -75,6 +135,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   return (
     <div style={caixa}>
       <div style={titulo}>Resolver em grupo</div>
+      {painelOferta}
       {/* O número vem ANTES do trabalho: "345 linhas em 40 decisões" é o que
           faz alguém começar; "345 linhas" é o que faz desistir. */}
       <div style={chamada}>
@@ -161,3 +222,5 @@ const rotulo = { fontSize: 11.5, color: 'var(--navy)', marginBottom: 8 }
 const campo = { padding: '7px 9px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const botao = { padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }
 const aviso = { fontSize: 10.5, color: 'var(--text-mid)', marginTop: 7 }
+const caixaOferta = { background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.40)', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }
+const botaoGhost = { padding: '8px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
