@@ -118,11 +118,35 @@ function parearPorValorEData({ linhas, candidatos, janelaDias }) {
   return unicos
 }
 
+/**
+ * É um lançamento nascido de nota fiscal?
+ *
+ * Antes isto era só `data.numero_nf`, e o campo mente por omissão: 4 das 20
+ * notas lançadas dela estão sem ele — o número existe apenas dentro da
+ * descrição ("NFS-e 00492921 — Assinatura eletrônica..."). Essas quatro eram
+ * invisíveis para o pareamento, e duas viraram despesa em dobro: a assinatura
+ * da Clicksign de abril e a de maio/2026, cada uma lançada uma vez pela nota
+ * e outra pela fatura do cartão.
+ *
+ * O número não é o que FAZ de um lançamento uma nota; é só um jeito de
+ * perceber. A descrição é outro, e é o que sobra quando o campo falta.
+ */
+function ehNotaLancada(n) {
+  const d = n?.data || {}
+  if (String(d.numero_nf || '').trim()) return true
+  // Sem expressão regular de propósito: a descrição COMEÇA com o nome do
+  // documento, e comparar o começo diz isso de forma direta. "Notadamente
+  // despesa de abril" não vira nota por acidente.
+  const inicio = String(d.desc || '').trim().toLowerCase()
+  return ['nfs-e', 'nfse', 'nf-e', 'nfe', 'nota fiscal']
+    .some(nome => inicio.startsWith(nome + ' '))
+}
+
 /** Linhas da fatura × notas do e-mail que já viraram lançamento. */
 export function parearNotasJaLancadas({ linhas, notas }) {
   return parearPorValorEData({
     linhas,
-    candidatos: (notas || []).filter(n => n.data?.numero_nf),
+    candidatos: (notas || []).filter(ehNotaLancada),
     janelaDias: JANELA_DIAS_NOTA,
   })
 }

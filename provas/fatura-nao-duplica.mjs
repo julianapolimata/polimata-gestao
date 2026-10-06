@@ -153,5 +153,51 @@ const compra = (id, desc, value, comp, extra = {}) => ({ id, extrato_id: null, d
   ok("nota vence a compra no desempate", p.casar.length === 1 && p.casar[0].lanc_id === "N1", JSON.stringify(p.casar.map(c => c.lanc_id)))
 }
 
+
+// ── A nota sem o campo do número ──────────────────────────────────────────
+//
+// O pareamento só olhava notas com `data.numero_nf`. O campo mente por
+// omissão: 4 das 20 notas lançadas dela estão sem ele, com o número apenas
+// dentro da descrição. Duas viraram despesa em dobro — a assinatura da
+// Clicksign de abril e a de maio/2026, cada uma lançada uma vez pela nota (em
+// 26/05) e outra pela fatura do cartão (em 21/08).
+//
+// A cronologia é o que torna o caso constrangedor: a nota estava no sistema
+// TRÊS MESES antes da fatura chegar. Era o pareamento mais fácil possível.
+const linhaClicksign = [{ id: 'L1', data: { tipo: 'saida', valor: 42.62, data: '2026-04-25', descricao: 'CLICKSIGN*Clicksi SAO PAULO' } }]
+
+const notaSemCampo = [{
+  id: 'N1',
+  data: { value: 42.62, data_competencia: '2026-04-25', desc: 'NFS-e 00492921 — Assinatura eletrônica de documentos' },
+}]
+ok('nota com o número só na descrição é pareada',
+  parearNotasJaLancadas({ linhas: linhaClicksign, notas: notaSemCampo }).get('L1')?.id === 'N1')
+
+const notaComCampo = [{
+  id: 'N2',
+  data: { value: 42.62, numero_nf: '00492921', data_competencia: '2026-04-25', desc: 'NFS-e 00492921 — Assinatura' },
+}]
+ok('e a que tem o campo continua sendo',
+  parearNotasJaLancadas({ linhas: linhaClicksign, notas: notaComCampo }).get('L1')?.id === 'N2')
+
+// E o que NÃO pode ser confundido com nota: a trava existe para não parear a
+// linha da fatura com qualquer despesa de mesmo valor que ande por perto.
+const naoEhNota = [{
+  id: 'N3',
+  data: { value: 42.62, data_competencia: '2026-04-25', desc: 'Assinatura mensal lançada à mão' },
+}]
+ok('lançamento comum NÃO é confundido com nota',
+  parearNotasJaLancadas({ linhas: linhaClicksign, notas: naoEhNota }).size === 0)
+ok('"Nota fiscal" por extenso também conta',
+  parearNotasJaLancadas({
+    linhas: linhaClicksign,
+    notas: [{ id: 'N4', data: { value: 42.62, data_competencia: '2026-04-25', desc: 'Nota Fiscal de Serviço 492921' } }],
+  }).get('L1')?.id === 'N4')
+ok('mas "notadamente" não — a palavra tem que ser a palavra',
+  parearNotasJaLancadas({
+    linhas: linhaClicksign,
+    notas: [{ id: 'N5', data: { value: 42.62, data_competencia: '2026-04-25', desc: 'Notadamente despesa de abril' } }],
+  }).size === 0)
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)
