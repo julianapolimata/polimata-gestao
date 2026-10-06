@@ -275,7 +275,26 @@ export default function Conciliacao() {
   }, [conta, contaId, extratos])
 
   const saldoBancoFinal = saldoBanco != null ? saldoBanco : saldoBancoCalculado
-  const divergencia = saldoBancoFinal != null ? saldoBancoFinal - saldoSistema : null
+
+  // ── O QUE FALTA CONCILIAR, NO PERÍODO QUE ELA ESTÁ OLHANDO ─────────────
+  //
+  // Antes este número era "saldo do banco − saldo do sistema", e os dois
+  // falavam de coisas diferentes: o saldo do banco vem do ÚLTIMO OFX importado
+  // (uma data específica), e o do sistema acumula tudo que já foi conciliado,
+  // de qualquer mês. Com 16 meses importados em arquivos diferentes, a conta
+  // dava R$ -199.146,16 — um número que não significava nada e que eu disse a
+  // ela para ignorar.
+  //
+  // Ela respondeu o óbvio: "seria legal ela indicar filtrando o período
+  // escolhido". Está certo. Agora o número é literal e sempre verdadeiro: a
+  // soma das linhas que ainda não foram conciliadas no período filtrado. Zerou,
+  // acabou o trabalho daquele período.
+  const faltaConciliar = useMemo(() => {
+    const pend = extratosBase.filter(e => e.status === 'pendente')
+    const entra = pend.filter(t => t.data?.tipo === 'entrada').reduce((s, t) => s + Number(t.data?.valor || 0), 0)
+    const sai = pend.filter(t => t.data?.tipo === 'saida').reduce((s, t) => s + Number(t.data?.valor || 0), 0)
+    return { valor: entra - sai, linhas: pend.length }
+  }, [extratosBase])
 
   // ── Upload ───────────────────────────────────────────────────────────
   const [confirmar, dialogoConfirmacao] = useConfirm()
@@ -1011,11 +1030,13 @@ export default function Conciliacao() {
               <Saldo label={ehCartao ? 'Saldo na fatura' : 'Saldo no Banco'} sub={ehCartao ? 'pelo OFX do cartão' : 'da conta no banco'} valor={saldoBancoFinal} dim={saldoBancoFinal == null} />
               <Saldo label="Saldo no Sistema" sub="conciliado nesta conta" valor={saldoSistema} />
               <Saldo
-                label="Divergência"
-                sub={divergencia == null ? 'importe OFX' : (Math.abs(divergencia) < 0.01 ? '✓ tudo bate' : 'falta conciliar')}
-                valor={divergencia}
-                cor={divergencia == null ? 'var(--text-mid)' : (Math.abs(divergencia) < 0.01 ? 'var(--green)' : 'var(--red)')}
-                dim={divergencia == null}
+                label="Falta conciliar"
+                sub={faltaConciliar.linhas === 0
+                  ? '✓ nada pendente no período'
+                  : `${faltaConciliar.linhas} linha(s) no período filtrado`}
+                valor={faltaConciliar.valor}
+                cor={faltaConciliar.linhas === 0 ? 'var(--green)' : 'var(--red)'}
+                dim={faltaConciliar.linhas === 0}
               />
             </div>
           </div>
