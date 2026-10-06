@@ -4,6 +4,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { maskAgencia, maskConta, validarAgencia, validarConta } from '../../lib/mascaras'
+import { numeroBR, fmtMoney } from '../../lib/finance'
 
 // =============================================================================
 // MODAL CONTA BANCÁRIA — cadastro de contas e de cartões de crédito.
@@ -73,7 +74,11 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
         nome: nome.trim(), banco,
         agencia: isCartao ? null : agencia.trim(),
         conta: isCartao ? null : conta.trim(),
-        tipo, saldo_inicial: saldoInicial === '' ? null : Number(saldoInicial),
+        // numeroBR, não Number(): o campo promete "0,00" e Number('3.215,81')
+        // devolve NaN — ou, pior, o navegador já deformou o texto antes e
+        // Number() aceita um número plausível e errado. Foi assim que um saldo
+        // de R$ 3.215,81 virou R$ 3,22 sem nenhum aviso.
+        tipo, saldo_inicial: numeroBR(saldoInicial),
         ativo, observacoes: observacoes.trim() || null,
         bandeira: isCartao ? bandeira : null,
         dia_fechamento: isCartao ? Number(diaFechamento) : null,
@@ -138,13 +143,27 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
           </select>
         </Field>
         <Field label="Saldo Inicial (R$)">
+          {/* type="text", não "number": o placeholder promete formato
+              brasileiro ("0,00") e o input numérico do navegador não entende
+              vírgula. "3.215,81" entrou como 3,21581 — três reais no lugar de
+              três mil —, sem erro e sem aviso. Quem lê "0,00" digita vírgula;
+              o campo tem que aceitar. A conversão é a numeroBR, com prova. */}
           <input
-            type="number" step="0.01" value={saldoInicial} onChange={e => setSaldoInicial(e.target.value)}
+            type="text" inputMode="decimal" value={saldoInicial} onChange={e => setSaldoInicial(e.target.value)}
             placeholder="0,00" style={input}
             title={isCartao
               ? 'Fatura em aberto quando você começou a usar o sistema, com sinal negativo (ex.: -1500). Normalmente 0.'
               : 'Saldo da conta na data em que você começou a usar o sistema'}
           />
+          {/* O que o sistema entendeu, na hora. Um saldo errado só aparece
+              semanas depois, num total que não bate — e aí ninguém lembra. */}
+          {saldoInicial.trim() !== '' && (
+            <div style={{ fontSize: 11, marginTop: 4, color: numeroBR(saldoInicial) == null ? 'var(--red)' : 'var(--text-mid)' }}>
+              {numeroBR(saldoInicial) == null
+                ? 'Não entendi esse valor — use por exemplo 3.215,81'
+                : `Entendi: ${fmtMoney(numeroBR(saldoInicial))}`}
+            </div>
+          )}
         </Field>
       </Row>
 

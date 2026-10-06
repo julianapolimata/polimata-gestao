@@ -16,6 +16,47 @@ export function fmtMoney(value, moeda = 'BRL') {
   return `${sym}${m === 'BRL' ? '' : ' '}${v}`
 }
 
+/**
+ * Texto digitado por gente brasileira → número.
+ *
+ * Nasceu de um prejuízo silencioso: o campo "Saldo Inicial (R$)" era
+ * `<input type="number">` com placeholder "0,00". A Juliana digitou
+ * `3.215,81` e o banco guardou `3.21581` — três reais e vinte e um centavos no
+ * lugar de três mil duzentos e quinze. O navegador engoliu a vírgula e tomou o
+ * ponto por decimal, sem erro, sem aviso, sem jeito de perceber.
+ *
+ * As duas convenções convivem e as duas têm que funcionar:
+ *   "3.215,81"  →  3215.81   (como se escreve no Brasil)
+ *   "3215.81"   →  3215.81   (como o teclado numérico e o banco devolvem)
+ *
+ * A regra que separa as duas: se há VÍRGULA, ela é o decimal e os pontos são
+ * milhar. Sem vírgula, o ponto é decimal — a não ser que ele esteja separando
+ * grupos de três ("1.234.567"), que é milhar escrito sem centavos.
+ */
+export function numeroBR(texto) {
+  if (typeof texto === 'number') return Number.isFinite(texto) ? texto : null
+  let t = String(texto ?? '').trim()
+  if (!t) return null
+  const negativo = /^-/.test(t) || /\(.*\)/.test(t)   // -100 ou (100), como contador escreve
+  t = t.replace(/[^\d.,]/g, '')
+  if (!t) return null
+
+  if (t.includes(',')) {
+    t = t.replace(/\./g, '').replace(',', '.')        // vírgula manda: pontos são milhar
+  } else {
+    const grupos = t.split('.')
+    // "1.234.567" ou "1.234" com exatamente 3 dígitos depois do último ponto:
+    // é milhar, não decimal. "3.21" e "3.215" são ambíguos — o primeiro tem
+    // cara de centavo, o segundo de milhar, e é o segundo que custa dinheiro.
+    const ehMilhar = grupos.length > 2
+      || (grupos.length === 2 && grupos[1].length === 3 && grupos[0].length <= 3)
+    if (ehMilhar) t = grupos.join('')
+  }
+  const n = parseFloat(t)
+  if (!Number.isFinite(n)) return null
+  return negativo ? -Math.abs(n) : n
+}
+
 /** YYYY-MM-DD → DD/MM/YYYY. Retorna '—' se vazio. */
 export function fmtDate(d) {
   if (!d) return '—'

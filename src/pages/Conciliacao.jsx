@@ -114,8 +114,16 @@ export default function Conciliacao() {
   // Zera a seleção/ajustes/form ao trocar a linha do extrato
   useEffect(() => { setMarcados(new Set()); setAjustes([]); setCriarAberto(false); setNCat(''); setNSubcat(''); setTransfAberto(false); setTOutraConta(''); setTLigar(''); setJuntarAberto(false); setJuntas(new Set()); setPartes([]) }, [selecionado])
 
-  // Carrega contas uma única vez (não muda quando usuária troca conta selecionada)
-  useEffect(() => {
+  // ── A LISTA DE CONTAS PRECISA ENVELHECER BEM ──────────────────────────
+  //
+  // Era carregada uma vez só, na montagem da tela. A Juliana cadastrou o Itaú
+  // numa aba e voltou para cá: a conta existia no banco e NÃO aparecia no
+  // "de qual conta veio?". Ela concluiu, com razão, que o cadastro não tinha
+  // funcionado.
+  //
+  // Agora recarrega também quando a aba volta ao foco — que é exatamente o
+  // gesto de quem foi cadastrar em outro lugar e voltou.
+  const carregarContas = useCallback(() => {
     if (!user) return
     supabase.from('contas_bancarias').select('*').order('updated_at', { ascending: false })
       .then(({ data, error }) => {
@@ -125,10 +133,21 @@ export default function Conciliacao() {
         const ativos = (data || []).filter(c => c.data?.ativo !== false)
           .sort((a, b) => ((a.data?.tipo === 'cartao') - (b.data?.tipo === 'cartao')))
         setContas(ativos)
-        if (ativos.length > 0 && !contaId) setContaId(ativos[0].id)
+        setContaId(id => (id || (ativos[0]?.id ?? '')))
       })
       .catch((e) => setErro(e))
-  }, [user, contaId])
+  }, [user])
+
+  useEffect(() => {
+    carregarContas()
+    const aoVoltar = () => { if (document.visibilityState === 'visible') carregarContas() }
+    window.addEventListener('focus', carregarContas)
+    document.addEventListener('visibilitychange', aoVoltar)
+    return () => {
+      window.removeEventListener('focus', carregarContas)
+      document.removeEventListener('visibilitychange', aoVoltar)
+    }
+  }, [carregarContas])
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -1235,12 +1254,23 @@ export default function Conciliacao() {
                         </span>
                       </div>
                       <div style={listaJuntar}>
-                        <label style={{ ...linhaJuntar, opacity: 0.7 }}>
-                          <input type="checkbox" checked readOnly />
+                        {/* A linha que ela clicou é a ÂNCORA do grupo: não dá
+                            para tirá-la sem desfazer o grupo inteiro. Antes
+                            isso aparecia só como uma caixinha marcada que não
+                            desmarcava — a Juliana selecionou uma linha errada
+                            e não achou saída. Agora a tela diz o que é e qual
+                            é a saída. */}
+                        <label style={{ ...linhaJuntar, opacity: 0.7, cursor: 'default' }}
+                               title="Esta é a linha que você selecionou na lista — é ela que começa o grupo. Para trocar, feche este painel e clique em outra linha.">
+                          <input type="checkbox" checked readOnly style={{ cursor: 'default' }} />
                           <span style={{ width: 82, flexShrink: 0 }}>{fmtDataBR(selecionadoExt.data?.data)}</span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selecionadoExt.data?.descricao}</span>
                           <strong style={{ width: 96, textAlign: 'right' }}>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong>
                         </label>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-mid)', padding: '2px 4px 6px 26px' }}>
+                          ↑ é a linha que você selecionou — ela começa o grupo e não sai daqui.
+                          Para trocar, clique em <strong>Cancelar</strong> e selecione outra linha na lista do extrato.
+                        </div>
                         {candidatasAJuntar.map(e => (
                           <label key={e.id} style={linhaJuntar}>
                             <input type="checkbox" checked={juntas.has(e.id)} onChange={() => toggleJunta(e.id)} />
