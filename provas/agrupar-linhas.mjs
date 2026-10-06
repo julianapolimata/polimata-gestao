@@ -168,5 +168,62 @@ const pix = (valor, data, over = {}) => ({
     validarDivisao({ linhas: reais, partes: divisao }))
 }
 
+// ── O ENCONTRO DE CONTAS, A PARTIR DO GRUPO ──────────────────────────────
+//
+// Pedido da Juliana: "eu agrupo os valores transferidos e classifico conforme
+// necessário — um, o valor exato do pró-labore; o restante, antecipação de
+// lucros".
+//
+// O mecanismo já existia para uma seleção manual de linhas; faltava chegar
+// nele a partir do grupo, em vez de marcar 43 linhas uma a uma. Estas provas
+// travam a conta que o painel passa a fazer: total do grupo → parte exata +
+// restante.
+{
+  // Três transferências para o CPF dela, valores redondos como os reais.
+  const pix = [
+    { id: 'x1', conta_id: 'c', status: 'pendente', data: { tipo: 'saida', valor: 5000, data: '2026-04-05' } },
+    { id: 'x2', conta_id: 'c', status: 'pendente', data: { tipo: 'saida', valor: 3000, data: '2026-04-15' } },
+    { id: 'x3', conta_id: 'c', status: 'pendente', data: { tipo: 'saida', valor: 1000, data: '2026-04-28' } },
+  ]
+  const total = somarLinhas(pix)
+  ok('as três transferências somam 9.000', total === 9000, String(total))
+
+  // Ela sabe o valor exato do pró-labore: está no recibo.
+  const PRO_LABORE = 3956.05
+  // "e o restante" — a conta que o botão faz, para ninguém digitar de cabeça.
+  const restante = Math.round((total - PRO_LABORE) * 100) / 100
+  ok('o restante fecha sem sobrar centavo', restante === 5043.95, String(restante))
+
+  const divisao = [
+    { cat: 'Pessoal / Mão de Obra', subcat: 'Pró-labore', valor: PRO_LABORE },
+    { cat: 'Pessoal / Mão de Obra', subcat: 'Antecipação de Lucro', valor: restante },
+  ]
+  ok('a divisão fecha exatamente o total do grupo',
+    validarDivisao({ linhas: pix, partes: divisao }) === null,
+    validarDivisao({ linhas: pix, partes: divisao }))
+
+  const lancs = montarLancamentos({ linhas: pix, partes: divisao, tabela: 'payable', parte: 'Juliana' })
+  ok('nascem DOIS lançamentos — um por natureza, não um por linha', lancs.length === 2)
+  ok('o do pró-labore guarda o valor exato do recibo',
+    lancs.find(l => l.data.subcat === 'Pró-labore')?.data.value === PRO_LABORE)
+  ok('o da antecipação fica com o resto',
+    lancs.find(l => l.data.subcat === 'Antecipação de Lucro')?.data.value === restante)
+  ok('os dois somam o que saiu do banco',
+    lancs.reduce((s, l) => s + l.data.value, 0) === total)
+
+  // A parte que decide o imposto: é a subcategoria que separa o que conta no
+  // Fator R do que não conta. Se ela se perdesse no caminho, a folha sumiria e
+  // o anexo do Simples mudaria sozinho, sem ninguém decidir nada.
+  ok('a subcategoria sobrevive até o lançamento',
+    lancs.every(l => !!l.data.subcat), JSON.stringify(lancs.map(l => l.data.subcat)))
+
+  // Um centavo a menos não pode passar: é assim que nasce sobra escondida.
+  ok('faltando um centavo, a divisão é recusada',
+    validarDivisao({
+      linhas: pix,
+      partes: [divisao[0], { ...divisao[1], valor: restante - 0.01 }],
+    }) !== null)
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)

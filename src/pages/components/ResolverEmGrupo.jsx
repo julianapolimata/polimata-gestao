@@ -38,6 +38,8 @@ import { fmtMoney } from '../../lib/finance'
 import { categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { showToast } from '../../components/Toast'
 import { agruparPendentes, resumoDoAgrupamento, lancamentosDoGrupo, grupoSem } from '../../lib/agruparExtrato'
+import { validarDivisao, montarLancamentos, somarLinhas } from '../../lib/agruparLinhas'
+import { proximoCodigoReceivable, proximoCodigoPayable } from '../../lib/codigos'
 import { detectarRecorrencia, frasesDaOferta } from '../../lib/recorrenciaDoGrupo'
 import { msgErro } from '../../lib/erros'
 
@@ -56,6 +58,11 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   const [criandoRec, setCriandoRec] = useState(false)
   const [verLinhas, setVerLinhas] = useState(false)      // lista aberta dentro do grupo
   const [fora, setFora] = useState(new Set())            // linhas tiradas do lote
+  // ENCONTRO DE CONTAS: o total do grupo repartido por natureza, em vez de uma
+  // categoria só. É o caso do dinheiro que ela transfere para si — parte é
+  // pró-labore (conta no Fator R) e parte é antecipação de lucro (não conta).
+  const [dividir, setDividir] = useState(false)
+  const [partes, setPartes] = useState([])               // [{id, cat, subcat, valor}]
 
   const grupos = useMemo(() => agruparPendentes(linhas), [linhas])
   const resumo = useMemo(() => resumoDoAgrupamento(grupos), [grupos])
@@ -69,6 +76,29 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
     // As exclusões são do grupo que estava aberto; mudar de grupo zera, senão
     // ela tiraria uma linha de um e perderia outra em outro, sem ver.
     setFora(new Set()); setVerLinhas(false)
+    setDividir(false); setPartes([])
+  }
+
+  function addParte() { setPartes(ps => [...ps, { id: crypto.randomUUID(), cat: '', subcat: '', valor: '' }]) }
+  // `setParte` já é o nome da contraparte (fornecedor/cliente); o campo de uma
+  // parte da divisão é outra coisa, e misturar os dois daria um bug silencioso.
+  function setCampoDaParte(id, campo, val) {
+    setPartes(ps => ps.map(x => (x.id === id ? { ...x, [campo]: val, ...(campo === 'cat' ? { subcat: '' } : {}) } : x)))
+  }
+  function rmParte(id) { setPartes(ps => ps.filter(x => x.id !== id)) }
+
+  /**
+   * "e o restante" — o botão que faz o encontro de contas fechar sozinho.
+   *
+   * Ela sabe o valor EXATO do pró-labore (está no recibo); o que sobra é
+   * antecipação de lucro, e ninguém quer calcular isso de cabeça com 43 linhas.
+   * Digitar à mão é onde entra o erro de um centavo que impede fechar.
+   */
+  function completarComRestante(id, total) {
+    const outras = partes.filter(p => p.id !== id)
+      .reduce((s, p) => s + Math.abs(Number(p.valor) || 0), 0)
+    const resto = Math.max(0, Math.round((total - outras) * 100) / 100)
+    setCampoDaParte(id, 'valor', String(resto))
   }
 
   function alternarLinha(id) {
@@ -108,6 +138,55 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
 
       setAberto(null); setCat(''); setSubcat(''); setParte('')
       setFora(new Set()); setVerLinhas(false)
+      onPronto?.()
+    } catch (e) {
+      showToast(msgErro(e), 'error')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  /**
+   * O encontro de contas: N linhas somadas, repartidas por natureza.
+   *
+   * Reusa o caminho que a tela já tinha para uma seleção manual de linhas
+   * (validarDivisao + montarLancamentos + conciliar_varias_linhas). A única
+   * coisa que faltava era chegar nele a partir do grupo, em vez de marcar 43
+   * linhas uma a uma na lista.
+   */
+  async function conciliarDividido(grupoCheio) {
+    const g = grupoSem(grupoCheio, fora)
+    if (!g) { showToast('Nenhuma linha selecionada.', 'warning'); return }
+    const ps = partes.map(x => ({ cat: x.cat, subcat: x.subcat, valor: Number(x.valor) }))
+    const impedimento = validarDivisao({ linhas: g.linhas, partes: ps })
+    if (impedimento) { showToast(impedimento, 'warning'); return }
+
+    const tabela = g.tipo === 'entrada' ? 'receivable' : 'payable'
+    setSalvando(true)
+    try {
+      const lancs = montarLancamentos({
+        linhas: g.linhas, partes: ps, tabela, parte: parte || g.descricao.substring(0, 80),
+      })
+      // Códigos sequenciais, como no resto da tela.
+      let base = null, n = 0
+      for (const l of lancs) {
+        if (base === null) {
+          base = tabela === 'receivable' ? await proximoCodigoReceivable() : await proximoCodigoPayable()
+          n = parseInt(base.slice(1), 10)
+        }
+        l.codigo = `${tabela === 'receivable' ? '1' : '2'}${String(n++).padStart(5, '0')}`
+      }
+      const { error } = await supabase.rpc('conciliar_varias_linhas', {
+        p_extrato_ids: g.linhas.map(l => l.id),
+        p_target: tabela,
+        p_ledger: [],
+        p_ajustes: lancs,
+        p_meta: { juntado_por_grupo: g.descricao, total_do_grupo: somarLinhas(g.linhas) },
+      })
+      if (error) throw error
+      showToast(`${g.quantas} linha(s) conciliada(s) em ${lancs.length} lançamento(s) por natureza.`, 'success')
+      setAberto(null); setDividir(false); setPartes([]); setFora(new Set()); setVerLinhas(false)
+      setCat(''); setSubcat(''); setParte('')
       onPronto?.()
     } catch (e) {
       showToast(msgErro(e), 'error')
@@ -255,6 +334,102 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                     </div>
                   )}
 
+                  {/* Dois caminhos, porque são dois trabalhos diferentes:
+                      classificar tudo igual, ou repartir o total por natureza
+                      (encontro de contas). O segundo é o caso do dinheiro que
+                      ela transfere para si — parte pró-labore, parte
+                      antecipação de lucro —, e é o que decide o anexo do
+                      Simples. */}
+                  <div style={abas}>
+                    <button onClick={() => setDividir(false)} style={dividir ? aba : abaAtiva} type="button">
+                      Uma categoria para tudo
+                    </button>
+                    <button onClick={() => { setDividir(true); if (!partes.length) { addParte(); addParte() } }} style={dividir ? abaAtiva : aba} type="button">
+                      Dividir por natureza
+                    </button>
+                  </div>
+
+                  {dividir ? (() => {
+                    const totalEfetivo = efetivo?.total || 0
+                    const somaPartes = partes.reduce((s, p) => s + Math.abs(Number(p.valor) || 0), 0)
+                    const resto = Math.round((totalEfetivo - somaPartes) * 100) / 100
+                    const impedimento = validarDivisao({
+                      linhas: efetivo?.linhas || [],
+                      partes: partes.map(x => ({ cat: x.cat, subcat: x.subcat, valor: Number(x.valor) })),
+                    })
+                    return (
+                      <div>
+                        <div style={rotulo}>
+                          As {quantasVao} linha(s) somam <strong>{fmtMoney(totalEfetivo)}</strong>.
+                          Diga quanto é de cada natureza — nasce um lançamento por natureza, não um por linha.
+                        </div>
+
+                        {partes.map((pt, i) => {
+                          const subs = subcategoriasDe(plano, tipoPlano, pt.cat)
+                          return (
+                            <div key={pt.id} style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', marginBottom: 7 }}>
+                              <select value={pt.cat} onChange={e => setCampoDaParte(pt.id, 'cat', e.target.value)} style={campo}>
+                                <option value="">Categoria…</option>
+                                {categoriasDe(plano, tipoPlano).map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                              {subs.length > 0 && (
+                                <select value={pt.subcat} onChange={e => setCampoDaParte(pt.id, 'subcat', e.target.value)} style={campo}>
+                                  <option value="">Subcategoria…</option>
+                                  {subs.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              )}
+                              <input
+                                type="number" step="0.01" inputMode="decimal"
+                                value={pt.valor}
+                                onChange={e => setCampoDaParte(pt.id, 'valor', e.target.value)}
+                                placeholder="Valor"
+                                style={{ ...campo, width: 120, textAlign: 'right' }}
+                              />
+                              {/* O que fecha a conta sem calculadora: ela sabe o
+                                  valor exato do pró-labore (está no recibo); o
+                                  resto é antecipação. Digitar de cabeça é onde
+                                  entra o centavo que impede fechar. */}
+                              <button onClick={() => completarComRestante(pt.id, totalEfetivo)} style={botaoMini} type="button"
+                                      title="Preenche com o que falta para fechar o total das linhas">
+                                e o restante
+                              </button>
+                              {partes.length > 2 && (
+                                <button onClick={() => rmParte(pt.id)} style={botaoMiniGhost} type="button" title="Tirar esta natureza">✕</button>
+                              )}
+                              {i === partes.length - 1 && (
+                                <button onClick={addParte} style={botaoMiniGhost} type="button" title="Mais uma natureza">＋</button>
+                              )}
+                            </div>
+                          )
+                        })}
+
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
+                          <input
+                            value={parte} onChange={e => setParte(e.target.value)}
+                            placeholder={g.tipo === 'entrada' ? 'Cliente (opcional)' : 'Favorecido (opcional)'}
+                            style={{ ...campo, minWidth: 190 }}
+                          />
+                          <button onClick={() => conciliarDividido(g)} disabled={!!impedimento || salvando} style={botao} type="button">
+                            {salvando ? 'Conciliando…' : `Conciliar ${quantasVao} linha(s) em ${partes.length} lançamento(s)`}
+                          </button>
+                        </div>
+
+                        {/* O placar da conta, sempre visível: conciliação que
+                            não fecha não é conciliação, é sobra escondida. */}
+                        <div style={{ ...aviso, color: impedimento ? 'var(--red)' : 'var(--green)', fontWeight: 600 }}>
+                          {impedimento
+                            || `✓ Fecha exato: ${fmtMoney(somaPartes)} de ${fmtMoney(totalEfetivo)}.`}
+                          {!impedimento && resto === 0 ? '' : ''}
+                        </div>
+                        <div style={aviso}>
+                          Cada natureza vira um lançamento só, na data da última transferência, com o documento
+                          dispensado (o extrato e o recibo são a evidência). A classificação define o Fator R:
+                          Pró-labore conta, Antecipação de Lucro não.
+                        </div>
+                      </div>
+                    )
+                  })() : (
+                  <>
                   <div style={rotulo}>
                     Classifique o grupo — vão nascer {quantasVao} lançamento(s), um por linha, cada um na data da sua.
                     {efetivo && efetivo.total !== g.total && ` Somam ${fmtMoney(efetivo.total)}.`}
@@ -285,6 +460,8 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                     a aparecer na Escrituração — e <strong>sem documento fiscal</strong>: a linha do banco
                     é a evidência dele. Se a nota chegar depois, anexe a este lançamento.
                   </div>
+                  </>
+                  )}
                 </div>
                 )
               })()}
@@ -319,5 +496,10 @@ const linkVer = { background: 'none', border: 'none', padding: 0, marginBottom: 
 const listaLinhas = { maxHeight: 190, overflowY: 'auto', border: '1px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', padding: '4px 0', marginBottom: 10 }
 const itemLinha = { display: 'flex', alignItems: 'center', gap: 9, padding: '4px 10px', fontSize: 11.5, cursor: 'pointer' }
 const notaFora = { fontSize: 10.5, color: 'var(--text-mid)', padding: '6px 10px 2px', borderTop: '1px dashed var(--cream-dark)', marginTop: 4 }
+const abas = { display: 'flex', gap: 6, marginBottom: 10 }
+const aba = { padding: '5px 11px', borderRadius: 999, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
+const abaAtiva = { ...aba, background: 'var(--navy)', color: '#fff', borderColor: 'var(--navy)' }
+const botaoMini = { padding: '6px 10px', borderRadius: 6, border: '1px solid var(--gold-dark)', background: 'var(--white)', color: 'var(--gold-dark)', fontFamily: 'var(--body)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }
+const botaoMiniGhost = { padding: '6px 9px', borderRadius: 6, border: '1px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontSize: 11, cursor: 'pointer' }
 const caixaOferta = { background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.40)', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }
 const botaoGhost = { padding: '8px 14px', borderRadius: 6, border: '1.5px solid var(--cream-dark)', background: 'var(--white)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
