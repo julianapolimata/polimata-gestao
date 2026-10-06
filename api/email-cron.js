@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 import { peneirarPdf } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
-import { naoEhDocumentoFiscal } from '../lib/documentoFiscal.js';
+import { naoEhDocumentoFiscal, numeroCanonico } from '../lib/documentoFiscal.js';
 import { construirRegrasDeDispensa, dispensaPara } from '../lib/regrasDocumento.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
@@ -1811,11 +1811,11 @@ async function createLancamento(parsed, att, base64, email = {}) {
   // assunto dias seguidos. A guia é a mesma quando o número do documento
   // bate; sem número, quando período + tipo + valor batem.
   if (ehGuia && (numeroDoc || periodoApuracao)) {
-    const numDocDigitos = numeroDoc.replace(/\D/g, '');
+    const numDocDigitos = numeroCanonico(numeroDoc);
     const mesmaGuia = (d) => {
       if (!d) return false;
       if (numDocDigitos) {
-        const dn = String(d.numero_documento || d.numero || '').replace(/\D/g, '');
+        const dn = numeroCanonico(d.numero_documento || d.numero);
         if (dn && dn === numDocDigitos) return true;
       }
       if (periodoApuracao
@@ -1860,14 +1860,14 @@ async function createLancamento(parsed, att, base64, email = {}) {
   // identidade do documento, independente de direção: número + valor (±0,02) +
   // emitente. Mesmo padrão do dedup de guia acima, reaproveitando as MESMAS
   // consultas (`pendentes` e `candidates`) — nenhuma query nova.
-  const numeroDigitos = numeroLower.replace(/\D/g, '');
+  const numeroDigitos = numeroCanonico(numeroLower);
   const emitNomeLower = String(parsed.emitente_nome || '').toLowerCase().trim();
   if (numeroLower) {
     const mesmoDocumento = (d) => {
       if (!d) return false;
       const dn = String(d.numero ?? d.numero_nf ?? '').trim().toLowerCase();
       const numeroBate = (!!dn && dn === numeroLower)
-        || (!!numeroDigitos && dn.replace(/\D/g, '') === numeroDigitos);
+        || (!!numeroDigitos && numeroCanonico(dn) === numeroDigitos);
       if (!numeroBate) return false;
       if (Math.abs(Number(d.valor ?? d.value ?? 0) - val) > 0.02) return false;
       const dCnpj = String(d.emitente_cnpj || d.cnpj || '').replace(/\D/g, '');
@@ -1908,7 +1908,7 @@ async function createLancamento(parsed, att, base64, email = {}) {
     const mesmaParte = String(d.parte || '').toLowerCase().trim() === parte.toLowerCase().trim()
       || (emitCnpj && String(d.emitente_cnpj || '').replace(/\D/g, '') === emitCnpj);
     if (!mesmaParte) return false;
-    const mesmoNumero = numeroLower && String(d.numero || '').trim().toLowerCase() === numeroLower;
+    const mesmoNumero = numeroLower && numeroCanonico(d.numero) === numeroCanonico(numeroLower);
     if (numeroLower) return mesmoNumero;                       // tem número → tem que bater
     return dataEmis && String(d.data_emissao || '').slice(0, 10) === dataEmis; // sem número → mesma data
   });

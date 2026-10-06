@@ -81,5 +81,49 @@ ok('nome só com espaços é o mesmo que nome nenhum',
 ok('objeto vazio não vira lançamento',
   naoEhDocumentoFiscal({}) !== null)
 
+
+// ── O MESMO número escrito de dois jeitos ────────────────────────────────
+//
+// A mesma nota chega duas vezes no mesmo e-mail: uma no XML e outra no PDF.
+// O XML traz "43034"; o PDF traz "00043034", porque é assim que a prefeitura
+// imprime. A trava de duplicidade comparava os dígitos — e "43034" tem
+// dígitos diferentes de "00043034".
+//
+// Custou seis lançamentos em duplicidade, R$ 285,80, medidos no banco:
+//
+//   MAPDATA     jan/26  R$ 50,14   49002 e 00049002
+//   MAPDATA     fev/26  R$ 50,14   51271 e 00051271
+//   NTI Brasil  mar/26  R$ 50,14   53257 e 00053257
+//   NTI Brasil  abr/26  R$ 50,14   55513 e 00055513
+//   Clicksign   ago/26  R$ 42,62  741752 e 00741752
+//   Clicksign   set/26  R$ 42,62  806204 e 00806204
+import { numeroCanonico } from '../lib/documentoFiscal.js'
+
+ok('"00043034" e "43034" são o mesmo documento',
+  numeroCanonico('00043034') === numeroCanonico('43034'), numeroCanonico('00043034'))
+ok('vale para os seis pares reais',
+  [['00049002','49002'], ['00051271','51271'], ['00053257','53257'],
+   ['00055513','55513'], ['00741752','741752'], ['00806204','806204']]
+    .every(([a, b]) => numeroCanonico(a) === numeroCanonico(b)))
+ok('pontuação da impressão não muda o número',
+  numeroCanonico('12.345/678') === numeroCanonico('12345678'))
+
+// ── E a metade que impede a trava de apagar despesa de verdade ───────────
+//
+// Normalizar demais é pior que de menos: uma trava que funde dois documentos
+// diferentes faz uma despesa sumir, e falta não se enxerga em lugar nenhum.
+ok('números de verdade diferentes continuam diferentes',
+  numeroCanonico('43034') !== numeroCanonico('43035'))
+ok('duas faturas seguidas do mesmo fornecedor no mesmo dia NÃO se fundem',
+  numeroCanonico('44RCMPM3-0002') !== numeroCanonico('44RCMPM3-0003'),
+  numeroCanonico('44RCMPM3-0002'))
+ok('código com letra não vira só dígitos',
+  numeroCanonico('44RCMPM3-0003').includes('rcmpm'), numeroCanonico('44RCMPM3-0003'))
+ok('as duas parcelas do seguro continuam separadas',
+  numeroCanonico('6832637008') !== numeroCanonico('6832637040'))
+
+ok('vazio é vazio', numeroCanonico('') === '' && numeroCanonico(null) === '')
+ok('número zero não vira vazio', numeroCanonico('000') === '0')
+
 console.log(falhas ? `\n${falhas} falha(s).` : '\n  todas passaram.')
 process.exit(falhas ? 1 : 0)
