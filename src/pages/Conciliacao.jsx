@@ -15,6 +15,7 @@ import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoCon
 import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
 import { traduzErroFechamento } from '../lib/fechamento'
 import { useConfirm } from '../components/ConfirmDialog'
+import ResolverEmGrupo from './components/ResolverEmGrupo'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
 // (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
@@ -228,6 +229,19 @@ export default function Conciliacao() {
     if (filtroStatus !== 'todos') arr = arr.filter(e => e.status === filtroStatus)
     return [...arr].sort((a, b) => (b.data?.data || '').localeCompare(a.data?.data || ''))
   }, [extratosBase, filtroStatus])
+
+  // As pendentes que ela está olhando agora — respeita os filtros de data e
+  // busca, e deixa de fora mês já fechado (ali nada mais entra).
+  //
+  // Vem da base filtrada, e não de todo o extrato, porque o agrupamento tem
+  // que falar do que está na tela: oferecer "22 linhas de IOF" quando o filtro
+  // mostra só março seria prometer um lote que ela não pediu.
+  const pendentesVisiveis = useMemo(
+    () => extratosBase.filter(
+      e => e.status === 'pendente' && !periodosFechados.has(String(e.data?.data || '').slice(0, 7)),
+    ),
+    [extratosBase, periodosFechados],
+  )
 
   // ── Contadores (sobre a base já filtrada por data/busca) ─────────────
   const counts = useMemo(() => {
@@ -1030,6 +1044,16 @@ export default function Conciliacao() {
         </>
       )}
     >
+      {/* ── RESOLVER EM GRUPO ──────────────────────────────────────────────
+          Fica ACIMA das duas colunas de propósito. Quem abre esta tela com 393
+          linhas pendentes precisa ver primeiro que elas cabem em 40 decisões —
+          descer até a lista e começar a clicar uma a uma é o caminho que faz
+          desistir na quinta. Só para conta comum: o cartão tem "＋ Criar
+          compras", que é a mesma ideia com a fatura como fonte. */}
+      {!ehCartao && pendentesVisiveis.length > 0 && (
+        <ResolverEmGrupo linhas={pendentesVisiveis} plano={plano} onPronto={carregar} />
+      )}
+
       {extratosFiltrados.length === 0 ? (
         <div style={emptyState}>
           {extratos.filter(e => e.conta_id === contaId).length === 0
