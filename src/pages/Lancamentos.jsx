@@ -17,6 +17,7 @@
 // A lógica e as provas estão em src/lib/lancamentos.js.
 // =============================================================================
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import CampoData from '../components/CampoData'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -170,9 +171,9 @@ export default function Lancamentos() {
             <select value={campoData} onChange={e => setCampoData(e.target.value)} style={campo}>
               {Object.entries(CAMPOS_DE_DATA).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <input type="date" value={de} onChange={e => setDe(e.target.value)} style={campo} />
+            <CampoData value={de} onChange={e => setDe(e.target.value)} style={campo} />
             <span style={{ fontSize: 12, color: 'var(--text-mid)' }}>até</span>
-            <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={campo} />
+            <CampoData value={ate} onChange={e => setAte(e.target.value)} style={campo} />
           </div>
 
           {temFiltro && <button onClick={limpar} style={botaoGhost}>Limpar filtros</button>}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -186,10 +187,10 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
       </Row>
       <Row cols={2}>
         <Field label="Data de Início">
-          <input type="date" value={inicio} onChange={e => setInicio(e.target.value)} style={input} />
+          <CampoData value={inicio} onChange={e => setInicio(e.target.value)} style={input} />
         </Field>
         <Field label="Data de Entrega">
-          <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={input} />
+          <CampoData value={deadline} onChange={e => setDeadline(e.target.value)} style={input} />
         </Field>
       </Row>
       <Row>
@@ -223,8 +224,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
                   placeholder="Nome da etapa"
                   style={{ ...input, flex: 1 }}
                 />
-                <input
-                  type="date" value={et.data || ''} onChange={e => updateEtapa(idx, { data: e.target.value })}
+                <CampoData value={et.data || ''} onChange={e => updateEtapa(idx, { data: e.target.value })}
                   style={{ ...input, width: 150 }}
                 />
                 <button

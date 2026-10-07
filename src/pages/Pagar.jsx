@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import CampoData from '../components/CampoData'
 import { useSearchParams } from 'react-router-dom'
 import { Chart } from 'chart.js/auto'
 import { useAuth } from '../contexts/AuthContext'
@@ -607,9 +608,9 @@ export default function Pagar() {
                   <option value="data_pagamento">Pagamento</option>
                   <option value="data_competencia">Competência</option>
                 </select>
-                <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} aria-label="De" />
+                <CampoData value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} aria-label="De" />
                 <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
-                <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} aria-label="Até" />
+                <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} aria-label="Até" />
                 {(dataDe || dataAte) && (
                   <button onClick={() => { setDataDe(''); setDataAte('') }} style={btnLimparCampo} title="Limpar período" aria-label="Limpar período">×</button>
                 )}
@@ -846,9 +847,7 @@ export default function Pagar() {
               ? <div style={popAviso}>Baixa sem conferência no extrato: escreva o porquê. Fica registrado no lançamento.</div>
               : <div style={popDispensa}>{motivoDaDispensa(popPagar.row?.data) || 'Natureza dispensa documento fiscal.'} Não precisa de justificativa.</div>}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input
-                type="date"
-                value={popPagar.data}
+              <CampoData value={popPagar.data}
                 autoFocus
                 onChange={e => setPopPagar(p => (p ? { ...p, data: e.target.value } : p))}
                 onKeyDown={e => {

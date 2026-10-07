@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import { msgErro } from '../../lib/erros'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -415,10 +416,10 @@ Importante:
             </Field>
           )}
           <Field label="Data início">
-            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={input} />
+            <CampoData value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={input} />
           </Field>
           <Field label="Vencimento final">
-            <input type="date" value={dataVencimentoFinal} onChange={e => setDataVencimentoFinal(e.target.value)} style={input} />
+            <CampoData value={dataVencimentoFinal} onChange={e => setDataVencimentoFinal(e.target.value)} style={input} />
           </Field>
           <Field label="Taxa juros mensal (%)">
             <input type="number" step="0.01" value={taxaJurosMensal} onChange={e => setTaxaJurosMensal(e.target.value)} style={input} />
@@ -453,7 +454,7 @@ Importante:
                     <input type="number" step="0.01" value={valorLiberado} onChange={e => setValorLiberado(e.target.value)} placeholder={valorOriginal ? String(valorOriginal) : 'igual ao valor original'} style={input} />
                   </Field>
                   <Field label="Data de liberação">
-                    <input type="date" value={dataLiberacao} onChange={e => setDataLiberacao(e.target.value)} style={input} />
+                    <CampoData value={dataLiberacao} onChange={e => setDataLiberacao(e.target.value)} style={input} />
                   </Field>
                   <Field label="Conta que recebeu">
                     <select value={contaCreditoId} onChange={e => setContaCreditoId(e.target.value)} style={input}>
@@ -497,7 +498,7 @@ Importante:
                     <tr key={idx}>
                       <td style={tdMini}>{p.numero}</td>
                       <td style={tdMini}>
-                        <input type="date" value={p.vencimento || ''} onChange={e => atualizarParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
+                        <CampoData value={p.vencimento || ''} onChange={e => atualizarParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
                       </td>
                       <td style={{ ...tdMini, textAlign: 'right' }}>
                         <input type="number" step="0.01" value={p.valor || ''} onChange={e => atualizarParcela(idx, 'valor', e.target.value)} style={{ ...inputMini, textAlign: 'right' }} />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import { msgErro } from '../../lib/erros'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
@@ -498,14 +499,13 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       {/* Datas e status */}
       <Row cols={3}>
         <Field label="Data de Emissão (Competência)">
-          <input type="date" value={dataCompetencia} onChange={e => setDataCompetencia(e.target.value)} style={input} title="Data de emissão da NF — usada no DRE (regime de competência)" disabled={conciliado} />
+          <CampoData value={dataCompetencia} onChange={e => setDataCompetencia(e.target.value)} style={input} title="Data de emissão da NF — usada no DRE (regime de competência)" disabled={conciliado} />
         </Field>
         <Field label="Vencimento *">
-          <input type="date" value={venc} onChange={e => setVenc(e.target.value)} style={input} disabled={conciliado} />
+          <CampoData value={venc} onChange={e => setVenc(e.target.value)} style={input} disabled={conciliado} />
         </Field>
         <Field label={`Data de ${isRec ? 'Recebimento' : 'Pagamento'}${(statusV === 'Recebido' || statusV === 'Pago') ? ' *' : ''}`}>
-          <input
-            type="date" value={dataPagamento}
+          <CampoData value={dataPagamento}
             onChange={e => setDataPagamento(e.target.value)}
             style={{ ...input, ...(((statusV === 'Recebido' || statusV === 'Pago') && !dataPagamento) ? { borderColor: 'var(--red)' } : {}) }}
             title="Quando o dinheiro entrou/saiu de fato — usado no Fluxo de Caixa"
@@ -651,7 +651,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
               </select>
             </Field>
             <Field label="Última geração até">
-              <input type="date" value={recAte} onChange={e => setRecAte(e.target.value)} style={input} />
+              <CampoData value={recAte} onChange={e => setRecAte(e.target.value)} style={input} />
             </Field>
           </Row>
         )}

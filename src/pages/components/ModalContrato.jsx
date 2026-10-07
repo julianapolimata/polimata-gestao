@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -208,10 +209,10 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
           <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} />
         </Field>
         <Field label="Data de Início">
-          <input type="date" value={inicio} onChange={e => setInicio(e.target.value)} style={input} />
+          <CampoData value={inicio} onChange={e => setInicio(e.target.value)} style={input} />
         </Field>
         <Field label="Data de Término">
-          <input type="date" value={fim} onChange={e => setFim(e.target.value)} style={input} />
+          <CampoData value={fim} onChange={e => setFim(e.target.value)} style={input} />
         </Field>
       </Row>
 

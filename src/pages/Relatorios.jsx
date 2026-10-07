@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import CampoData from '../components/CampoData'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -118,11 +119,11 @@ export default function Relatorios() {
             <>
               <div>
                 <label style={labelStyle}>De (vencimento)</label>
-                <input type="date" value={de} onChange={e => setDe(e.target.value)} style={input} />
+                <CampoData value={de} onChange={e => setDe(e.target.value)} style={input} />
               </div>
               <div>
                 <label style={labelStyle}>Até</label>
-                <input type="date" value={ate} onChange={e => setAte(e.target.value)} style={input} />
+                <CampoData value={ate} onChange={e => setAte(e.target.value)} style={input} />
               </div>
             </>
           )}

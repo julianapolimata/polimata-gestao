@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -142,10 +143,10 @@ export default function ModalRecorrencia({ open, onClose, registro, onSaved }) {
 
       <Row cols={2}>
         <Field label="Início *">
-          <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={input} />
+          <CampoData value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={input} />
         </Field>
         <Field label="Término (opcional)">
-          <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={input} title="Deixe vazio para recorrência sem fim" />
+          <CampoData value={dataFim} onChange={e => setDataFim(e.target.value)} style={input} title="Deixe vazio para recorrência sem fim" />
         </Field>
       </Row>
 

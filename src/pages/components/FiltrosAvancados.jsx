@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import CampoData from '../../components/CampoData'
 import { PERIODOS_LANCAMENTO } from '../../lib/dateRanges'
 import { fetchPlanoContas, categoriasDe } from '../../lib/planoContas'
 
@@ -58,10 +59,10 @@ export default function FiltrosAvancados({
             {isCustom && (
               <>
                 <Field label="De">
-                  <input type="date" value={filtros.dataDe} onChange={e => up({ dataDe: e.target.value })} style={input} />
+                  <CampoData value={filtros.dataDe} onChange={e => up({ dataDe: e.target.value })} style={input} />
                 </Field>
                 <Field label="Até">
-                  <input type="date" value={filtros.dataAte} onChange={e => up({ dataAte: e.target.value })} style={input} />
+                  <CampoData value={filtros.dataAte} onChange={e => up({ dataAte: e.target.value })} style={input} />
                 </Field>
               </>
             )}

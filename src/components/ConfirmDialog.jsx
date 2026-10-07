@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import CampoData from './CampoData'
 import Modal from './Modal'
 
 // =============================================================================
@@ -93,10 +94,8 @@ export default function ConfirmDialog({
       {exigeData && (
         <label style={campoWrap}>
           <span style={campoLabel}>{exigeData.label || 'Data'}</span>
-          <input
-            ref={exigeTexto ? undefined : refCampo}
-            type="date"
-            value={data}
+          <CampoData
+            ref={exigeTexto ? undefined : refCampo} value={data}
             onChange={e => setData(e.target.value)}
             style={{ ...campoInput, maxWidth: 200 }}
           />

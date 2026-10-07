@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import CampoData from '../components/CampoData'
 import { msgErro } from '../lib/erros'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -144,9 +145,9 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
           {/* Filtro por data */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--white)', borderRadius: 10, border: '1px solid var(--cream-dark)', boxShadow: 'var(--shadow)' }}>
             <span style={{ fontSize: 11, color: 'var(--text-mid)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>{isContrato ? 'Início' : 'Prazo'}</span>
-            <input type="date" value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <CampoData value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
             <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>até</span>
-            <input type="date" value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
             {(dataDe || dataAte) && (
               <button onClick={() => { setDataDe(''); setDataAte('') }} style={{ background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '4px 6px' }} title="Limpar">×</button>
             )}
