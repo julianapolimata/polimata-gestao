@@ -115,5 +115,18 @@ ok(r.parcelasDoContrato === 10 && r.parcelasNoSistema === 3,
 ok(r.pagas === 2 && r.valor === 660, 'soma e contagem de pagas do grupo')
 ok(resumoDoGrupo(parceladas, 'nao-existe') === null, 'grupo inexistente devolve null')
 
+
+// O NUMERO DO DOCUMENTO. O codigo identifica o lancamento dentro do sistema;
+// o numero da nota identifica o papel que existe fora dele. A Juliana nao
+// achava o segundo em lugar nenhum -- ele era gravado e nunca exibido.
+const comNota = unificar({ plano, receber: [], pagar: [
+  { id: 'n1', codigo: '200700', data: { supplier: 'JL Ramos', value: 500, status: 'Pago', data_pagamento: '2025-08-10', numero_nf: '0001234' } },
+] })
+ok(comNota[0].numeroNf === '0001234', 'o numero da nota chega na lista')
+ok(filtrar(comNota, { busca: '0001234' }).length === 1, 'da para buscar pelo numero da nota')
+ok(paraCSV(comNota).includes('0001234'), 'o CSV leva o numero do documento')
+ok(unificar({ plano, pagar: [{ id: 'z', codigo: '1', data: {} }], receber: [] })[0].numeroNf === '',
+  'sem nota, o campo fica vazio em vez de inventar')
+
 if (falhas) { console.error(falhas + ' falha(s)'); process.exit(1) }
 console.log('  ok: as duas tabelas numa lista só, com o placar batendo com o filtro')

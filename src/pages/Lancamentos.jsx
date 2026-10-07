@@ -145,7 +145,7 @@ export default function Lancamentos() {
         <div style={caixaFiltros}>
           <input
             value={busca} onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar por código, fornecedor, cliente, descrição, categoria…"
+            placeholder="Buscar por código, nº do documento, fornecedor, cliente, descrição, categoria…"
             style={{ ...campo, flex: '1 1 320px' }}
           />
           <select value={tipo} onChange={e => setTipo(e.target.value)} style={campo}>
@@ -232,7 +232,7 @@ export default function Lancamentos() {
               <thead>
                 <tr>
                   {[
-                    ['codigo', 'Código'], ['data', 'Data'], ['tipo', 'Tipo'], ['parte', 'Quem'],
+                    ['codigo', 'Código'], ['numeroNf', 'Nº do doc.'], ['data', 'Data'], ['tipo', 'Tipo'], ['parte', 'Quem'],
                     ['cat', 'Categoria'], ['classificacao', 'Grupo da DRE'],
                     ['situacao', 'Situação'], ['valor', 'Valor'],
                   ].map(([c, l]) => (
@@ -249,6 +249,9 @@ export default function Lancamentos() {
                   return (
                     <tr key={l.tabela + l.id} style={{ borderTop: '1px solid var(--cream-dark)' }}>
                       <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap' }}>{l.codigo || '—'}</td>
+                      <td style={{ ...td, whiteSpace: 'nowrap', color: l.numeroNf ? 'var(--navy)' : 'var(--text-mid)' }}>
+                        {l.numeroNf || '—'}
+                      </td>
                       <td style={{ ...td, whiteSpace: 'nowrap' }}>{dataBR(l.data)}</td>
                       <td style={td}>
                         <span style={{ color: l.tipo === 'Entrada' ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>

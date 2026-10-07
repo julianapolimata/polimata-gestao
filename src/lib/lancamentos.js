@@ -66,6 +66,11 @@ export function unificar({ pagar = [], receber = [], plano = [] } = {}) {
       id: row.id,
       tabela: tipo === 'Entrada' ? 'receivable' : 'payable',
       codigo: texto(row.codigo),
+      // O numero do documento fiscal. Ele ja era gravado em 113 lancamentos e
+      // nao aparecia em lista nenhuma -- o codigo identifica o lancamento
+      // DENTRO do sistema, o numero da nota identifica o papel que existe
+      // fora dele. Quem concilia com o contador precisa do segundo.
+      numeroNf: texto(d.numero_nf),
       tipo,
       parte: texto(d.client || d.supplier) || '—',
       descricao: texto(d.desc),
@@ -143,7 +148,7 @@ export function filtrar(linhas, f = {}) {
 
   const q = minusc(f.busca)
   if (q) {
-    r = r.filter(l => [l.codigo, l.parte, l.descricao, l.cat, l.subcat, l.classificacao, l.valor.toFixed(2)]
+    r = r.filter(l => [l.codigo, l.numeroNf, l.parte, l.descricao, l.cat, l.subcat, l.classificacao, l.valor.toFixed(2)]
       .join(' ').toLowerCase().includes(q))
   }
   return r
@@ -208,13 +213,13 @@ export function ordenar(linhas, coluna = 'data', direcao = 'desc') {
  * Excel em português abre sem pedir nada.
  */
 export function paraCSV(linhas) {
-  const cabecalho = ['Código', 'Tipo', 'Data', 'Competência', 'Vencimento', 'Pagamento', 'Parte', 'Descrição', 'Categoria', 'Subcategoria', 'Classificação', 'Situação', 'Valor']
+  const cabecalho = ['Código', 'Nº do documento', 'Tipo', 'Data', 'Competência', 'Vencimento', 'Pagamento', 'Parte', 'Descrição', 'Categoria', 'Subcategoria', 'Classificação', 'Situação', 'Valor']
   const campo = v => {
     const s = String(v ?? '')
     return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
   }
   const linha = l => [
-    l.codigo, l.tipo, l.data, l.competencia, l.vencimento, l.pagamento,
+    l.codigo, l.numeroNf, l.tipo, l.data, l.competencia, l.vencimento, l.pagamento,
     l.parte, l.descricao, l.cat, l.subcat, l.classificacao,
     ROTULO_SITUACAO[l.situacao] || l.situacao,
     l.valor.toFixed(2).replace('.', ','),
