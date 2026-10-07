@@ -627,7 +627,7 @@ export default function Conciliacao() {
         .map(a => {
           const v = Number(a.valor || 0)
           if (a.key === 'suspense') {
-            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória (a esclarecer)', subcat: '', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
+            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória', subcat: 'A esclarecer', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
           }
           return { def: tiposAjuste.find(t => t.key === a.key), v }
         })
