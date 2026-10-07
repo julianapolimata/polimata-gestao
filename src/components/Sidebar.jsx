@@ -148,6 +148,7 @@ export default function Sidebar() {
         <NavItem to="/recorrencias" collapsed={collapsed} label="Recorrências" icon={ico(<><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></>)} />
 
         <Section collapsed={collapsed}>Análise &amp; Decisão</Section>
+        <NavItem to="/lancamentos" collapsed={collapsed} label="Lançamentos" icon={ico(<><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h12"/><circle cx="19" cy="18" r="2.5"/></>)} />
         <NavItem to="/fluxo-caixa" collapsed={collapsed} label="Fluxo de Caixa" icon={ico(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>)} />
         <NavItem to="/dre" collapsed={collapsed} label="DRE Gerencial" icon={ico(<><line x1="3" y1="3" x2="3" y2="21"/><line x1="3" y1="21" x2="21" y2="21"/><polyline points="7 14 11 10 14 13 19 7"/></>)} />
         <NavItem to="/simples-nacional" collapsed={collapsed} label="Simples Nacional" icon={ico(<><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></>)} />

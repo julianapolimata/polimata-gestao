@@ -25,6 +25,7 @@ import SimplesNacional from './pages/SimplesNacional'
 import NfseConfig from './pages/NfseConfig'
 import Recorrencias from './pages/Recorrencias'
 import Relatorios from './pages/Relatorios'
+import Lancamentos from './pages/Lancamentos'
 import FechamentoMensal from './pages/FechamentoMensal'
 import ClassificarLancamentos from './pages/ClassificarLancamentos'
 import PlanoContas from './pages/PlanoContas'
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/emprestimos" element={<ProtectedRoute><Emprestimos /></ProtectedRoute>} />
           <Route path="/importacoes" element={<ProtectedRoute><Importacoes /></ProtectedRoute>} />
           <Route path="/conferencia-fatura" element={<ProtectedRoute><ConferenciaFatura /></ProtectedRoute>} />
+          <Route path="/lancamentos" element={<ProtectedRoute><Lancamentos /></ProtectedRoute>} />
           <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
