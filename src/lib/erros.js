@@ -30,6 +30,16 @@ const CODIGOS_DO_SISTEMA = {
 // Padrões de texto/código do Postgres e do Supabase.
 // Ordem importa: o primeiro que casar vence.
 const PADROES = [
+  // Login e senha: o Supabase Auth responde em inglês e é a PRIMEIRA tela do
+  // sistema — quem erra a senha não pode receber "Invalid login credentials".
+  { codigos: [], testes: [/invalid login credentials/i], msg: 'E-mail ou senha incorretos.' },
+  { codigos: [], testes: [/email not confirmed/i], msg: 'Esse e-mail ainda não foi confirmado. Procure o e-mail de acesso que enviamos.' },
+  { codigos: [], testes: [/user already registered/i, /already been registered/i], msg: 'Já existe uma conta com esse e-mail.' },
+  { codigos: [], testes: [/password should be at least/i, /password is too short/i], msg: 'A senha é curta demais — use pelo menos 6 caracteres.' },
+  { codigos: [], testes: [/should be different from the old password/i], msg: 'A nova senha precisa ser diferente da atual.' },
+  { codigos: [], testes: [/token has expired or is invalid/i, /otp_expired/i], msg: 'Esse link expirou. Peça um novo e-mail de redefinição.' },
+  { codigos: [], testes: [/for security purposes, you can only request/i, /rate limit/i, /too many requests/i], msg: 'Você tentou várias vezes seguidas. Espere um minuto e tente de novo.' },
+  { codigos: [], testes: [/auth session missing/i, /invalid refresh token/i], msg: 'Sua sessão expirou. Entre de novo.' },
   { codigos: ['23505'], testes: [/duplicate key/i, /already exists/i, /unique constraint/i], msg: 'Esse registro já existe.' },
   { codigos: ['23503'], testes: [/foreign key/i, /violates foreign key constraint/i], msg: 'Esse item está ligado a outro registro e não pode ser removido.' },
   { codigos: ['23514'], testes: [/check constraint/i, /violates check/i], msg: 'Algum campo está com valor inválido.' },

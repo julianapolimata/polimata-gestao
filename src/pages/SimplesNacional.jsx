@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -151,7 +152,7 @@ export default function SimplesNacional() {
       }
       showToast('Configuração do Simples salva.', 'success')
       setEditando(false); carregar()
-    } catch (e) { showToast('Erro ao salvar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui salvar.'), 'error') }
     finally { setSalvando(false) }
   }
 
@@ -452,7 +453,7 @@ export default function SimplesNacional() {
       if (error) throw error
       showToast(`DAS de ${labelMes} lançado em Contas a Pagar (código ${codigo}).`, 'success')
       carregar()
-    } catch (e) { showToast('Erro ao gerar a conta a pagar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui gerar a conta a pagar do DAS.'), 'error') }
     finally { setGerandoDAS(false) }
   }
 

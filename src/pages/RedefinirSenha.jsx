@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -23,7 +24,7 @@ export default function RedefinirSenha() {
     setSalvando(true)
     const { error } = await updatePassword(senha)
     setSalvando(false)
-    if (error) { setErro(error.message || 'Erro ao redefinir senha.'); return }
+    if (error) { setErro(msgErro(error, 'Não consegui redefinir a senha.')); return }
     // Sucesso → vai pro dashboard (já logado pela sessão de reset)
     navigate('/dashboard', { replace: true })
   }

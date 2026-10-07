@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
@@ -101,7 +102,7 @@ export default function PlanoContas() {
       if (msgOk) showToast(msgOk, 'success')
       return true
     } catch (e) {
-      showToast('Erro ao salvar: ' + (e.message || e), 'error')
+      showToast(msgErro(e, 'Não consegui salvar a alteração no plano de contas.'), 'error')
       return false
     } finally { setSalvando(false) }
   }

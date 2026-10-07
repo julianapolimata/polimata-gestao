@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -18,7 +19,7 @@ export default function EsqueciSenha() {
     const { error } = await sendPasswordReset(email)
     setEnviando(false)
     if (error) {
-      setErro(error.message || 'Erro ao enviar e-mail.')
+      setErro(msgErro(error, 'Não consegui enviar o e-mail.'))
       return
     }
     setSucesso(true)

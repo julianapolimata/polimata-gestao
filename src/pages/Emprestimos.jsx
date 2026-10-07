@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -145,7 +146,7 @@ export default function Emprestimos() {
     })
     if (!ok) return
     const { error } = await supabase.from('emprestimos_financiamentos').delete().eq('id', row.id)
-    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não consegui excluir este contrato.'), 'error'); return }
     showToast('Excluído.', 'info')
     recarregar()
   }

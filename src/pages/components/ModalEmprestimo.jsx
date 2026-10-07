@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { msgErro } from '../../lib/erros'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
@@ -210,7 +211,7 @@ Importante:
       showToast(`✓ ${extraido.parcelas?.length || 0} parcelas extraídas.`, 'success')
     } catch (err) {
       console.error(err)
-      showToast('Erro ao extrair: ' + err.message, 'error')
+      showToast(msgErro(err, 'Não consegui ler as parcelas deste contrato.'), 'error')
     } finally {
       setExtraindo(false)
     }
@@ -332,7 +333,7 @@ Importante:
       onClose()
     } catch (e) {
       console.error(e)
-      showToast('Erro: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui salvar o empréstimo.'), 'error')
     } finally {
       setSalvando(false)
     }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../../lib/erros'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { useConfirm } from '../../components/ConfirmDialog'
@@ -401,7 +402,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       onSaved?.()
       onClose()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || 'Erro ao mover: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui mover o lançamento.'), 'error')
     } finally {
       setSaving(false)
     }
@@ -413,7 +414,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       const url = await getAnexoSignedUrl(anexoPath)
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (e) {
-      showToast('Erro ao abrir anexo: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui abrir o anexo.'), 'error')
     }
   }
   function selecionarAnexo(e) {

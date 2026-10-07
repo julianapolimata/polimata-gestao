@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import Modal from './Modal'
 import { supabase } from '../lib/supabase'
 
@@ -63,7 +64,7 @@ export default function VisualizadorDocumento({ pendingId, nome, tipoDeclarado, 
         urlCriada = URL.createObjectURL(new Blob([bytes], { type: mime }))
         if (vivo) setEstado({ fase: 'arquivo', url: urlCriada, mime, tamanho: bytes.length })
       } catch (e) {
-        if (vivo) setEstado({ fase: 'erro', erro: e.message })
+        if (vivo) setEstado({ fase: 'erro', erro: msgErro(e, 'Não consegui abrir este arquivo.') })
       }
     })()
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import { showToast } from '../components/Toast'
-import { fmtMoney, flatten } from '../lib/finance'
+import { fmtMoney, flatten, numeroBR } from '../lib/finance'
 import { parseOFX, detectarTipoOFX } from '../lib/ofx'
 import { sugerirMatches, classificarLinha } from '../lib/matchExtrato'
 import { construirRegrasDeConciliacao, regraParaLinha, explicarRegra } from '../lib/regrasConciliacao'
@@ -13,7 +14,6 @@ import { planejarCompras, resumoPlano, vencimentoDaLinha, ehPagamentoFatura } fr
 import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
-import { traduzErroFechamento } from '../lib/fechamento'
 import { useConfirm } from '../components/ConfirmDialog'
 import ResolverEmGrupo from './components/ResolverEmGrupo'
 
@@ -442,7 +442,7 @@ export default function Conciliacao() {
       carregar()
     } catch (err) {
       console.error(err)
-      showToast('Erro: ' + err.message, 'error')
+      showToast(msgErro(err, 'Não consegui importar o extrato.'), 'error')
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -495,7 +495,7 @@ export default function Conciliacao() {
       }
       if (ok) showToast(`${ok} transação(ões) conciliada(s) automaticamente${silencioso ? ' — confira' : ''}.`, silencioso ? 'info' : 'success')
       setSelecionado(null); carregar()
-    } catch (e) { if (!silencioso) showToast('Erro na conciliação automática: ' + e.message, 'error') }
+    } catch (e) { if (!silencioso) showToast(msgErro(e, 'Não consegui conciliar automaticamente.'), 'error') }
     finally { setAutoConc(false) }
   }
 
@@ -526,11 +526,18 @@ export default function Conciliacao() {
   }, [extratos, selecionado, candidatasAJuntar, juntas])
 
   const totalDoGrupo = useMemo(() => somarLinhas(linhasDoGrupo), [linhasDoGrupo])
+
+  // O campo de valor da divisao é TEXTO em pt-BR ("3.215,81"). Quem fizer conta
+  // com ele direto pega NaN — e NaN tratado como zero foi o que fez o painel
+  // dizer "fecha exato" e, na linha de baixo, "uma das naturezas está sem
+  // valor", com o botão travado e nenhuma saída. Toda leitura do valor passa
+  // por aqui, uma vez só.
+  const partesNum = useMemo(() => partes.map(x => ({ ...x, valor: numeroBR(x.valor) ?? 0 })), [partes])
   const erroDivisao = useMemo(
     () => (linhasDoGrupo.length < 2 && !juntas.size)
       ? 'Marque as outras transferências que fazem parte deste pagamento.'
-      : validarDivisao({ linhas: linhasDoGrupo, partes }),
-    [linhasDoGrupo, partes, juntas],
+      : validarDivisao({ linhas: linhasDoGrupo, partes: partesNum }),
+    [linhasDoGrupo, partesNum, juntas],
   )
 
   function toggleJunta(id) {
@@ -543,7 +550,7 @@ export default function Conciliacao() {
   function rmParte(id) { setPartes(ps => ps.filter(x => x.id !== id)) }
   /** Joga no campo em branco tudo que falta para fechar — o atalho do caso comum. */
   function completarResto(id) {
-    const outras = partes.filter(x => x.id !== id).reduce((s, x) => s + Math.abs(Number(x.valor) || 0), 0)
+    const outras = partesNum.filter(x => x.id !== id).reduce((s, x) => s + Math.abs(x.valor || 0), 0)
     const resto = Math.max(0, totalDoGrupo - outras)
     updParte(id, 'valor', resto.toFixed(2))
   }
@@ -556,7 +563,7 @@ export default function Conciliacao() {
     try {
       const lancs = montarLancamentos({
         linhas: linhasDoGrupo,
-        partes: partes.map(x => ({ cat: x.cat, subcat: x.subcat, valor: Number(x.valor) })),
+        partes: partesNum.map(x => ({ cat: x.cat, subcat: x.subcat, valor: x.valor })),
         tabela,
         parte: (ext.data?.descricao || '').substring(0, 80),
       })
@@ -581,7 +588,7 @@ export default function Conciliacao() {
       setSelecionado(null); carregar()
     } catch (e) {
       // Mês fechado é barrado pelo trigger do banco, com mensagem técnica.
-      showToast(traduzErroFechamento(e) || ('Não consegui registrar o pagamento: ' + (e.message || e)), 'error')
+      showToast(msgErro(e, 'Não consegui registrar o pagamento.'), 'error')
     }
     finally { setConciliando(false) }
   }
@@ -666,7 +673,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`Conciliado: ${selecionados.length} nota(s)${p_ajustes.length ? ` + ${p_ajustes.length} ajuste(s)` : ''}.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro ao conciliar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui conciliar.'), 'error') }
     finally { setConciliando(false) }
   }
 
@@ -694,7 +701,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast('Lançamento criado e conciliado.', 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui criar o lançamento a partir desta linha.'), 'error') }
   }
 
   // ── Transferência entre contas próprias (pagar fatura = transferência) ──
@@ -738,7 +745,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(tLigar ? 'Ligado à transferência já registrada.' : 'Transferência registrada e conciliada.', 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro: ' + (e.message || e), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui registrar a transferência.'), 'error') }
     finally { setConciliando(false) }
   }
 
@@ -791,7 +798,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`${n} linha(s) da fatura conciliada(s) (${p_criar.filter(c => c.extrato_id).length} compra(s) nova(s), ${plano.casar.length} casada(s)). Próximo passo: Escrituração.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro ao criar compras: ' + (e.message || e), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui criar as compras da fatura.'), 'error') }
     finally { setCriandoCompras(false) }
   }
 
@@ -848,7 +855,7 @@ export default function Conciliacao() {
       })
       if (!ok) return
       const { error } = await supabase.rpc('desconciliar_transferencia', { p_extrato_id: extrato.id })
-      if (error) { showToast('Erro: ' + error.message, 'error'); return }
+      if (error) { showToast(msgErro(error, 'Não consegui desfazer esta transferência.'), 'error'); return }
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar(); return
     }
     const nGrupo = Array.isArray(extrato.data?.extrato_grupo) ? extrato.data.extrato_grupo.length : 0
@@ -916,7 +923,7 @@ export default function Conciliacao() {
       }
       await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar()
-    } catch (e) { showToast('Erro ao desconciliar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui desfazer a conciliação.'), 'error') }
   }
 
   function limparPeriodo() {
@@ -937,7 +944,7 @@ export default function Conciliacao() {
     })
     if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').insert({ conta_id: contaId, competencia: comp })
-    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não consegui fechar o período.'), 'error'); return }
     showToast(`Período ${comp} fechado. 🔒`, 'success'); setSelecionado(null); carregar()
   }
   async function reabrirPeriodo(comp) {
@@ -948,7 +955,7 @@ export default function Conciliacao() {
     })
     if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').delete().eq('conta_id', contaId).eq('competencia', comp)
-    if (error) { showToast('Erro: ' + error.message, 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não consegui reabrir o período.'), 'error'); return }
     showToast(`Período ${comp} reaberto. 🔓`, 'info'); carregar()
   }
 
@@ -1275,14 +1282,16 @@ export default function Conciliacao() {
                         {' '}A divisão importa: <strong>pró-labore conta no Fator R</strong> e decide o anexo do Simples;
                         {' '}<strong>antecipação de lucro não conta</strong>.
                       </div>
-                      {/* A confusão que a Juliana encontrou: ela veio para cá
-                          registrar dinheiro que veio da própria conta do Itaú, e
-                          o painel pediu categoria — mas transferência entre
-                          contas não tem categoria, porque não é receita nem
-                          despesa. O aviso manda de volta para o lugar certo. */}
+                      {/* Primeira versão deste aviso começava com "Isto não é
+                          para..." — a Juliana reprovou, e com razão: repreende
+                          quem está no meio do trabalho em vez de ajudar. Texto
+                          de produto oferece a saída; não corrige a pessoa. */}
                       <div style={{ fontSize: 11, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 6, padding: '8px 10px', marginBottom: 8, lineHeight: 1.5 }}>
-                        Isto <strong>não</strong> é para dinheiro que veio (ou foi) de outra conta sua — esse não tem categoria,
-                        porque não é receita nem despesa. Para isso use <strong>↔ Transferência</strong>, uma linha de cada vez.
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>Esse dinheiro veio de outra conta sua?</div>
+                        Então é transferência, não receita. Qual usar depende de UMA coisa:
+                        {' '}<strong>a outra conta tem extrato importado aqui?</strong>
+                        <div style={{ marginTop: 5 }}>• <strong>Tem</strong> → use <strong>↔ Transferência</strong>: ele liga as duas pontas e baixa as duas de uma vez.</div>
+                        <div>• <strong>Não tem</strong> (conta encerrada, banco sem OFX) → classifique em <strong>Conta transitória › Transferência entre contas</strong>: registra deste lado só, e fica fora da DRE.</div>
                       </div>
 
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', margin: '10px 0 4px' }}>
@@ -1364,7 +1373,7 @@ export default function Conciliacao() {
                           trava tudo — e aí a pessoa desiste achando que o
                           sistema está quebrado. */}
                       {(() => {
-                        const somado = partes.reduce((s, p) => s + Math.abs(Number(String(p.valor).replace(',', '.')) || 0), 0)
+                        const somado = partesNum.reduce((s, p) => s + Math.abs(p.valor || 0), 0)
                         const resta = Math.round((totalDoGrupo - somado) * 100) / 100
                         return (
                           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', fontSize: 12, borderTop: '1px dashed var(--cream-dark)', paddingTop: 8 }}>
@@ -1486,15 +1495,27 @@ export default function Conciliacao() {
 
                   {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && (
                   <div style={diffPanel}>
-                    <div style={diffRow}><span>Extrato</span><strong>{fmtMoney(mesa.B)}</strong></div>
-                    <div style={diffRow}><span>Selecionado ({mesa.nSel})</span><strong>{fmtMoney(mesa.S)}</strong></div>
+                    {/* "Diferenca" sozinha nao diz o que esta sendo cruzado com
+                        o que: a Juliana abriu o painel com nada marcado, viu
+                        "Diferenca R$ 1.000,00" em vermelho e perguntou o que
+                        aquilo comparava. O placar agora se apresenta. */}
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6 }}>
+                      Esta linha do extrato × os lançamentos que você marcar
+                    </div>
+                    <div style={diffRow}><span>No extrato (o que o banco mostra)</span><strong>{fmtMoney(mesa.B)}</strong></div>
+                    <div style={diffRow}><span>Lançamentos marcados ({mesa.nSel})</span><strong>{fmtMoney(mesa.S)}</strong></div>
                     {mesa.aNet !== 0 && <div style={diffRow}><span>Ajustes</span><strong>{mesa.aNet > 0 ? '+' : ''}{fmtMoney(mesa.aNet)}</strong></div>}
                     <div style={{ ...diffRow, ...diffTotal, color: mesa.ok ? 'var(--green)' : 'var(--red)' }}>
-                      <span>Diferença</span><strong>{fmtMoney(mesa.diff)}{mesa.ok ? ' ✓' : ''}</strong>
+                      <span>{mesa.ok ? 'Bate' : 'Falta explicar'}</span><strong>{fmtMoney(mesa.diff)}{mesa.ok ? ' ✓' : ''}</strong>
                     </div>
                     <button onClick={conciliarMultiplo} disabled={!mesa.ok || conciliando} style={{ ...btnConciliar, opacity: (mesa.ok && !conciliando) ? 1 : 0.5, cursor: (mesa.ok && !conciliando) ? 'pointer' : 'not-allowed' }}>
                       {conciliando ? 'Conciliando…' : `✓ Conciliar${mesa.nSel ? ` ${mesa.nSel} nota(s)` : ''}`}
                     </button>
+                    {!mesa.ok && mesa.nSel === 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 6, textAlign: 'center' }}>
+                        Marque abaixo o lançamento que corresponde a esta linha — enquanto nada estiver marcado, a diferença é o valor inteiro.
+                      </div>
+                    )}
                     {!mesa.ok && mesa.nSel > 0 && (
                       <>
                         <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>

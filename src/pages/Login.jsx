@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -21,7 +22,7 @@ export default function Login() {
     const { error } = await signIn(email, password)
     setCarregando(false)
     if (error) {
-      setErro(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : (error.message || 'Erro ao entrar.'))
+      setErro(msgErro(error, 'Não consegui entrar.'))
       return
     }
     // Após login → redireciona pro sistema legado na raiz

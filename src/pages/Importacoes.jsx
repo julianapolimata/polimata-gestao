@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
@@ -129,7 +130,7 @@ export default function Importacoes() {
       setDetalhe(d => { const c = { ...d }; delete c[imp.id]; return c })
       recarregar()
     } catch (e) {
-      showToast('Erro: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui concluir a importação.'), 'error')
     }
   }
 

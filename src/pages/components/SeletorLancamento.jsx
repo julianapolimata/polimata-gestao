@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../../lib/erros'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { fmtMoney } from '../../lib/finance'
@@ -38,7 +39,7 @@ export default function SeletorLancamento({ open, onClose, nf, user, onVinculado
     setLoading(true); setBusca('')
     supabase.from(tabela).select('*')
       .then(({ data, error }) => {
-        if (error) { showToast('Erro ao buscar lançamentos: ' + error.message, 'error'); setRows([]) }
+        if (error) { showToast(msgErro(error, 'Não consegui carregar os lançamentos.'), 'error'); setRows([]) }
         else setRows((data || []).filter(semNota))
         setLoading(false)
       })
@@ -81,7 +82,7 @@ export default function SeletorLancamento({ open, onClose, nf, user, onVinculado
       }
       showToast(`Nota anexada ao lançamento ${lanc.codigo || lanc.id.slice(0, 8)}.`, 'success')
       onVinculado?.(r); onClose?.()
-    } catch (e) { showToast('Erro ao anexar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui anexar o documento ao lançamento.'), 'error') }
     finally { setProcessando(false) }
   }
 

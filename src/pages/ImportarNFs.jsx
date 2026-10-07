@@ -116,8 +116,8 @@ export default function ImportarNFs() {
       carregar()
     } catch (e) {
       console.error(e)
-      setUltimoResultado({ ok: false, msg: e.message })
-      showToast('Falha: ' + e.message, 'error')
+      setUltimoResultado({ ok: false, msg: msgErro(e, 'O robô de e-mail não conseguiu rodar.') })
+      showToast(msgErro(e, 'O robô de e-mail não conseguiu rodar.'), 'error')
     } finally {
       setRodandoCron(false)
     }
@@ -371,7 +371,7 @@ export default function ImportarNFs() {
       console.error(e)
       // Em lote, quem conta as falhas é o laço — aqui só repassa.
       if (opcoes.emLote) throw e
-      showToast('Erro ao aprovar: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui aprovar o documento.'), 'error')
     } finally {
       setConfirmando(null)
     }

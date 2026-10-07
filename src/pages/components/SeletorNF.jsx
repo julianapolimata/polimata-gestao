@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../../lib/erros'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { fmtMoney } from '../../lib/finance'
@@ -37,7 +38,7 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
       const r = await vincularNFEmail({ nf, compra, compraTabela, classificacao, modo, user })
       showToast(r.removidoId ? 'Nota vinculada — compra duplicada unida à nota.' : 'Nota vinculada.', 'success')
       onVinculado?.(r); onClose?.()
-    } catch (e) { showToast('Erro ao vincular: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui vincular a nota.'), 'error') }
     finally { setProcessando(false) }
   }
 
@@ -49,7 +50,7 @@ export default function SeletorNF({ open, onClose, compra, compraTabela, classif
       const r = await vincularNFArquivo({ compra, compraTabela, file: arquivo, numero: numeroManual.trim(), classificacao, user })
       showToast('Nota digitalizada vinculada como prova.', 'success')
       onVinculado?.(r); onClose?.()
-    } catch (e) { showToast('Erro ao subir a nota: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui enviar a nota.'), 'error') }
     finally { setProcessando(false) }
   }
 

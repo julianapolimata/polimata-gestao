@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import AppLayout from '../components/AppLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -13,7 +14,7 @@ import {
 import SeletorNF from './components/SeletorNF'
 import { rankearNFs, notaObvia, motivosDoMatch } from '../lib/nfMatch'
 import { vincularNFEmail } from '../lib/vincularNF'
-import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento } from '../lib/fechamento'
+import { fetchFechamentos, competenciaDe, mesFechado } from '../lib/fechamento'
 import { useConfirm } from '../components/ConfirmDialog'
 
 // =====================================================================
@@ -217,7 +218,7 @@ export default function ClassificarLancamentos() {
         if (semNota.length) msg += ` ${semNota.length} sem nota — vincule ou mude a situação fiscal.`
         showToast(msg, 'success')
         carregar()
-      } catch (e) { showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error') }
+      } catch (e) { showToast(msgErro(e, 'Não consegui escriturar.'), 'error') }
       finally { setSalvando(null) }
       return
     }
@@ -238,7 +239,7 @@ export default function ClassificarLancamentos() {
       showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
       carregar()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui escriturar.'), 'error')
     } finally {
       setSalvando(null)
     }
@@ -333,13 +334,13 @@ export default function ClassificarLancamentos() {
             modo: 'consolidar', user,
           })
           n++
-        } catch (e) { erros.push(`${fmtMoney(item.value)}: ${e.message}`) }
+        } catch (e) { erros.push(`${fmtMoney(item.value)}: ${msgErro(e, 'não consegui vincular esta nota.')}`) }
       }
       if (n) showToast(`${n} nota(s) vinculada(s).`, 'success')
       if (erros.length) showToast(`${erros.length} não deu(ram): ${erros[0]}`, 'error')
       carregar()
     } catch (e) {
-      showToast('Erro ao vincular em lote: ' + (e.message || e), 'error')
+      showToast(msgErro(e, 'Não consegui vincular os documentos em lote.'), 'error')
     } finally {
       setVinculandoLote(null)
     }
@@ -394,7 +395,7 @@ export default function ClassificarLancamentos() {
       avisarPulados(pulados)
       carregar()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || 'Erro na escrituração automática: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui aplicar a escrituração automática.'), 'error')
     } finally {
       setAutoRodando(false)
     }
@@ -491,7 +492,7 @@ export default function ClassificarLancamentos() {
       showToast(`${n} lançamento(s) escriturado(s) — já disponíveis pra conciliação.`, 'success')
       avisarPulados(prontosEmMesFechado)
       setSel({}); carregar()
-    } catch (e) { showToast(traduzErroFechamento(e) || 'Erro ao escriturar: ' + e.message, 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não consegui escriturar.'), 'error') }
     finally { setAutoRodando(false) }
   }
 
@@ -539,7 +540,7 @@ export default function ClassificarLancamentos() {
       else showToast(`${itens.length} movido(s) para ${nomeDest}.`, 'success')
       carregar()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || 'Erro ao mover: ' + e.message, 'error')
+      showToast(msgErro(e, 'Não consegui mover o lançamento.'), 'error')
     } finally {
       setSalvando(null)
     }

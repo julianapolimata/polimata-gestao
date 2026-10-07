@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { msgErro } from '../lib/erros'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { invalidarFechamentos, mesLabel, traduzErroFechamento } from '../lib/fechamento'
+import { invalidarFechamentos, mesLabel } from '../lib/fechamento'
 import { montarChecklist, PONTAS, estadoDoItem, ordenarPorUrgencia, VISUAL_ESTADO } from '../lib/fechamentoChecklist'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -165,7 +166,7 @@ export default function FechamentoMensal() {
       showToast(`${mesLabel(m.comp)} fechado. 🔒`, 'success')
       carregar()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || e.message || 'Erro ao fechar.', 'error')
+      showToast(msgErro(e, 'Não consegui fechar o mês.'), 'error')
     } finally { setAgindo(null) }
   }
 
@@ -196,7 +197,7 @@ export default function FechamentoMensal() {
       showToast(`${mesLabel(m.comp)} reaberto. 🔓`, 'warning')
       carregar()
     } catch (e) {
-      showToast(traduzErroFechamento(e) || e.message || 'Erro ao reabrir.', 'error')
+      showToast(msgErro(e, 'Não consegui reabrir o mês.'), 'error')
     } finally { setAgindo(null) }
   }
 
