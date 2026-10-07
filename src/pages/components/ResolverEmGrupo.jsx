@@ -31,11 +31,13 @@
 // A regra de agrupamento (e o que ela se RECUSA a juntar) está em
 // src/lib/agruparExtrato.js, com prova.
 // =============================================================================
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { fmtMoney } from '../../lib/finance'
 import { categoriasDe, subcategoriasDe } from '../../lib/planoContas'
+import PerguntarAris from '../../components/PerguntarAris'
+import { carregarHistorico } from '../../lib/arisCliente'
 import { showToast } from '../../components/Toast'
 import { agruparPendentes, resumoDoAgrupamento, lancamentosDoGrupo, grupoSem } from '../../lib/agruparExtrato'
 import { validarDivisao, montarLancamentos, somarLinhas } from '../../lib/agruparLinhas'
@@ -49,6 +51,10 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   const { user } = useAuth()
   const [aberto, setAberto] = useState(null)   // chave do grupo expandido
   const [cat, setCat] = useState('')
+  // A memoria de classificacao da Aris: carregada uma vez, usada em todos os
+  // grupos. Se falhar, a Aris continua funcionando -- so perde a parte que
+  // vale mais, e o cartao vai dizer isso em vez de fingir que nao havia nada.
+  const [historicoAris, setHistoricoAris] = useState([])
   const [subcat, setSubcat] = useState('')
   const [parte, setParte] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -78,6 +84,14 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
     setFora(new Set()); setVerLinhas(false)
     setDividir(false); setPartes([])
   }
+
+  useEffect(() => {
+    let vivo = true
+    carregarHistorico()
+      .then(h => { if (vivo) setHistoricoAris(h) })
+      .catch(e => console.warn('[aris] historico nao carregou:', e.message))
+    return () => { vivo = false }
+  }, [])
 
   function addParte() { setPartes(ps => [...ps, { id: crypto.randomUUID(), cat: '', subcat: '', valor: '' }]) }
   // `setParte` já é o nome da contraparte (fornecedor/cliente); o campo de uma
@@ -445,6 +459,15 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                         {subs.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     )}
+                    <PerguntarAris
+                      descricao={g.descricao}
+                      parte={parte}
+                      valor={g.valorUnico || g.total}
+                      tipo={tipoPlano}
+                      plano={plano}
+                      historico={historicoAris}
+                      onUsar={(c, s) => { setCat(c); setSubcat(s || '') }}
+                    />
                     <input
                       value={parte}
                       onChange={e => setParte(e.target.value)}

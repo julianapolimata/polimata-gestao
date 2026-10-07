@@ -10,12 +10,61 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://euktswsroqgvewzqappq.supabase.co';
 
-// Modelos permitidos (manter sincronizado com o que o frontend usa)
+// Modelos permitidos (manter sincronizado com o que o frontend usa E com a
+// tabela de precos de email-cron.js: modelo fora da tabela vira custo
+// ESTIMADO, e custo estimado nao serve para a dona decidir nada).
 const ALLOWED_MODELS = new Set([
-  'claude-sonnet-4-6',
-  'claude-opus-4-6',
+  'claude-sonnet-5',
+  'claude-opus-5',
+  'claude-haiku-4-5',
   'claude-haiku-4-5-20251001',
 ]);
+
+// Precos em dolar por milhao de tokens. Mesma tabela de email-cron.js.
+const PRECOS = {
+  'claude-sonnet-5': { entrada: 3.00, saida: 15.00 },
+  'claude-opus-5': { entrada: 5.00, saida: 25.00 },
+  'claude-haiku-4-5': { entrada: 1.00, saida: 5.00 },
+  'claude-haiku-4-5-20251001': { entrada: 1.00, saida: 5.00 },
+};
+
+// De onde partiu a chamada. Allowlist: 'origem' entra em leituras_ia, e campo
+// livre vindo do cliente viraria lixo no historico de gasto.
+const ORIGENS = new Set(['aris', 'emprestimo', 'app']);
+
+// ---- MEDIR O GASTO ----
+//
+// Este proxy chamava a Anthropic e DESCARTAVA o consumo que a resposta devolve.
+// Gasto invisivel e o comeco de gasto sem controle -- a regra aqui e sempre a
+// mesma: medir, mostrar, limitar, e so entao baratear.
+//
+// Nunca derruba a resposta: se o registro falhar, a usuaria recebe o que pediu
+// e a falha vai para o console. A tabela e historico de custo, nao parte do
+// fluxo.
+async function registrarConsumo({ modelo, usage, origem, resultado }) {
+  try {
+    const input = Math.max(0, Number(usage?.input_tokens) || 0);
+    const output = Math.max(0, Number(usage?.output_tokens) || 0);
+    if (!input && !output) return;
+    const preco = PRECOS[modelo] || PRECOS['claude-sonnet-5'];
+    const custoUsd = +(((input / 1e6) * preco.entrada + (output / 1e6) * preco.saida)).toFixed(6);
+    const { error } = await getSupabase().from('leituras_ia').insert({
+      user_id: process.env.POLIMATA_USER_ID,
+      modelo,
+      input_tokens: input,
+      output_tokens: output,
+      custo_usd: custoUsd,
+      cotacao_usd: null,
+      custo_brl: 0,
+      origem: ORIGENS.has(origem) ? origem : 'app',
+      resultado: resultado || 'ok',
+      meta: { via: 'api/anthropic', sem_cotacao: true, preco_estimado: !PRECOS[modelo] },
+    });
+    if (error) console.error('[custo-ia] GASTO NAO REGISTRADO (' + origem + '): ' + error.message);
+  } catch (e) {
+    console.warn('[custo-ia] falha ao registrar consumo:', e.message);
+  }
+}
 
 // Limites de proteção contra abuso/custo
 const MAX_TOKENS_HARD_CAP = 4096;
@@ -106,7 +155,7 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: 'Payload muito grande' });
   }
 
-  const { model, messages, system } = body;
+  const { model, messages, system, origem } = body;
   let { max_tokens } = body;
 
   if (typeof model !== 'string' || !ALLOWED_MODELS.has(model)) {
@@ -140,6 +189,10 @@ export default async function handler(req, res) {
     });
 
     const data = await upstream.json();
+    // O consumo vem na resposta. Antes era descartado aqui.
+    if (upstream.ok && data?.usage) {
+      await registrarConsumo({ modelo: model, usage: data.usage, origem, resultado: data?.stop_reason || 'ok' });
+    }
     return res.status(upstream.status).json(data);
   } catch (err) {
     // Não expõe stack traces para o cliente
