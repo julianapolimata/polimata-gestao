@@ -180,7 +180,6 @@ export default function Lancamentos() {
             <span style={rotulo}>Resultado</span>
             <strong style={{ ...numero, color: placar.resultado >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmtMoney(placar.resultado)}</strong>
           </div>
-          {temFiltro && <div style={{ ...rotulo, alignSelf: 'center' }}>soma o que está filtrado</div>}
         </div>
 
         {/* ── LISTA ───────────────────────────────────────────────── */}
