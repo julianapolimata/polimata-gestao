@@ -26,7 +26,7 @@ import { msgErro } from '../lib/erros'
 import { fmtMoney } from '../lib/finance'
 import { fetchPlanoContas, CLASSIFICACOES } from '../lib/planoContas'
 import {
-  unificar, filtrar, totais, ordenar, paraCSV, contarSemData,
+  unificar, filtrar, totais, ordenar, paraCSV, contarSemData, resumoDoGrupo,
   ROTULO_SITUACAO, CAMPOS_DE_DATA,
 } from '../lib/lancamentos'
 
@@ -54,6 +54,7 @@ export default function Lancamentos() {
   const [campoData, setCampoData] = useState('data')
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
+  const [grupo, setGrupo] = useState('')
   const [coluna, setColuna] = useState('data')
   const [direcao, setDirecao] = useState('desc')
 
@@ -80,8 +81,8 @@ export default function Lancamentos() {
 
   const todos = useMemo(() => unificar({ pagar, receber, plano }), [pagar, receber, plano])
   const filtrados = useMemo(
-    () => ordenar(filtrar(todos, { busca, tipo, situacao, cat, classificacao, campoData, de, ate }), coluna, direcao),
-    [todos, busca, tipo, situacao, cat, classificacao, campoData, de, ate, coluna, direcao],
+    () => ordenar(filtrar(todos, { busca, tipo, situacao, cat, classificacao, campoData, de, ate, grupo }), coluna, direcao),
+    [todos, busca, tipo, situacao, cat, classificacao, campoData, de, ate, grupo, coluna, direcao],
   )
   const placar = useMemo(() => totais(filtrados), [filtrados])
 
@@ -101,9 +102,11 @@ export default function Lancamentos() {
     return [...s].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [todos])
 
-  const temFiltro = !!(busca || tipo || situacao || cat || classificacao || de || ate)
+  const resumo = useMemo(() => (grupo ? resumoDoGrupo(todos, grupo) : null), [todos, grupo])
+
+  const temFiltro = !!(busca || tipo || situacao || cat || classificacao || de || ate || grupo)
   function limpar() {
-    setBusca(''); setTipo(''); setSituacao(''); setCat(''); setClassificacao(''); setDe(''); setAte('')
+    setBusca(''); setTipo(''); setSituacao(''); setCat(''); setClassificacao(''); setDe(''); setAte(''); setGrupo('')
   }
 
   function ordenarPor(c) {
@@ -178,6 +181,22 @@ export default function Lancamentos() {
           </button>
         </div>
 
+        {resumo && (
+          <div style={faixaGrupo}>
+            <div>
+              <strong>{resumo.nome}</strong>{' '}
+              {resumo.tipo === 'contrato' ? 'parcelas do contrato' : 'compra parcelada'} —{' '}
+              <strong>{fmtMoney(resumo.valor)}</strong> em {resumo.parcelasNoSistema} parcela(s),
+              {' '}{resumo.pagas} paga(s).
+              {resumo.parcelasNoSistema !== resumo.parcelasDoContrato && (
+                <> O contrato tem <strong>{resumo.parcelasDoContrato}</strong>: {resumo.parcelasDoContrato - resumo.parcelasNoSistema} ainda
+                {' '}não foram lançadas no sistema.</>
+              )}
+            </div>
+            <button onClick={() => setGrupo('')} style={botaoGhost}>Ver todos de novo</button>
+          </div>
+        )}
+
         {/* ── PLACAR ──────────────────────────────────────────────────
             Soma o que está NA TELA, não o total geral: um placar que ignora
             o filtro mente para quem acabou de filtrar. */}
@@ -237,7 +256,17 @@ export default function Lancamentos() {
                         </span>{' '}{l.tipo}
                       </td>
                       <td style={{ ...td, maxWidth: 230 }}>
-                        <div style={corta} title={l.parte}>{l.parte}</div>
+                        <div style={corta} title={l.parte}>
+                          {l.parte}
+                          {l.parcela && (
+                            <button
+                              onClick={() => setGrupo(l.grupoId)}
+                              disabled={!l.grupoId}
+                              title={l.grupoId ? 'Ver todas as parcelas' : 'Parcela sem vínculo gravado'}
+                              style={{ ...etiquetaParcela, cursor: l.grupoId ? 'pointer' : 'default' }}
+                            >{l.parcela}</button>
+                          )}
+                        </div>
                         {l.descricao && l.descricao !== l.parte &&
                           <div style={{ ...corta, fontSize: 11, color: 'var(--text-mid)' }} title={l.descricao}>{l.descricao}</div>}
                       </td>
@@ -278,5 +307,7 @@ const th = { padding: '10px 12px', fontSize: 10, fontWeight: 700, letterSpacing:
 const td = { padding: '8px 12px', fontSize: 12.5, color: 'var(--navy)', verticalAlign: 'top' }
 const corta = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const etiqueta = { display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }
+const faixaGrupo = { display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', fontSize: 12.5, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }
+const etiquetaParcela = { marginLeft: 6, padding: '1px 6px', borderRadius: 999, border: '1px solid var(--cream-dark)', background: 'var(--cream)', color: 'var(--text-mid)', fontFamily: 'var(--body)', fontSize: 10.5, fontWeight: 700, verticalAlign: 'middle' }
 const avisoSemData = { fontSize: 11.5, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, lineHeight: 1.5 }
 const vazio = { background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 10, padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--text-mid)' }

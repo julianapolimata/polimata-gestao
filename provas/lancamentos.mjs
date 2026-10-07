@@ -1,7 +1,7 @@
 // A relação dos lançamentos junta duas tabelas numa lista só. O que não pode
 // acontecer: um lançamento sumir da lista sem a pessoa ter pedido, e a soma
 // não bater com o que está na tela.
-import { unificar, filtrar, totais, situacaoDe, paraCSV, ordenar, contarSemData } from '../src/lib/lancamentos.js'
+import { unificar, filtrar, totais, situacaoDe, paraCSV, ordenar, contarSemData, resumoDoGrupo } from '../src/lib/lancamentos.js'
 
 let falhas = 0
 const ok = (cond, oque) => { if (!cond) { falhas++; console.error('  X ' + oque) } }
@@ -77,6 +77,43 @@ ok(csv.includes('2,59'), 'CSV usa vírgula decimal, como o Excel em português e
 ok(csv.includes('Despesas Financeiras'), 'CSV leva a classificação junto')
 
 ok(situacaoDe({ status: 'Provisão' }) === 'previsto', 'provisão é previsto, não realizado')
+
+// ── PARCELAS E GRUPO ─────────────────────────────────────────────────────
+// A Juliana viu 10 linhas "SebraeSp 1/10 ... 10/10", cada uma com seu codigo,
+// e perguntou se nao deveria ser um codigo so. Nao: cada parcela e um titulo
+// com vencimento, baixa e conciliacao proprios. O que faltava era MOSTRAR o
+// vinculo -- que ja estava gravado em parent_id (compra) e emprestimo_id
+// (contrato), e que nenhuma tela exibia.
+const compra = 'c0ffee00-0000-4000-8000-000000000001'
+const contrato = 'c0ffee00-0000-4000-8000-000000000002'
+const parceladas = unificar({
+  plano,
+  receber: [],
+  pagar: [
+    { id: 's1', codigo: '200322', parent_id: compra, data: { supplier: 'SebraeSp', value: 220, status: 'Pago', data_pagamento: '2025-05-22', parcela_atual: 1, parcela_total: 10 } },
+    { id: 's2', codigo: '200323', parent_id: compra, data: { supplier: 'SebraeSp', value: 220, status: 'Pago', data_pagamento: '2025-06-22', parcela_atual: 2, parcela_total: 10 } },
+    { id: 's3', codigo: '200324', parent_id: compra, data: { supplier: 'SebraeSp', value: 220, status: 'Pendente', due: '2025-07-22', parcela_atual: 3, parcela_total: 10 } },
+    { id: 'e1', codigo: '200403', emprestimo_id: contrato, data: { supplier: 'Sicoob', value: 46.72, status: 'Pago', data_pagamento: '2026-02-20', parcela_atual: 1, parcela_total: 36 } },
+    { id: 'x1', codigo: '200900', data: { supplier: 'Padaria', value: 10, status: 'Pago', data_pagamento: '2025-05-02' } },
+  ],
+})
+
+ok(parceladas.find(l => l.codigo === '200322').parcela === '1/10', 'mostra a parcela como 1/10')
+ok(parceladas.find(l => l.codigo === '200900').parcela === '', 'lancamento avulso nao finge ser parcela')
+ok(parceladas.find(l => l.codigo === '200322').grupoTipo === 'compra', 'parent_id = compra no cartao')
+ok(parceladas.find(l => l.codigo === '200403').grupoTipo === 'contrato', 'emprestimo_id = contrato')
+
+// Cada parcela guarda o codigo DELA -- e isso que permite cita-la sozinha.
+const codigos = parceladas.filter(l => l.grupoId === compra).map(l => l.codigo)
+ok(new Set(codigos).size === 3, 'as parcelas da mesma compra tem codigos diferentes')
+
+ok(filtrar(parceladas, { grupo: compra }).length === 3, 'da para pedir a compra inteira')
+
+const r = resumoDoGrupo(parceladas, compra)
+ok(r.parcelasDoContrato === 10 && r.parcelasNoSistema === 3,
+  'o resumo nao esconde que so 3 das 10 parcelas estao no sistema')
+ok(r.pagas === 2 && r.valor === 660, 'soma e contagem de pagas do grupo')
+ok(resumoDoGrupo(parceladas, 'nao-existe') === null, 'grupo inexistente devolve null')
 
 if (falhas) { console.error(falhas + ' falha(s)'); process.exit(1) }
 console.log('  ok: as duas tabelas numa lista só, com o placar batendo com o filtro')

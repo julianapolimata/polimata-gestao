@@ -76,6 +76,16 @@ export function unificar({ pagar = [], receber = [], plano = [] } = {}) {
       situacao,
       status: texto(d.status),
       escriturado: d.escriturado === true,
+      // Parcela e grupo vem de colunas que o sistema JA escrevia e que a
+      // interface nunca mostrou: parent_id costura as parcelas de uma compra
+      // no cartao, emprestimo_id liga a parcela ao contrato. Nada aqui e
+      // derivado por semelhanca -- e o vinculo gravado na hora em que a
+      // parcela nasceu.
+      parcelaAtual: Number(d.parcela_atual) || 0,
+      parcelaTotal: Number(d.parcela_total) || 0,
+      parcela: Number(d.parcela_total) > 1 ? `${Number(d.parcela_atual) || '?'}/${d.parcela_total}` : '',
+      grupoId: String(row.parent_id || row.emprestimo_id || ''),
+      grupoTipo: row.emprestimo_id ? 'contrato' : (row.parent_id ? 'compra' : ''),
       competencia: texto(d.data_competencia),
       vencimento: texto(d.due),
       pagamento: texto(d.data_pagamento),
@@ -107,6 +117,7 @@ export function filtrar(linhas, f = {}) {
   if (f.cat) r = r.filter(l => l.cat === f.cat)
   if (f.subcat) r = r.filter(l => l.subcat === f.subcat)
   if (f.classificacao) r = r.filter(l => l.classificacao === f.classificacao)
+  if (f.grupo) r = r.filter(l => l.grupoId === f.grupo)
 
   const campo = CAMPOS_DE_DATA[f.campoData] ? f.campoData : 'data'
   // O período filtra DE VERDADE: quem não tem a data escolhida não está no
@@ -136,6 +147,27 @@ export function filtrar(linhas, f = {}) {
       .join(' ').toLowerCase().includes(q))
   }
   return r
+}
+
+/**
+ * O resumo de uma compra parcelada ou de um contrato: quantas parcelas, quanto
+ * soma, quantas já foram pagas. É a resposta para "a compra do Sebrae inteira",
+ * que antes não existia em lugar nenhum -- o vínculo estava gravado, só não
+ * aparecia.
+ */
+export function resumoDoGrupo(linhas, grupoId) {
+  const ls = (linhas || []).filter(l => l.grupoId && l.grupoId === grupoId)
+  if (!ls.length) return null
+  const total = ls[0].parcelaTotal || ls.length
+  return {
+    id: grupoId,
+    tipo: ls[0].grupoTipo,
+    nome: ls[0].parte,
+    parcelasNoSistema: ls.length,
+    parcelasDoContrato: total,
+    pagas: ls.filter(l => l.situacao === 'realizado').length,
+    valor: Math.round(ls.reduce((s, l) => s + l.valor, 0) * 100) / 100,
+  }
 }
 
 /**
