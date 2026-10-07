@@ -26,7 +26,7 @@ import { msgErro } from '../lib/erros'
 import { fmtMoney } from '../lib/finance'
 import { fetchPlanoContas, CLASSIFICACOES } from '../lib/planoContas'
 import {
-  unificar, filtrar, totais, ordenar, paraCSV,
+  unificar, filtrar, totais, ordenar, paraCSV, contarSemData,
   ROTULO_SITUACAO, CAMPOS_DE_DATA,
 } from '../lib/lancamentos'
 
@@ -84,6 +84,15 @@ export default function Lancamentos() {
     [todos, busca, tipo, situacao, cat, classificacao, campoData, de, ate, coluna, direcao],
   )
   const placar = useMemo(() => totais(filtrados), [filtrados])
+
+  // Quantas linhas o período deixou de fora por NÃO TEREM a data escolhida.
+  // Um lançamento em aberto não tem data de pagamento: é correto que ele fique
+  // fora de "pagos em maio", e é igualmente correto que a tela diga isso em
+  // vez de a pessoa achar que o lançamento sumiu.
+  const semAData = useMemo(
+    () => contarSemData(todos, { busca, tipo, situacao, cat, classificacao, campoData, de, ate }),
+    [todos, busca, tipo, situacao, cat, classificacao, campoData, de, ate],
+  )
 
   // Só as categorias que REALMENTE aparecem nos lançamentos: oferecer as 81 do
   // plano num filtro de consulta é devolver o problema que a tela veio resolver.
@@ -182,6 +191,15 @@ export default function Lancamentos() {
           </div>
         </div>
 
+        {semAData > 0 && (
+          <div style={avisoSemData}>
+            <strong>{semAData} lançamento(s)</strong> ficaram de fora do período porque não têm
+            {' '}<strong>{(CAMPOS_DE_DATA[campoData] || '').toLowerCase()}</strong> preenchida.
+            {campoData === 'pagamento' && ' É o esperado para o que ainda está em aberto ou previsto.'}
+            {' '}Para vê-los, troque a data do filtro ou limpe o período.
+          </div>
+        )}
+
         {/* ── LISTA ───────────────────────────────────────────────── */}
         {loading ? (
           <div style={vazio}>Carregando…</div>
@@ -260,4 +278,5 @@ const th = { padding: '10px 12px', fontSize: 10, fontWeight: 700, letterSpacing:
 const td = { padding: '8px 12px', fontSize: 12.5, color: 'var(--navy)', verticalAlign: 'top' }
 const corta = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const etiqueta = { display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }
+const avisoSemData = { fontSize: 11.5, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, lineHeight: 1.5 }
 const vazio = { background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 10, padding: 28, textAlign: 'center', fontSize: 13, color: 'var(--text-mid)' }

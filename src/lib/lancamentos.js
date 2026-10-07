@@ -109,10 +109,21 @@ export function filtrar(linhas, f = {}) {
   if (f.classificacao) r = r.filter(l => l.classificacao === f.classificacao)
 
   const campo = CAMPOS_DE_DATA[f.campoData] ? f.campoData : 'data'
-  // Linha sem a data escolhida NÃO some: esconder silenciosamente um
-  // lançamento porque falta um campo é como perdê-lo.
-  if (f.de) r = r.filter(l => !l[campo] || l[campo] >= f.de)
-  if (f.ate) r = r.filter(l => !l[campo] || l[campo] <= f.ate)
+  // O período filtra DE VERDADE: quem não tem a data escolhida não está no
+  // intervalo, então sai.
+  //
+  // A primeira versão deixava essas linhas passarem, para "não esconder nada".
+  // O resultado foi um filtro que não filtrava: pagamento entre 01 e 31/05/2025
+  // devolveu 223 lançamentos — quase todos —, porque quase nenhum tem data de
+  // pagamento preenchida. Filtro que não filtra é pior que filtro que esconde,
+  // porque o número que aparece na tela está errado e ninguém desconfia.
+  //
+  // O cuidado original continua valendo, só que dito em voz alta em vez de
+  // silenciosamente: contarSemData diz quantas ficaram de fora por isso, e a
+  // tela mostra.
+  if (f.de || f.ate) r = r.filter(l => !!l[campo])
+  if (f.de) r = r.filter(l => l[campo] >= f.de)
+  if (f.ate) r = r.filter(l => l[campo] <= f.ate)
 
   const vmin = parseFloat(f.valorMin)
   const vmax = parseFloat(f.valorMax)
@@ -125,6 +136,19 @@ export function filtrar(linhas, f = {}) {
       .join(' ').toLowerCase().includes(q))
   }
   return r
+}
+
+/**
+ * Quantas linhas ficaram de fora SÓ por não terem a data escolhida.
+ *
+ * Conta sobre o mesmo recorte dos outros filtros, sem o período: senão o aviso
+ * somaria linhas que já estavam fora por outro motivo e assustaria à toa.
+ */
+export function contarSemData(linhas, f = {}) {
+  if (!f.de && !f.ate) return 0
+  const campo = CAMPOS_DE_DATA[f.campoData] ? f.campoData : 'data'
+  const base = filtrar(linhas, { ...f, de: '', ate: '' })
+  return base.filter(l => !l[campo]).length
 }
 
 /** Entradas, saídas e o que sobra — o placar da lista que está na tela. */

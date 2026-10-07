@@ -1,7 +1,7 @@
 // A relação dos lançamentos junta duas tabelas numa lista só. O que não pode
 // acontecer: um lançamento sumir da lista sem a pessoa ter pedido, e a soma
 // não bater com o que está na tela.
-import { unificar, filtrar, totais, situacaoDe, paraCSV, ordenar } from '../src/lib/lancamentos.js'
+import { unificar, filtrar, totais, situacaoDe, paraCSV, ordenar, contarSemData } from '../src/lib/lancamentos.js'
 
 let falhas = 0
 const ok = (cond, oque) => { if (!cond) { falhas++; console.error('  X ' + oque) } }
@@ -40,9 +40,17 @@ for (const q of ['prestamista', '200596', 'Despesas Financeiras', 'SEGURO']) {
   ok(filtrar(todos, { busca: q }).some(l => l.codigo === '200596'), 'busca por "' + q + '"')
 }
 
-// Período: linha SEM a data escolhida não pode sumir calada.
-const semCompetencia = filtrar(todos, { campoData: 'competencia', de: '2025-01-01', ate: '2025-12-31' })
-ok(semCompetencia.length === 3, 'sem o campo de data escolhido, a linha permanece')
+// PERÍODO — o bug que a Juliana pegou: filtrar por pagamento em maio/2025
+// devolvia 223 lançamentos, quase todos, porque as linhas sem data de
+// pagamento passavam direto. Filtro que não filtra mente o número na tela.
+const porCompetencia = filtrar(todos, { campoData: 'competencia', de: '2025-01-01', ate: '2025-12-31' })
+ok(porCompetencia.length === 0, 'sem a data escolhida a linha NÃO entra no período')
+ok(contarSemData(todos, { campoData: 'competencia', de: '2025-01-01', ate: '2025-12-31' }) === 3,
+  'mas a tela avisa quantas ficaram de fora — o cuidado vira aviso, não silêncio')
+ok(contarSemData(todos, { campoData: 'pagamento' }) === 0,
+  'sem período escolhido não há o que avisar')
+ok(contarSemData(todos, { campoData: 'pagamento', tipo: 'Entrada', de: '2025-01-01' }) === 0,
+  'o aviso respeita os outros filtros: não conta o que já estava fora')
 
 ok(filtrar(todos, { campoData: 'pagamento', de: '2025-05-01', ate: '2025-05-31' })
   .filter(l => l.pagamento).length === 2, 'filtro por data de pagamento')
