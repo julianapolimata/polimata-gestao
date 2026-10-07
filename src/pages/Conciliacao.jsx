@@ -16,6 +16,7 @@ import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoCon
 import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
 import { useConfirm } from '../components/ConfirmDialog'
 import ResolverEmGrupo from './components/ResolverEmGrupo'
+import ParesQueSeAnulam from './components/ParesQueSeAnulam'
 
 // Tipos de ajuste que EXPLICAM a diferença entre o valor do banco e a nota
 // (o "valor netado"). Cada um posta num lançamento próprio, na sua categoria —
@@ -1135,6 +1136,14 @@ export default function Conciliacao() {
           descer até a lista e começar a clicar uma a uma é o caminho que faz
           desistir na quinta. Só para conta comum: o cartão tem "＋ Criar
           compras", que é a mesma ideia com a fatura como fonte. */}
+      {/* Antes do agrupamento: os pares que NÃO precisam de decisão nenhuma.
+          Débito e estorno no mesmo dia não são trabalho de classificação —
+          são ruído do banco ocupando a fila. Tirar 20 linhas daqui vale mais
+          que classificar 20, e custa um clique. */}
+      {pendentesVisiveis.length > 0 && (
+        <ParesQueSeAnulam linhas={pendentesVisiveis} onPronto={carregar} />
+      )}
+
       {!ehCartao && pendentesVisiveis.length > 0 && (
         <ResolverEmGrupo linhas={pendentesVisiveis} plano={plano} onPronto={carregar} />
       )}
