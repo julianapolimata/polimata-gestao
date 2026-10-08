@@ -1,4 +1,5 @@
 import Sidebar from './Sidebar'
+import ArisPainel from './ArisPainel'
 import Topbar from './Topbar'
 
 // stickyTop: ReactNode opcional renderizado em <div position:sticky top:0>
@@ -23,6 +24,10 @@ export default function AppLayout({ title, children, stickyTop }) {
           </div>
         </div>
       </main>
+      {/* A Aris mora AQUI porque a Juliana pediu que ela existisse no app
+          inteiro: toda tela que passa pelo AppLayout tem a Aris, e ela sabe
+          em qual delas a pergunta foi feita. */}
+      <ArisPainel />
     </div>
   )
 }
