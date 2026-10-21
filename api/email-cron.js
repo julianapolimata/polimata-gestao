@@ -5,7 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
-import { peneirarPdf } from '../lib/peneiraPdf.js';
+import { peneirarPdf, textoCompleto } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
 import { naoEhDocumentoFiscal, numeroCanonico } from '../lib/documentoFiscal.js';
 import { construirRegrasDeDispensa, dispensaPara } from '../lib/regrasDocumento.js';
@@ -1060,7 +1060,13 @@ async function processMessage(accessToken, messageId, labelId, gasto) {
       // O VISÍVEL, não o arquivo inteiro: nos blocos binários do PDF qualquer
       // sequência curta aparece por acaso. Dois contratos de aluguel viraram
       // "guia de imposto" porque "DARF" e "GNRE" estavam no ruído.
-      const textoDoDocumento = peneira.visivel || '';
+      //
+      // E o texto do SEGUNDO leitor junto (ver lib/peneiraPdf.js): o boleto da
+      // JL Ramos escreve a pagina em codigo de glifo, que nenhuma expressao
+      // regular alcanca. Sem isso, 17 documentos dela ficaram sem papel
+      // reconhecido e o boleto acabou ocupando o lugar da nota fiscal.
+      // E soma, nao troca: o que ja era lido continua sendo.
+      const textoDoDocumento = await textoCompleto(Buffer.from(base64, 'base64'), peneira.visivel || '');
       if (!peneira.ler) {
         descartadosCount++;
         console.log(`[não vale ler] ${att.filename}: ${peneira.detalhe}`);
