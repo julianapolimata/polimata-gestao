@@ -637,13 +637,14 @@ export default function Conciliacao() {
             // de pendência resolvida. A Juliana mandou tirar a subcategoria, e
             // está certa — a conta não existe mais no plano.
             //
-            // Agora a diferença cai em Outras Despesas (ou Outras Receitas, se
-            // sobrou dinheiro). Continua sendo uma saída de emergência para
-            // fechar a conciliação, mas o valor aparece no resultado do mês —
-            // onde incomoda até alguém explicar.
+            // Agora a diferença cai em "Diferença de conciliação" — conta
+            // própria dos dois lados, para não misturar sobra de conciliação
+            // com despesa eventual de verdade. Continua sendo uma saída de
+            // emergência para fechar a conciliação, mas o valor aparece no
+            // resultado do mês, onde incomoda até alguém explicar.
             return a.sinal === 'acresce'
               ? { def: { tabela: 'receivable', cat: 'Outras Receitas', subcat: 'Diferença de conciliação', label: 'Diferença de conciliação (entra no resultado)', key: 'suspense', suspense: true }, v }
-              : { def: { tabela: 'payable', cat: 'Outras Despesas', subcat: 'Despesas não recorrentes', label: 'Diferença de conciliação (entra no resultado)', key: 'suspense', suspense: true }, v }
+              : { def: { tabela: 'payable', cat: 'Outras Despesas', subcat: 'Diferença de conciliação', label: 'Diferença de conciliação (entra no resultado)', key: 'suspense', suspense: true }, v }
           }
           return { def: tiposAjuste.find(t => t.key === a.key), v }
         })
