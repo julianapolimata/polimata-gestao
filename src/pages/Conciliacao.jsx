@@ -629,7 +629,21 @@ export default function Conciliacao() {
         .map(a => {
           const v = Number(a.valor || 0)
           if (a.key === 'suspense') {
-            return { def: { tabela: a.sinal === 'acresce' ? 'receivable' : 'payable', cat: 'Conta transitória', subcat: 'A esclarecer', label: 'Diferença a esclarecer (suspense)', key: 'suspense', suspense: true }, v }
+            // ── A DIFERENÇA ENTRA NO RESULTADO, NÃO EM UM LIMBO ──────────
+            //
+            // Isto ia para "Conta transitória › A esclarecer", que ficava FORA
+            // da DRE. O problema de uma conta de espera é que ninguém volta
+            // nela: o valor some do resultado e fica lá, para sempre, com cara
+            // de pendência resolvida. A Juliana mandou tirar a subcategoria, e
+            // está certa — a conta não existe mais no plano.
+            //
+            // Agora a diferença cai em Outras Despesas (ou Outras Receitas, se
+            // sobrou dinheiro). Continua sendo uma saída de emergência para
+            // fechar a conciliação, mas o valor aparece no resultado do mês —
+            // onde incomoda até alguém explicar.
+            return a.sinal === 'acresce'
+              ? { def: { tabela: 'receivable', cat: 'Outras Receitas', subcat: 'Diferença de conciliação', label: 'Diferença de conciliação (entra no resultado)', key: 'suspense', suspense: true }, v }
+              : { def: { tabela: 'payable', cat: 'Outras Despesas', subcat: 'Despesas não recorrentes', label: 'Diferença de conciliação (entra no resultado)', key: 'suspense', suspense: true }, v }
           }
           return { def: tiposAjuste.find(t => t.key === a.key), v }
         })
@@ -1490,7 +1504,7 @@ export default function Conciliacao() {
                   {ajustes.map(a => (
                     <div key={a.id} style={ajusteRow}>
                       {a.key === 'suspense' ? (
-                        <div style={{ ...ajSelect, display: 'flex', alignItems: 'center', color: 'var(--gold-dark)', fontWeight: 600, background: 'rgba(204,145,94,0.10)' }}>⚠️ Diferença a esclarecer (suspense)</div>
+                        <div style={{ ...ajSelect, display: 'flex', alignItems: 'center', color: 'var(--gold-dark)', fontWeight: 600, background: 'rgba(204,145,94,0.10)' }}>⚠️ Diferença de conciliação — entra no resultado</div>
                       ) : (
                         <select value={a.key} onChange={e => updAjuste(a.id, 'key', e.target.value)} style={ajSelect}>
                           {tiposAjuste.map(t => <option key={t.key} value={t.key}>{t.label} ({t.natureza === 'reduz' ? '−' : '+'})</option>)}
@@ -1529,7 +1543,7 @@ export default function Conciliacao() {
                     {!mesa.ok && mesa.nSel > 0 && (
                       <>
                         <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>
-                        {!ehCartao && <button onClick={jogarSuspense} style={btnSuspense}>⚠️ Não sei agora — jogar {fmtMoney(Math.abs(mesa.diff))} em suspense</button>}
+                        {!ehCartao && <button onClick={jogarSuspense} style={btnSuspense} title="A diferença vira despesa (ou receita) do mês — aparece na DRE até alguém explicar">⚠️ Não sei agora — lançar {fmtMoney(Math.abs(mesa.diff))} como diferença</button>}
                       </>
                     )}
                   </div>
