@@ -50,6 +50,7 @@ export default function ClassificarLancamentos() {
   const [plano, setPlano] = useState([])
   const [loading, setLoading] = useState(true)
   const [aba, setAba] = useState('Saída') // Saída = despesas · Entrada = receitas
+  const [comp, setComp] = useState('')    // competência 'YYYY-MM' ('' = todas)
   const [sel, setSel] = useState({})       // chave -> { cat, subcat, situacao_fiscal, motivo }
   const [salvando, setSalvando] = useState(null)
   const [autoRodando, setAutoRodando] = useState(false)
@@ -96,8 +97,20 @@ export default function ClassificarLancamentos() {
   }, [user])
   useEffect(() => { carregar() }, [carregar])
 
+  // Fechando mês a mês, a fila precisa mostrar só a competência em que se está
+  // trabalhando — sem o filtro ela traz tudo que nunca foi escriturado, de 2025 em diante.
+  const naCompetencia = it => !comp || competenciaDe(it.data) === comp
+  const competencias = useMemo(() => {
+    const s = new Set()
+    for (const it of [...payable, ...receivable]) {
+      const c = competenciaDe(it.data)
+      if (c) s.add(c)
+    }
+    return [...s].sort().reverse()
+  }, [payable, receivable])
+
   const grupos = useMemo(() => {
-    const src = aba === 'Saída' ? payable : receivable
+    const src = (aba === 'Saída' ? payable : receivable).filter(naCompetencia)
     const map = new Map()
     for (const it of src) {
       const key = chaveGrupo(it)
@@ -109,7 +122,7 @@ export default function ClassificarLancamentos() {
     // Anexa a regra aprendida (se houver) a cada grupo.
     for (const g of map.values()) g.regra = regraPara(g.rep.data, regras)
     return [...map.values()].sort((a, b) => b.total - a.total)
-  }, [aba, payable, receivable, regras])
+  }, [aba, comp, payable, receivable, regras])
 
   const categorias = useMemo(() => categoriasDe(plano, aba), [plano, aba])
   const totalPend = payable.length + receivable.length
@@ -584,9 +597,33 @@ export default function ClassificarLancamentos() {
         </div>
       )}
 
-      <div style={tabsBar}>
-        <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.length})</button>
-        <button onClick={() => setAba('Entrada')} style={aba === 'Entrada' ? tabActive : tabInactive}>Receitas ({receivable.length})</button>
+      <div style={{ ...tabsBar, alignItems: 'center', gap: 10 }}>
+        <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.filter(naCompetencia).length})</button>
+        <button onClick={() => setAba('Entrada')} style={aba === 'Entrada' ? tabActive : tabInactive}>Receitas ({receivable.filter(naCompetencia).length})</button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label htmlFor="filtro-competencia" style={{ fontSize: 12, color: '#666' }}>Competência</label>
+          <select
+            id="filtro-competencia"
+            value={comp}
+            onChange={e => setComp(e.target.value)}
+            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8d8d8', fontSize: 13, background: '#fff' }}
+          >
+            <option value="">Todas ({payable.length + receivable.length})</option>
+            {competencias.map(c => {
+              const [a, m] = c.split('-')
+              const n = [...payable, ...receivable].filter(it => competenciaDe(it.data) === c).length
+              return <option key={c} value={c}>{m}/{a} ({n})</option>
+            })}
+          </select>
+          {comp && (
+            <button
+              onClick={() => setComp('')}
+              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8d8d8', background: '#fff', cursor: 'pointer', fontSize: 13 }}
+            >
+              limpar
+            </button>
+          )}
+        </div>
       </div>
 
       {grupos.length === 0 ? (
