@@ -15,6 +15,7 @@ import SeletorNF from './components/SeletorNF'
 import { rankearNFs, notaObvia, motivosDoMatch } from '../lib/nfMatch'
 import { vincularNFEmail } from '../lib/vincularNF'
 import { fetchFechamentos, competenciaDe, mesFechado } from '../lib/fechamento'
+import CampoData from '../components/CampoData'
 import { useConfirm } from '../components/ConfirmDialog'
 
 // =====================================================================
@@ -50,7 +51,8 @@ export default function ClassificarLancamentos() {
   const [plano, setPlano] = useState([])
   const [loading, setLoading] = useState(true)
   const [aba, setAba] = useState('Saída') // Saída = despesas · Entrada = receitas
-  const [comp, setComp] = useState('')    // competência 'YYYY-MM' ('' = todas)
+  const [dataDe, setDataDe] = useState('')   // período da fila ('' = tudo)
+  const [dataAte, setDataAte] = useState('')
   const [sel, setSel] = useState({})       // chave -> { cat, subcat, situacao_fiscal, motivo }
   const [salvando, setSalvando] = useState(null)
   const [autoRodando, setAutoRodando] = useState(false)
@@ -97,20 +99,31 @@ export default function ClassificarLancamentos() {
   }, [user])
   useEffect(() => { carregar() }, [carregar])
 
-  // Fechando mês a mês, a fila precisa mostrar só a competência em que se está
-  // trabalhando — sem o filtro ela traz tudo que nunca foi escriturado, de 2025 em diante.
-  const naCompetencia = it => !comp || competenciaDe(it.data) === comp
-  const competencias = useMemo(() => {
-    const s = new Set()
-    for (const it of [...payable, ...receivable]) {
-      const c = competenciaDe(it.data)
-      if (c) s.add(c)
-    }
-    return [...s].sort().reverse()
-  }, [payable, receivable])
+  // Fechando mês a mês, a fila precisa mostrar só o período em que se está
+  // trabalhando — sem o filtro ela traz tudo que nunca foi escriturado, de 2025
+  // em diante. Mesmos campos e mesmo comportamento da tela de conciliação: são
+  // dois passos do mesmo fluxo e não faz sentido filtrar de jeitos diferentes.
+  const dataDoLanc = it => it?.data?.data_competencia || it?.data?.due || ''
+  const noPeriodo = it => {
+    const d = dataDoLanc(it)
+    if (!d) return true                        // sem data não se esconde: some da vista e some do controle
+    if (dataDe && d < dataDe) return false
+    if (dataAte && d > dataAte) return false
+    return true
+  }
+  const fimDoMesDe = iso => {
+    const [a, m] = String(iso).split('-').map(Number)
+    if (!a || !m) return ''
+    return `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
+  }
+  const mudarDataDe = novo => {
+    setDataDe(novo)
+    if (novo) setDataAte(fimDoMesDe(novo))
+  }
+  const limparPeriodo = () => { setDataDe(''); setDataAte('') }
 
   const grupos = useMemo(() => {
-    const src = (aba === 'Saída' ? payable : receivable).filter(naCompetencia)
+    const src = (aba === 'Saída' ? payable : receivable).filter(noPeriodo)
     const map = new Map()
     for (const it of src) {
       const key = chaveGrupo(it)
@@ -122,7 +135,7 @@ export default function ClassificarLancamentos() {
     // Anexa a regra aprendida (se houver) a cada grupo.
     for (const g of map.values()) g.regra = regraPara(g.rep.data, regras)
     return [...map.values()].sort((a, b) => b.total - a.total)
-  }, [aba, comp, payable, receivable, regras])
+  }, [aba, dataDe, dataAte, payable, receivable, regras])
 
   const categorias = useMemo(() => categoriasDe(plano, aba), [plano, aba])
   const totalPend = payable.length + receivable.length
@@ -598,30 +611,14 @@ export default function ClassificarLancamentos() {
       )}
 
       <div style={{ ...tabsBar, alignItems: 'center', gap: 10 }}>
-        <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.filter(naCompetencia).length})</button>
-        <button onClick={() => setAba('Entrada')} style={aba === 'Entrada' ? tabActive : tabInactive}>Receitas ({receivable.filter(naCompetencia).length})</button>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <label htmlFor="filtro-competencia" style={{ fontSize: 12, color: '#666' }}>Competência</label>
-          <select
-            id="filtro-competencia"
-            value={comp}
-            onChange={e => setComp(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8d8d8', fontSize: 13, background: '#fff' }}
-          >
-            <option value="">Todas ({payable.length + receivable.length})</option>
-            {competencias.map(c => {
-              const [a, m] = c.split('-')
-              const n = [...payable, ...receivable].filter(it => competenciaDe(it.data) === c).length
-              return <option key={c} value={c}>{m}/{a} ({n})</option>
-            })}
-          </select>
-          {comp && (
-            <button
-              onClick={() => setComp('')}
-              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d8d8d8', background: '#fff', cursor: 'pointer', fontSize: 13 }}
-            >
-              limpar
-            </button>
+        <button onClick={() => setAba('Saída')} style={aba === 'Saída' ? tabActive : tabInactive}>Despesas ({payable.filter(noPeriodo).length})</button>
+        <button onClick={() => setAba('Entrada')} style={aba === 'Entrada' ? tabActive : tabInactive}>Receitas ({receivable.filter(noPeriodo).length})</button>
+        <div style={filtroPeriodo}>
+          <CampoData value={dataDe} onChange={e => mudarDataDe(e.target.value)} style={inputData} title="De" />
+          <span style={filtroSep}>até</span>
+          <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} min={dataDe} style={inputData} title="Até" />
+          {(dataDe || dataAte) && (
+            <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
           )}
         </div>
       </div>
@@ -806,6 +803,10 @@ const btnExpandir = { border: 'none', background: 'none', color: 'var(--navy)', 
 const itensBox = { marginTop: 10, padding: '10px 12px', background: 'var(--cream)', borderRadius: 8, border: '1px solid var(--cream-dark)' }
 const itemRow = { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 11, color: 'var(--navy)', borderBottom: '1px solid rgba(0,0,0,0.04)' }
 const btnVincularItem = { border: '1.5px solid var(--navy)', background: 'var(--white)', color: 'var(--navy)', borderRadius: 6, padding: '4px 10px', fontSize: 10, fontWeight: 700, fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }
+const filtroPeriodo = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }
+const filtroSep = { fontSize: 11, color: 'var(--text-mid)' }
+const inputData = { padding: '7px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
+const btnLimpar = { background: 'none', border: 'none', color: 'var(--text-mid)', cursor: 'pointer', fontSize: 14, fontWeight: 700, fontFamily: 'var(--body)', padding: '4px 6px' }
 const tabsBar = { display: 'flex', gap: 4, marginBottom: 16, background: 'var(--cream)', padding: 4, borderRadius: 8, width: 'fit-content' }
 const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', fontFamily: 'var(--body)', textTransform: 'uppercase' }
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
