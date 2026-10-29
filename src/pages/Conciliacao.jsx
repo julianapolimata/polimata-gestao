@@ -83,6 +83,22 @@ export default function Conciliacao() {
   // Filtros
   const [dataDe, setDataDe] = useState('')
   const [dataAte, setDataAte] = useState('')
+
+  // Trabalhando mês a mês, trocar o mês da data inicial e ter de corrigir a
+  // final na mão é passo perdido. Ao mudar o início, o fim acompanha para o
+  // último dia daquele mês — a não ser que ela já tenha escolhido um fim
+  // posterior de propósito, caso em que o intervalo dela é preservado.
+  const fimDoMesDe = iso => {
+    const [a, m] = String(iso).split('-').map(Number)
+    if (!a || !m) return ''
+    return `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
+  }
+  const mudarDataDe = novo => {
+    setDataDe(novo)
+    if (!novo) return
+    const fim = fimDoMesDe(novo)
+    if (!dataAte || dataAte < novo || dataAte <= fim) setDataAte(fim)
+  }
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
   const [filtroValorMin, setFiltroValorMin] = useState('')
@@ -1125,9 +1141,9 @@ export default function Conciliacao() {
 
           {/* Filtros — tudo em uma linha */}
           <div style={filtrosBar}>
-            <CampoData value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <CampoData value={dataDe} onChange={e => mudarDataDe(e.target.value)} style={inputData} title="De" />
             <span style={filtroSep}>até</span>
-            <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} min={dataDe} style={inputData} title="Até" />
             {(dataDe || dataAte) && (
               <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
             )}
