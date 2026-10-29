@@ -41,16 +41,26 @@ export function pontuarNF(lanc, nf) {
   // idêntico e oito meses de distância — 100 pontos só do valor, zero da data.
   // A nota do próprio mês (31/01, R$ 278,86) ficava de fora, com 21 pontos.
   // Vincular uma delas uniria os registros e apagaria um lançamento legítimo.
+  // A DIREÇÃO importa tanto quanto a distância: a nota é emitida ANTES do
+  // pagamento, nunca depois. No cartão a cobrança cai um dia após a emissão; no
+  // boleto, cerca de trinta dias — mês seguinte. Nota emitida DEPOIS da data do
+  // lançamento quase sempre é a nota do pagamento seguinte, não deste.
+  //
+  // Foi o que uma primeira tentativa errou: premiar "mesmo mês" casou o
+  // pagamento de 15/01 do Microsoft 365 com a nota de 19/01 — que é a nota do
+  // pagamento de 18/02, já conciliada. O mês é proxy ruim; a ordem não é.
   const lday = ld.data_competencia || ld.due
   const nday = nd.data_emissao || nd.data_vencimento
   if (lday && nday) {
-    const dias = Math.abs((new Date(lday) - new Date(nday)) / 86400000)
-    const mesmoMes = String(lday).slice(0, 7) === String(nday).slice(0, 7)
-    if (mesmoMes) score += 40
-    else if (dias <= 3) score += 20
-    else if (dias <= 15) score += 10
-    else if (dias <= 45) score += 3
-    else if (dias > 120) score -= 60
+    const desvio = (new Date(nday) - new Date(lday)) / 86400000 // > 0 = nota DEPOIS
+    const dias = Math.abs(desvio)
+    let pts
+    if (dias <= 3) pts = 20          // cartão: cobrança no dia seguinte à emissão
+    else if (dias <= 45) pts = 15    // boleto: pagamento no mês seguinte
+    else if (dias <= 120) pts = 3
+    else pts = -60                   // meses de distância derrubam, não empatam
+    if (desvio > 2) pts -= 35        // nota emitida depois do pagamento
+    score += pts
   }
   return score
 }
@@ -104,13 +114,13 @@ export function motivosDoMatch(lanc, nf) {
   const lday = ld.data_competencia || ld.due
   const nday = nd.data_emissao || nd.data_vencimento
   if (lday && nday) {
-    const dias = Math.round(Math.abs((new Date(lday) - new Date(nday)) / 86400000))
-    const mesmoMes = String(lday).slice(0, 7) === String(nday).slice(0, 7)
-    if (dias === 0) motivos.push('mesma data')
-    else if (mesmoMes) motivos.push('mesmo mês')
-    else if (dias <= 15) motivos.push(`${dias} dia(s) de diferença`)
-    // Distância grande não é detalhe: é o que separa a nota certa da nota de
-    // outro mês com o mesmo valor. Quem decide precisa ver isso escrito.
+    const desvio = Math.round((new Date(nday) - new Date(lday)) / 86400000)
+    const dias = Math.abs(desvio)
+    // Quem decide precisa ver a distância E a ordem escritas: é o que separa a
+    // nota certa da nota de outro mês com o mesmo valor.
+    if (desvio > 2) motivos.push(`⚠️ nota emitida ${dias} dia(s) DEPOIS do pagamento`)
+    else if (dias === 0) motivos.push('mesma data')
+    else if (dias <= 45) motivos.push(`nota ${dias} dia(s) antes do pagamento`)
     else if (dias > 120) motivos.push(`⚠️ ${Math.round(dias / 30)} meses de diferença`)
     else motivos.push(`${dias} dias de diferença`)
   }
