@@ -83,6 +83,22 @@ export default function Conciliacao() {
   // Filtros
   const [dataDe, setDataDe] = useState('')
   const [dataAte, setDataAte] = useState('')
+
+  // Trabalhando mês a mês, trocar o mês da data inicial e ter de corrigir a
+  // final na mão é passo perdido. Ao mudar o início, o fim acompanha para o
+  // último dia daquele mês — a não ser que ela já tenha escolhido um fim
+  // posterior de propósito, caso em que o intervalo dela é preservado.
+  const fimDoMesDe = iso => {
+    const [a, m] = String(iso).split('-').map(Number)
+    if (!a || !m) return ''
+    return `${a}-${String(m).padStart(2, '0')}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
+  }
+  const mudarDataDe = novo => {
+    setDataDe(novo)
+    if (!novo) return
+    const fim = fimDoMesDe(novo)
+    if (!dataAte || dataAte < novo || dataAte <= fim) setDataAte(fim)
+  }
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
   const [filtroValorMin, setFiltroValorMin] = useState('')
@@ -1010,20 +1026,21 @@ export default function Conciliacao() {
   }, [propostaDaLinha])
 
   const lancsRank = useMemo(() => {
-    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], resto: [] }
+    if (!selecionadoExt || selecionadoExt.status !== 'pendente') return { sugeridos: [], mesmoValor: [], valorDiferente: [], resto: [] }
     const tipo = selecionadoExt.data?.tipo
     // Candidatas = notas não conciliadas (já vêm assim do banco), menos Provisão.
     // Inclui as já Recebido/Pago — o que importa é não estarem amarradas ao extrato.
     // No cartão, entrada = pagamento/estorno: não há nota pra casar.
-    if (ehCartao && tipo === 'entrada') return { sugeridos: [], mesmoValor: [], resto: [] }
+    if (ehCartao && tipo === 'entrada') return { sugeridos: [], mesmoValor: [], valorDiferente: [], resto: [] }
     const pool = (tipo === 'entrada' ? receivable : payableDaConta).filter(c => c.status !== 'Provisão')
     const todas = sugerirMatches(
       { ...(selecionadoExt.data || {}), fit_id: selecionadoExt.fit_id },
       pool,
       { pessoas },
     )
-    const sugeridos = todas.filter(s => s.dentroTol)       // valor exato + data próxima
-    const mesmoValor = todas.filter(s => !s.dentroTol)      // valor exato, data diferente
+    const sugeridos = todas.filter(s => s.dentroTol)                      // valor exato + data próxima
+    const mesmoValor = todas.filter(s => !s.dentroTol && s.valorIgual)    // valor exato, data diferente
+    const valorDiferente = todas.filter(s => !s.dentroTol && !s.valorIgual) // identidade bate, valor não
     const usados = new Set(todas.map(s => s.lancamento.id))
     let resto = pool.filter(l => !usados.has(l.id))
     // Escopa a lista "outras notas" ao PERÍODO do extrato (por vencimento) — pra
@@ -1038,7 +1055,7 @@ export default function Conciliacao() {
       resto = resto.filter(l => `${l.data?.client || ''} ${l.data?.supplier || ''} ${l.desc || ''} ${l.codigo || ''}`.toLowerCase().includes(q))
     }
     resto.sort((a, b) => (b.due || '').localeCompare(a.due || ''))
-    return { sugeridos, mesmoValor, resto }
+    return { sugeridos, mesmoValor, valorDiferente, resto }
   }, [selecionadoExt, receivable, payableDaConta, ehCartao, notasNoPeriodo, dataDe, dataAte, buscaNota])
 
   // ── Mesa: pool de lançamentos, tipos de ajuste e a matemática do fechamento ──
@@ -1124,9 +1141,9 @@ export default function Conciliacao() {
 
           {/* Filtros — tudo em uma linha */}
           <div style={filtrosBar}>
-            <CampoData value={dataDe} onChange={e => setDataDe(e.target.value)} style={inputData} title="De" />
+            <CampoData value={dataDe} onChange={e => mudarDataDe(e.target.value)} style={inputData} title="De" />
             <span style={filtroSep}>até</span>
-            <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} style={inputData} title="Até" />
+            <CampoData value={dataAte} onChange={e => setDataAte(e.target.value)} min={dataDe} style={inputData} title="Até" />
             {(dataDe || dataAte) && (
               <button onClick={limparPeriodo} style={btnLimpar} title="Limpar período">×</button>
             )}
@@ -1210,7 +1227,7 @@ export default function Conciliacao() {
 
           {/* DIREITA — notas a conciliar com a linha selecionada */}
           <div style={painel}>
-            <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length}</span>}</div>
+            <div style={painelHead}>Notas a conciliar {selecionadoExt && selecionadoExt.status === 'pendente' && <span style={painelCount}>{lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.valorDiferente.length + lancsRank.resto.length}</span>}</div>
             <div style={painelBody}>
               {!selecionadoExt ? (
                 <div style={dicaVazia}>{ehCartao
@@ -1486,11 +1503,15 @@ export default function Conciliacao() {
                   {lancsRank.mesmoValor.map((s, i) => (
                     <LancCard key={s.lancamento.id + '_mv_' + i} lanc={s.lancamento} motivo={s.motivo} marcado={marcados.has(s.lancamento.id)} onToggle={() => toggleMarcado(s.lancamento.id)} />
                   ))}
+                  {lancsRank.valorDiferente.length > 0 && <div style={grupoLabel}>⚠️ Valor diferente — confira antes</div>}
+                  {lancsRank.valorDiferente.map((s, i) => (
+                    <LancCard key={s.lancamento.id + '_vd_' + i} lanc={s.lancamento} motivo={s.motivo} marcado={marcados.has(s.lancamento.id)} onToggle={() => toggleMarcado(s.lancamento.id)} />
+                  ))}
                   {lancsRank.resto.length > 0 && <div style={grupoLabel}>Outras notas em aberto</div>}
                   {lancsRank.resto.map(l => (
                     <LancCard key={l.id} lanc={l} marcado={marcados.has(l.id)} onToggle={() => toggleMarcado(l.id)} />
                   ))}
-                  {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.resto.length === 0 && (
+                  {!(ehCartao && selecionadoExt.data?.tipo === 'entrada') && lancsRank.sugeridos.length + lancsRank.mesmoValor.length + lancsRank.valorDiferente.length + lancsRank.resto.length === 0 && (
                     <div style={dicaVazia}>
                       {naturezaDaLinha.tipo === 'encargo'
                         ? <>Não existe lançamento esperando por isto, e nem deveria: cobrança do próprio banco não se cadastra antes de acontecer. Use <strong>+ Criar lançamento</strong> e classifique.</>
