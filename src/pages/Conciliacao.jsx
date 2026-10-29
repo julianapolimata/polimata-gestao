@@ -85,9 +85,15 @@ export default function Conciliacao() {
   const [dataAte, setDataAte] = useState('')
 
   // Trabalhando mês a mês, trocar o mês da data inicial e ter de corrigir a
-  // final na mão é passo perdido. Ao mudar o início, o fim acompanha para o
-  // último dia daquele mês — a não ser que ela já tenha escolhido um fim
-  // posterior de propósito, caso em que o intervalo dela é preservado.
+  // final na mão é passo perdido. Ao mudar o início, o fim vai SEMPRE para o
+  // último dia daquele mês.
+  //
+  // A primeira versão só fazia isso quando o fim estava vazio, era anterior ao
+  // início ou caía dentro do mesmo mês — a ideia era preservar um intervalo
+  // escolhido de propósito. Na prática atrapalhou: com o filtro em 01/01/2025
+  // até 20/08/2026, trocar o início não mexia em nada, que é justamente o
+  // passo manual que isto veio eliminar. Quem quer um intervalo maior ajusta o
+  // fim depois, que é a ordem natural de mexer nos dois campos.
   const fimDoMesDe = iso => {
     const [a, m] = String(iso).split('-').map(Number)
     if (!a || !m) return ''
@@ -95,9 +101,7 @@ export default function Conciliacao() {
   }
   const mudarDataDe = novo => {
     setDataDe(novo)
-    if (!novo) return
-    const fim = fimDoMesDe(novo)
-    if (!dataAte || dataAte < novo || dataAte <= fim) setDataAte(fim)
+    if (novo) setDataAte(fimDoMesDe(novo))
   }
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
