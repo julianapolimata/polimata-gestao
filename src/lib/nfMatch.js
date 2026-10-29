@@ -31,13 +31,26 @@ export function pontuarNF(lanc, nf) {
     if (ln && nn && (ln.includes(nn) || nn.includes(ln))) score += 28
   }
   // 3) DATA — proximidade entre competência/vencimento e emissão da NF.
+  //
+  // Numa assinatura mensal de valor fixo o VALOR é o sinal que menos distingue:
+  // todo mês tem o mesmo. Quem identifica a nota é a data. Por isso o mesmo mês
+  // pesa alto, e distância grande SUBTRAI em vez de apenas deixar de somar.
+  //
+  // O caso que mostrou isto: lançamento do Google de R$ 294,00 com competência
+  // em 01/01/2026 recebia como "prováveis" as notas de 31/08 e 30/09, de valor
+  // idêntico e oito meses de distância — 100 pontos só do valor, zero da data.
+  // A nota do próprio mês (31/01, R$ 278,86) ficava de fora, com 21 pontos.
+  // Vincular uma delas uniria os registros e apagaria um lançamento legítimo.
   const lday = ld.data_competencia || ld.due
   const nday = nd.data_emissao || nd.data_vencimento
   if (lday && nday) {
     const dias = Math.abs((new Date(lday) - new Date(nday)) / 86400000)
-    if (dias <= 3) score += 20
+    const mesmoMes = String(lday).slice(0, 7) === String(nday).slice(0, 7)
+    if (mesmoMes) score += 40
+    else if (dias <= 3) score += 20
     else if (dias <= 15) score += 10
     else if (dias <= 45) score += 3
+    else if (dias > 120) score -= 60
   }
   return score
 }
@@ -92,8 +105,14 @@ export function motivosDoMatch(lanc, nf) {
   const nday = nd.data_emissao || nd.data_vencimento
   if (lday && nday) {
     const dias = Math.round(Math.abs((new Date(lday) - new Date(nday)) / 86400000))
+    const mesmoMes = String(lday).slice(0, 7) === String(nday).slice(0, 7)
     if (dias === 0) motivos.push('mesma data')
+    else if (mesmoMes) motivos.push('mesmo mês')
     else if (dias <= 15) motivos.push(`${dias} dia(s) de diferença`)
+    // Distância grande não é detalhe: é o que separa a nota certa da nota de
+    // outro mês com o mesmo valor. Quem decide precisa ver isso escrito.
+    else if (dias > 120) motivos.push(`⚠️ ${Math.round(dias / 30)} meses de diferença`)
+    else motivos.push(`${dias} dias de diferença`)
   }
   return motivos
 }
