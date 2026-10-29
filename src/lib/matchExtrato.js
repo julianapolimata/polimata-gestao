@@ -26,8 +26,14 @@ const MS_DIA = 86400000
 const TOL_DIAS = 3
 const TOL_CENTAVOS = 0.01
 // Quanto o valor pode diferir quando já se sabe QUEM é (juros, multa, desconto).
+// A diferença é PROPORCIONAL: juros e multa são percentuais do título, não um
+// valor fixo. TOL_VALOR_ABS é TETO, não piso — com piso, uma linha de R$ 11,00
+// aceitava candidata de R$ 146,89, catorze vezes o próprio valor.
+// TOL_VALOR_MIN existe só para o arredondamento de centavos e tarifa miúda não
+// ficarem de fora em valores pequenos.
 const TOL_VALOR_PCT = 0.05
 const TOL_VALOR_ABS = 150
+const TOL_VALOR_MIN = 5
 
 // Palavras que aparecem em todo extrato e não identificam ninguém.
 const RUIDO = new Set([
@@ -218,7 +224,7 @@ export function sugerirMatches(extrato, candidatos, opcoes = {}) {
     const difValor = Math.abs(cVal - valor)
     const valorIgual = difValor <= TOL_CENTAVOS
     const temIdentidade = docBate || nomeBate || mesmoId
-    const toleraDiferenca = Math.max(TOL_VALOR_ABS, valor * TOL_VALOR_PCT)
+    const toleraDiferenca = Math.min(TOL_VALOR_ABS, Math.max(TOL_VALOR_MIN, valor * TOL_VALOR_PCT))
     const valorPerto = !valorIgual && temIdentidade && difValor <= toleraDiferenca
 
     if (valorIgual) {
@@ -255,6 +261,10 @@ export function sugerirMatches(extrato, candidatos, opcoes = {}) {
       // Mantido com o nome antigo: a tela usa isto para separar o que mostra
       // como sugestão do que mostra como "mesmo valor, data diferente".
       dentroTol: confianca === 'alta',
+      // A tela precisa distinguir "mesmo valor, data diferente" de "valor
+      // diferente": são coisas distintas e estavam no mesmo balde, com rótulo
+      // de valor igual em candidata de valor diferente.
+      valorIgual,
     })
   }
 
