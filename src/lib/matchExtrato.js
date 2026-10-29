@@ -31,9 +31,12 @@ const TOL_CENTAVOS = 0.01
 // aceitava candidata de R$ 146,89, catorze vezes o próprio valor.
 // TOL_VALOR_MIN existe só para o arredondamento de centavos e tarifa miúda não
 // ficarem de fora em valores pequenos.
-const TOL_VALOR_PCT = 0.05
-const TOL_VALOR_ABS = 150
-const TOL_VALOR_MIN = 5
+// Calibrada em 28/10/2026 pela Juliana, que achou a faixa larga demais na
+// prática: 3% cobre a multa de 2% mais o juro de um mês de atraso, que é o
+// caso real que justifica a diferença.
+const TOL_VALOR_PCT = 0.03
+const TOL_VALOR_ABS = 50
+const TOL_VALOR_MIN = 3
 
 // Palavras que aparecem em todo extrato e não identificam ninguém.
 const RUIDO = new Set([
