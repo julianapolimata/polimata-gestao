@@ -17,7 +17,11 @@ export default function ProximoPasso({ passo, loading }) {
     return (
       <div style={{ ...caixa, borderLeftColor: 'var(--green)' }}>
         <div style={rotulo}>Próximo passo</div>
-        <div style={{ ...titulo, color: 'var(--green)' }}>Nada em aberto. Os meses anteriores estão fechados.</div>
+        {/* Este cartao sabe que NAO HA PASSO PENDENTE. Ele nao sabe nada sobre
+            fechamento — e a frase antiga afirmava que "os meses anteriores
+            estao fechados", que com a base vazia era falso, e contradizia o
+            card ao lado, que dizia "nenhum mes fechado ainda". */}
+        <div style={{ ...titulo, color: 'var(--green)' }}>Nada em aberto.</div>
       </div>
     )
   }
