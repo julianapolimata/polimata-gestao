@@ -12,14 +12,8 @@ import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../../lib/fechamento'
 import { SITUACOES_FISCAIS } from '../../lib/escrituracao'
+import { acharPessoa as acharNoCadastro, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
-// Comparacao de nome para achar o cadastro: sem acento, sem caixa, sem espaco
-// sobrando. Nao adivinha por semelhanca — ou o nome e o mesmo, ou nao e.
-function chaveNome(v) {
-  return String(v || '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toLowerCase().replace(/s+/g, ' ').trim()
-}
 import SeletorNF from './SeletorNF'
 
 // =============================================================================
@@ -186,20 +180,16 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     const tiposAccept = parteTipo === 'Outro' ? null
       : parteTipo === 'Cliente' ? ['Cliente', 'Prospect']
       : [parteTipo]
-    return pessoas
-      .filter(p => !tiposAccept || tiposAccept.includes(p.data?.tipo))
-      .filter(p => p.data?.nome)
-      .sort((a, b) => String(a.data.nome).localeCompare(String(b.data.nome), 'pt-BR'))
+    return pessoasDosTipos(pessoas, tiposAccept)
   }, [pessoas, parteTipo])
   const partesFiltradas = useMemo(() => pessoasAceitas.map(p => p.data.nome), [pessoasAceitas])
 
   // O texto digitado vira vinculo quando bate com um cadastro. Nome livre
   // continua aceito — so nao vem com identificador, e a tela diz isso.
-  const acharPessoa = useCallback((nome) => {
-    const alvo = chaveNome(nome)
-    if (!alvo) return null
-    return pessoasAceitas.find(p => chaveNome(p.data.nome) === alvo) || null
-  }, [pessoasAceitas])
+  const acharPessoa = useCallback(
+    (nome) => acharNoCadastro(pessoasAceitas, nome),
+    [pessoasAceitas],
+  )
 
   function digitarParte(nome) {
     setParte(nome)
@@ -529,11 +519,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           </datalist>
           {parte.trim() && (
             pessoaVinculada
-              ? <div style={vinculoOk}>
-                  Vinculado ao cadastro {pessoaVinculada.codigo || ''}
-                  {pessoaVinculada.data?.doc ? ` · ${pessoaVinculada.data.doc}` : ''}
-                </div>
-              : <div style={vinculoFalta}>Sem cadastro correspondente. O lançamento fica só com o nome.</div>
+              ? <div style={estiloVinculoOk}>{rotuloDoVinculo(pessoaVinculada)}</div>
+              : <div style={estiloVinculoFalta}>Sem cadastro correspondente. O lançamento fica só com o nome.</div>
           )}
         </Field>
         <Field label="Valor (R$) *">
@@ -797,12 +784,6 @@ const btnMover = {
   borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', letterSpacing: 0.3,
-}
-const vinculoOk = {
-  marginTop: 5, fontSize: 11, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 5,
-}
-const vinculoFalta = {
-  marginTop: 5, fontSize: 11, color: 'var(--text-mid)',
 }
 const anexoRow = { display: 'flex', alignItems: 'center', gap: 10 }
 const anexoNome = { fontSize: 12, color: 'var(--navy)', fontWeight: 600 }

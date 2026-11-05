@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import CampoData from '../../components/CampoData'
 import { msgErro } from '../../lib/erros'
 import { useAuth } from '../../contexts/AuthContext'
@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { proximoCodigoEmprestimo } from '../../lib/codigos'
 import { fmtMoney } from '../../lib/finance'
+import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
 
 // ============================================================================
@@ -45,6 +46,10 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
   const [nome, setNome] = useState('')
   const [tipo, setTipo] = useState('emprestimo')
   const [credor, setCredor] = useState('')
+  // Antes o credor era texto puro — "Receita Federal do Brasil" escrito a mão,
+  // sem ligação com o cadastro do órgão. Agora o identificador vai junto.
+  const [credorId, setCredorId] = useState(null)
+  const [pessoas, setPessoas] = useState([])
   const [numeroContrato, setNumeroContrato] = useState('')
   const [modalidade, setModalidade] = useState('')
   const [valorOriginal, setValorOriginal] = useState('')
@@ -68,6 +73,32 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
   // Tabela de parcelas — array de { numero, vencimento, valor, amortizacao, juros, pago }
   const [parcelas, setParcelas] = useState([])
 
+  // O cadastro, para o credor deixar de ser texto solto. Orgao publico entra
+  // aqui: e a Receita Federal dos parcelamentos de tributo.
+  useEffect(() => {
+    if (!open) return undefined
+    let cancelado = false
+    supabase.from('pessoas').select('id,codigo,data').then(({ data }) => {
+      if (!cancelado) setPessoas(data || [])
+    })
+    return () => { cancelado = true }
+  }, [open])
+
+  const credoresAceitos = useMemo(
+    () => pessoasDosTipos(pessoas, ['Fornecedor', 'Órgão Público']),
+    [pessoas],
+  )
+  const credoresSugeridos = useMemo(() => credoresAceitos.map(p => p.data.nome), [credoresAceitos])
+  const credorVinculado = useMemo(
+    () => (credorId ? pessoas.find(p => p.id === credorId) || null : null),
+    [credorId, pessoas],
+  )
+
+  function digitarCredor(nome) {
+    setCredor(nome)
+    setCredorId(acharPessoa(credoresAceitos, nome)?.id || null)
+  }
+
   useEffect(() => {
     if (!open) return
     if (registro) {
@@ -75,6 +106,7 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
       setNome(d.nome || '')
       setTipo(d.tipo || 'emprestimo')
       setCredor(d.credor || '')
+      setCredorId(d.pessoa_id || null)
       setNumeroContrato(d.numero_contrato || '')
       setModalidade(d.modalidade || '')
       setValorOriginal(d.valor_original || '')
@@ -241,6 +273,8 @@ Importante:
         nome: nome.trim(),
         tipo,
         credor: credor.trim(),
+        // O nome continua gravado; ao lado dele vai o identificador.
+        pessoa_id: credorId,
         numero_contrato: numeroContrato.trim(),
         modalidade: modalidade.trim(),
         valor_original: Number(valorOriginal) || 0,
@@ -374,7 +408,15 @@ Importante:
             </select>
           </Field>
           <Field label="Credor">
-            <input value={credor} onChange={e => setCredor(e.target.value)} placeholder="Ex: Sicoob, Receita Federal" style={input} />
+            <input value={credor} onChange={e => digitarCredor(e.target.value)} list="emprestimo-credor-list" placeholder="Ex: Sicoob, Receita Federal" style={input} autoComplete="off" />
+            <datalist id="emprestimo-credor-list">
+              {credoresSugeridos.map(n => <option key={n} value={n} />)}
+            </datalist>
+            {credor.trim() && (
+              credorVinculado
+                ? <div style={estiloVinculoOk}>{rotuloDoVinculo(credorVinculado)}</div>
+                : <div style={estiloVinculoFalta}>Sem cadastro correspondente. A obrigação fica só com o nome.</div>
+            )}
           </Field>
           <Field label="Número do contrato">
             <input value={numeroContrato} onChange={e => setNumeroContrato(e.target.value)} style={input} />

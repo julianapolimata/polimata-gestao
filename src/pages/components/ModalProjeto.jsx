@@ -5,6 +5,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoProjeto } from '../../lib/codigos'
+import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
 // =============================================================================
 // MODAL PROJETO — replica saveProject() do legado (linha 4195).
@@ -19,6 +20,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
 
   const [nome, setNome] = useState('')
   const [cliente, setCliente] = useState('')
+  const [clienteId, setClienteId] = useState(null)
   const [responsavel, setResponsavel] = useState('')
   const [statusV, setStatusV] = useState('Em planejamento')
   const [progresso, setProgresso] = useState('')
@@ -35,7 +37,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
     if (!open) return undefined
     let cancelled = false
     Promise.all([
-      supabase.from('pessoas').select('id,data'),
+      supabase.from('pessoas').select('id,codigo,data'),
       supabase.from('contracts').select('id,codigo,data'),
     ]).then(([rPess, rCon]) => {
       if (cancelled) return
@@ -51,6 +53,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
       const d = registro.data || {}
       setNome(d.name || '')
       setCliente(d.client || '')
+      setClienteId(d.pessoa_id || null)
       setResponsavel(d.responsavel || '')
       setStatusV(d.status || 'Em planejamento')
       setProgresso(d.progress != null ? String(d.progress) : '')
@@ -66,20 +69,30 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
     }
   }, [open, isEdit, registro])
 
-  const clientesSugeridos = useMemo(() => {
-    const tipos = ['Cliente', 'Prospect']
-    return pessoas
-      .filter(p => tipos.includes(p.data?.tipo))
-      .map(p => p.data?.nome)
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [pessoas])
+  const clientesAceitos = useMemo(() => pessoasDosTipos(pessoas, ['Cliente', 'Prospect']), [pessoas])
+  const clientesSugeridos = useMemo(() => clientesAceitos.map(p => p.data.nome), [clientesAceitos])
+  const clienteVinculado = useMemo(
+    () => (clienteId ? pessoas.find(p => p.id === clienteId) || null : null),
+    [clienteId, pessoas],
+  )
+
+  function digitarCliente(nome) {
+    setCliente(nome)
+    setClienteId(acharPessoa(clientesAceitos, nome)?.id || null)
+  }
 
   // Contratos do mesmo cliente — informativo
+  // Antes isto comparava TEXTO em minusculas — e por isso nunca acharia a
+  // Plancus, escrita "EIRELI" num lado e "LTDA" no outro. Agora o vinculo
+  // manda; a comparacao por nome fica so para contrato antigo, sem vinculo.
   const contratosVinculados = useMemo(() => {
-    if (!cliente.trim()) return []
-    return contratos.filter(c => (c.data?.party || '').toLowerCase() === cliente.trim().toLowerCase())
-  }, [contratos, cliente])
+    if (!clienteId && !cliente.trim()) return []
+    return contratos.filter(c => (
+      clienteId && c.data?.pessoa_id
+        ? c.data.pessoa_id === clienteId
+        : !c.data?.pessoa_id && acharPessoa([{ id: 1, data: { nome: c.data?.party } }], cliente)
+    ))
+  }, [contratos, cliente, clienteId])
 
   function addEtapa() {
     setEtapas(e => [...e, { id: Math.random().toString(36).slice(2), nome: '', data: '', concluida: false }])
@@ -106,6 +119,8 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
       const data = {
         name: nome.trim(),
         client: cliente.trim() || null,
+        // O nome continua gravado; ao lado dele vai o identificador.
+        pessoa_id: clienteId,
         responsavel: responsavel.trim() || null,
         status: statusV,
         progress: progresso === '' ? null : Math.max(0, Math.min(100, Number(progresso))),
@@ -166,10 +181,15 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
       </Row>
       <Row cols={2}>
         <Field label="Cliente">
-          <input value={cliente} onChange={e => setCliente(e.target.value)} list="projeto-cliente-list" placeholder="Cliente" style={input} autoComplete="off" />
+          <input value={cliente} onChange={e => digitarCliente(e.target.value)} list="projeto-cliente-list" placeholder="Cliente" style={input} autoComplete="off" />
           <datalist id="projeto-cliente-list">
             {clientesSugeridos.map(n => <option key={n} value={n} />)}
           </datalist>
+          {cliente.trim() && (
+            clienteVinculado
+              ? <div style={estiloVinculoOk}>{rotuloDoVinculo(clienteVinculado)}</div>
+              : <div style={estiloVinculoFalta}>Sem cadastro correspondente. O projeto fica só com o nome.</div>
+          )}
         </Field>
         <Field label="Responsável">
           <input value={responsavel} onChange={e => setResponsavel(e.target.value)} placeholder="Quem toca o projeto" style={input} />

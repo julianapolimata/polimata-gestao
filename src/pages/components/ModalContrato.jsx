@@ -5,6 +5,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoContrato } from '../../lib/codigos'
+import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
 // =============================================================================
 // MODAL CONTRATO — replica saveContract() do legado (linha 3760).
@@ -27,6 +28,7 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
   const [paiId, setPaiId] = useState('')
   const [numero, setNumero] = useState('')
   const [parte, setParte] = useState('')
+  const [parteId, setParteId] = useState(null)
   const [objeto, setObjeto] = useState('')
   const [valor, setValor] = useState('')
   const [inicio, setInicio] = useState('')
@@ -61,6 +63,7 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
       setPaiId(d.pai_id || '')
       setNumero(registro.codigo || d.number || '')
       setParte(d.party || '')
+      setParteId(d.pessoa_id || null)
       setObjeto(d.object || '')
       setValor(String(d.value ?? ''))
       setInicio(d.start || '')
@@ -76,14 +79,20 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
   }, [open, isEdit, registro])
 
   // Autocomplete parte (clientes + fornecedores)
-  const partesSugeridas = useMemo(() => {
-    const tipos = ['Cliente', 'Prospect', 'Fornecedor', 'Órgão Público']
-    return pessoas
-      .filter(p => tipos.includes(p.data?.tipo))
-      .map(p => p.data?.nome)
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [pessoas])
+  const partesAceitas = useMemo(
+    () => pessoasDosTipos(pessoas, ['Cliente', 'Prospect', 'Fornecedor', 'Órgão Público']),
+    [pessoas],
+  )
+  const partesSugeridas = useMemo(() => partesAceitas.map(p => p.data.nome), [partesAceitas])
+  const parteVinculada = useMemo(
+    () => (parteId ? pessoas.find(p => p.id === parteId) || null : null),
+    [parteId, pessoas],
+  )
+
+  function digitarParte(nome) {
+    setParte(nome)
+    setParteId(acharPessoa(partesAceitas, nome)?.id || null)
+  }
 
   // Contratos pai (Ativo + não-aditivo + diferente do próprio)
   const paisDisponiveis = useMemo(() => {
@@ -110,6 +119,8 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
         pai_id: natureza === 'aditivo' ? paiId : null,
         number: numero.trim() || null,
         party: parte.trim(),
+        // O nome continua gravado; ao lado dele vai o identificador.
+        pessoa_id: parteId,
         object: objeto.trim(),
         value: Number(valor),
         start: inicio || null,
@@ -191,10 +202,15 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
           <input value={numero} onChange={e => setNumero(e.target.value)} placeholder="Ex: CTR-2026-001 (auto se vazio)" style={input} />
         </Field>
         <Field label="Cliente/Fornecedor *">
-          <input value={parte} onChange={e => setParte(e.target.value)} list="contrato-parte-list" placeholder="Nome da parte" style={input} autoComplete="off" />
+          <input value={parte} onChange={e => digitarParte(e.target.value)} list="contrato-parte-list" placeholder="Nome da parte" style={input} autoComplete="off" />
           <datalist id="contrato-parte-list">
             {partesSugeridas.map(n => <option key={n} value={n} />)}
           </datalist>
+          {parte.trim() && (
+            parteVinculada
+              ? <div style={estiloVinculoOk}>{rotuloDoVinculo(parteVinculada)}</div>
+              : <div style={estiloVinculoFalta}>Sem cadastro correspondente. O contrato fica só com o nome.</div>
+          )}
         </Field>
       </Row>
 
