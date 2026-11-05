@@ -160,5 +160,54 @@ const escriturado = (supplier, cat, subcat, doc_status, por = 'manual', extra = 
     regraPara({ supplier: 'NOVO FORNECEDOR' }, construirRegras([escriturado('ADOBE', 'Despesas Operacionais', 'Softwares', 'vinculado')])) === null)
 }
 
+// ── 9. O VÍNCULO com o cadastro vale mais que o nome escrito ───────────────
+// O defeito que isto fecha: o mesmo fornecedor escrito de dois jeitos virava
+// duas regras. Na fatura do cartão não há CNPJ, e o descritivo do lojista muda.
+// Caso real: `projects.client` diz "PLANCUS … EIRELI" e `pessoas.nome` diz
+// "PLANCUS … LTDA" — a empresa trocou de natureza jurídica e nenhum casamento
+// por nome encontraria as duas.
+{
+  const comVinculo = (nome, pessoa_id, cat, subcat) => ({
+    data: {
+      supplier: nome, pessoa_id, cat, subcat, doc_status: 'vinculado',
+      escriturado: true, escriturado_por: 'manual',
+    },
+  })
+  const ID = '9f1c0b7e-0000-4000-8000-000000000001'
+
+  // Duas compras do mesmo fornecedor, escritas de formas diferentes na fatura.
+  const regras = construirRegras([
+    comVinculo('POLI INSTR VINHEDO', ID, 'Despesas Operacionais', 'Equipamentos'),
+    comVinculo('POLIINSTRUMENTOS', ID, 'Despesas Operacionais', 'Equipamentos'),
+  ])
+  ok('dois descritivos do mesmo cadastro formam UMA regra', regras.size === 1, `size=${regras.size}`)
+
+  // E um terceiro descritivo, nunca visto, é reconhecido pelo vínculo.
+  const proposta = regraPara({ supplier: 'POLI INSTRUMENTOS LTDA ME', pessoa_id: ID }, regras)
+  ok('descritivo novo é reconhecido pelo vínculo', proposta?.subcat === 'Equipamentos', JSON.stringify(proposta))
+
+  // Sem o vínculo, o mesmo texto novo não é reconhecido — é o estado de hoje.
+  ok('sem vínculo, o descritivo novo não é reconhecido',
+    regraPara({ supplier: 'POLI INSTRUMENTOS LTDA ME' }, regras) === null)
+
+  // A chave respeita a ordem: CNPJ continua ganhando do vínculo.
+  // Inverter isso partiria em duas as regras que hoje chaveiam por CNPJ.
+  ok('CNPJ vence o vínculo na chave',
+    chaveRecorrente({ cnpj: '01381112000100', pessoa_id: ID }) === 'cnpj:01381112000100',
+    chaveRecorrente({ cnpj: '01381112000100', pessoa_id: ID }))
+  ok('o vínculo vence o descritivo',
+    chaveRecorrente({ pessoa_id: ID, supplier: 'QUALQUER COISA' }) === `pessoa:${ID}`)
+  ok('sem CNPJ e sem vínculo, continua valendo o descritivo',
+    chaveRecorrente({ supplier: 'ADOBE' }) === `desc:${normalizarFornecedor('ADOBE')}`)
+
+  // Vínculos diferentes não se misturam, mesmo com o nome parecido.
+  const OUTRO = '9f1c0b7e-0000-4000-8000-000000000002'
+  const duas = construirRegras([
+    comVinculo('POLI INSTRUMENTOS', ID, 'Despesas Operacionais', 'Equipamentos'),
+    comVinculo('POLI INSTRUMENTOS', OUTRO, 'Despesas Operacionais', 'Softwares'),
+  ])
+  ok('cadastros diferentes não se misturam', duas.size === 2, `size=${duas.size}`)
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)

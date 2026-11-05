@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import CampoData from '../../components/CampoData'
 import { msgErro } from '../../lib/erros'
 import Modal from '../../components/Modal'
@@ -12,6 +12,14 @@ import { detectarParcela, removerSufixoParcela, gerarParcelas } from '../../lib/
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import { fetchFechamentos, competenciaDe, mesFechado, traduzErroFechamento, msgMesFechado } from '../../lib/fechamento'
 import { SITUACOES_FISCAIS } from '../../lib/escrituracao'
+
+// Comparacao de nome para achar o cadastro: sem acento, sem caixa, sem espaco
+// sobrando. Nao adivinha por semelhanca — ou o nome e o mesmo, ou nao e.
+function chaveNome(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/s+/g, ' ').trim()
+}
 import SeletorNF from './SeletorNF'
 
 // =============================================================================
@@ -58,6 +66,11 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
 
   // ── State (form) ─────────────────────────────────────────────────────
   const [parte, setParte] = useState('')
+  // O VINCULO. Antes a tela carregava a pessoa, mostrava o nome e descartava o
+  // identificador ao salvar — o lancamento apontava para um TEXTO. Agora o
+  // identificador sobrevive ate o save. Mora dentro de `data`, entao nao exige
+  // mudanca de estrutura no banco, e lancamento antigo sem ele continua valendo.
+  const [pessoaId, setPessoaId] = useState(null)
   const [parteTipo, setParteTipo] = useState(isRec ? 'Cliente' : 'Fornecedor')
   const [valor, setValor] = useState('')
   const [descricao, setDescricao] = useState('')
@@ -122,6 +135,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     if (isEdit && registro) {
       const d = registro.data || {}
       setParte(d.client || d.supplier || '')
+      setPessoaId(d.pessoa_id || null)
       setParteTipo(d.parte_tipo || (isRec ? 'Cliente' : 'Fornecedor'))
       setValor(String(d.value ?? ''))
       setDescricao(d.desc || '')
@@ -143,7 +157,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       setParcelado(!!(d.parcela_total && d.parcela_total > 1))
       setNumParcelas(d.parcela_total || 2)
     } else {
-      setParte(''); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
+      setParte(''); setPessoaId(null); setParteTipo(isRec ? 'Cliente' : 'Fornecedor')
       setValor(''); setDescricao(''); setVenc('')
       setDataCompetencia(''); setDataPagamento('');       setStatusV('Pendente'); setForma(''); setCat(''); setSubcat(''); setNotes('')
       setDocStatus('vinculado'); setDocMotivo('')
@@ -168,16 +182,42 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   }, [cat, subcategorias, subcat])
 
   // ── Autocomplete parte (datalist nativo) ─────────────────────────────
-  const partesFiltradas = useMemo(() => {
+  const pessoasAceitas = useMemo(() => {
     const tiposAccept = parteTipo === 'Outro' ? null
       : parteTipo === 'Cliente' ? ['Cliente', 'Prospect']
       : [parteTipo]
     return pessoas
       .filter(p => !tiposAccept || tiposAccept.includes(p.data?.tipo))
-      .map(p => p.data?.nome)
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+      .filter(p => p.data?.nome)
+      .sort((a, b) => String(a.data.nome).localeCompare(String(b.data.nome), 'pt-BR'))
   }, [pessoas, parteTipo])
+  const partesFiltradas = useMemo(() => pessoasAceitas.map(p => p.data.nome), [pessoasAceitas])
+
+  // O texto digitado vira vinculo quando bate com um cadastro. Nome livre
+  // continua aceito — so nao vem com identificador, e a tela diz isso.
+  const acharPessoa = useCallback((nome) => {
+    const alvo = chaveNome(nome)
+    if (!alvo) return null
+    return pessoasAceitas.find(p => chaveNome(p.data.nome) === alvo) || null
+  }, [pessoasAceitas])
+
+  function digitarParte(nome) {
+    setParte(nome)
+    setPessoaId(acharPessoa(nome)?.id || null)
+  }
+
+  // Lancamento antigo guarda so o nome. Ao abrir, se o nome bate com um
+  // cadastro, o vinculo e refeito — e passa a ser gravado no proximo save.
+  useEffect(() => {
+    if (!open || pessoaId || !parte.trim() || !pessoas.length) return
+    const achou = acharPessoa(parte)
+    if (achou) setPessoaId(achou.id)
+  }, [open, pessoaId, parte, pessoas, acharPessoa])
+
+  const pessoaVinculada = useMemo(
+    () => (pessoaId ? pessoas.find(p => p.id === pessoaId) || null : null),
+    [pessoaId, pessoas],
+  )
 
   // ── Save ─────────────────────────────────────────────────────────────
   async function handleSave() {
@@ -237,6 +277,9 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
     try {
       const data = {
         ...(isRec ? { client: parte.trim() } : { supplier: parte.trim() }),
+        // O nome continua gravado: nada que le hoje quebra. Quem le passa a
+        // PREFERIR o identificador quando ele existe.
+        pessoa_id: pessoaId,
         parte_tipo: parteTipo,
         value: Number(valor),
         desc: descricao.trim(),
@@ -474,7 +517,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
             {tiposParte.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <input
-            value={parte} onChange={e => setParte(e.target.value)}
+            value={parte} onChange={e => digitarParte(e.target.value)}
             list={datalistId}
             placeholder={isRec ? 'Nome do cliente' : 'Nome do fornecedor'}
             style={{ ...input, marginTop: 6 }}
@@ -484,6 +527,14 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           <datalist id={datalistId}>
             {partesFiltradas.map(n => <option key={n} value={n} />)}
           </datalist>
+          {parte.trim() && (
+            pessoaVinculada
+              ? <div style={vinculoOk}>
+                  Vinculado ao cadastro {pessoaVinculada.codigo || ''}
+                  {pessoaVinculada.data?.doc ? ` · ${pessoaVinculada.data.doc}` : ''}
+                </div>
+              : <div style={vinculoFalta}>Sem cadastro correspondente. O lançamento fica só com o nome.</div>
+          )}
         </Field>
         <Field label="Valor (R$) *">
           <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} disabled={conciliado} />
@@ -746,6 +797,12 @@ const btnMover = {
   borderRadius: 6, background: 'var(--white)', color: 'var(--navy)',
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', letterSpacing: 0.3,
+}
+const vinculoOk = {
+  marginTop: 5, fontSize: 11, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 5,
+}
+const vinculoFalta = {
+  marginTop: 5, fontSize: 11, color: 'var(--text-mid)',
 }
 const anexoRow = { display: 'flex', alignItems: 'center', gap: 10 }
 const anexoNome = { fontSize: 12, color: 'var(--navy)', fontWeight: 600 }

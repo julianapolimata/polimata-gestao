@@ -25,11 +25,23 @@ export function normalizarFornecedor(s) {
     .trim()
 }
 
-// Chave de "mesmo lançamento recorrente": CNPJ quando a nota tem (NFS-e), senão
-// a descrição/fornecedor normalizada (cartão). Retorna null se não dá pra chavear.
+// Chave de "mesmo lançamento recorrente", em três níveis, do mais forte ao mais
+// fraco. A ORDEM é deliberada:
+//
+//  1) CNPJ — continua primeiro, e não por acaso: é o que as regras existentes já
+//     usam. Pôr o vínculo na frente reclassificaria tudo que hoje chaveia por
+//     CNPJ e partiria as regras aprendidas em duas metades.
+//  2) pessoa_id — o VÍNCULO com o cadastro. Vale justamente onde não há CNPJ,
+//     que é a compra de cartão: ali a chave era o descritivo do lojista, e o
+//     mesmo fornecedor virava duas regras por estar escrito de dois jeitos.
+//     "POLI INSTR VINHEDO" e "POLIINSTRUMENTOS" passam a ser a mesma coisa.
+//  3) descrição normalizada — o que sempre existiu, para quem não tem nem um
+//     nem outro. Nada que funciona hoje deixa de funcionar.
 export function chaveRecorrente(data) {
   const cnpj = String(data?.cnpj || data?.emitente_cnpj || data?.cnpj_emitente || '').replace(/\D/g, '')
   if (cnpj.length === 14) return `cnpj:${cnpj}`
+  const pessoa = String(data?.pessoa_id || '').trim()
+  if (pessoa) return `pessoa:${pessoa}`
   const base = data?.supplier || data?.client || data?.desc || ''
   const norm = normalizarFornecedor(base)
   return norm ? `desc:${norm}` : null

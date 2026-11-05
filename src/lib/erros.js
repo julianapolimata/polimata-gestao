@@ -1,7 +1,7 @@
 import { traduzErroFechamento } from './fechamento'
 
 // =============================================================================
-// ERROS EM PORTUGUÊS — uma única porta de entrada pra mensagem que a usuária lê.
+// ERROS EM PORTUGUÊS — uma única porta de entrada para a mensagem que a usuária lê.
 //
 // Antes: ~50 lugares faziam `showToast('Erro: ' + e.message)` e jogavam na tela
 // o texto cru do Postgres/Supabase, em inglês ("duplicate key value violates
@@ -19,12 +19,36 @@ const FALLBACK = 'Não consegui concluir a operação.'
 
 // Códigos que o próprio sistema levanta (RPC/edge/trigger) sem texto em português.
 // Os prefixos COM texto em português (periodo_fechado: …) vêm de fechamento.js.
+// Registro: duas frases — o ESTADO (o que é verdade agora) e a CONDIÇÃO (o que
+// a ação exige). Sem "não dá", sem "só", sem explicar por que a regra existe.
+// A ordem importa: a busca é por texto.includes(chave), então a chave mais
+// específica vem antes da mais curta que poderia casar dentro dela.
 const CODIGOS_DO_SISTEMA = {
-  transferencia_nao_compativel: 'Essa transferência não combina com o lançamento escolhido. Confira valor, data e conta antes de conciliar.',
-  linha_da_fatura_indisponivel: 'Essa linha da fatura não está mais disponível — ela pode já ter sido conciliada ou removida. Recarregue a fatura.',
-  compra_indisponivel: 'Essa compra não está mais disponível — ela pode já ter sido conciliada ou removida. Recarregue a tela.',
-  conta_nao_e_cartao: 'Essa conta não é um cartão de crédito. Escolha um cartão para continuar.',
-  not_authenticated: 'Sua sessão expirou. Entre de novo.',
+  // Conciliação
+  transferencia_nao_compativel: 'Transferência incompatível com o lançamento escolhido. Confira valor, data e conta.',
+  linha_da_fatura_indisponivel: 'Linha da fatura indisponível: já conciliada ou removida. Recarregue a fatura.',
+  nenhuma_linha_selecionada: 'Nenhuma linha selecionada. Selecione ao menos uma linha do extrato.',
+  extrato_nao_encontrado: 'Linha do extrato não encontrada. Recarregue a tela.',
+  extrato_nao_pendente: 'Linha do extrato já conciliada. Recarregue a tela.',
+  extrato_sem_conta: 'Linha do extrato sem conta vinculada. Reimporte o extrato na conta correspondente.',
+  linha_indisponivel: 'Linha do extrato indisponível: já conciliada ou arquivada. Recarregue a tela.',
+  contas_diferentes: 'Linhas de contas distintas. O agrupamento exige a mesma conta.',
+  compra_indisponivel: 'Compra indisponível: já conciliada ou removida. Recarregue a tela.',
+  conta_nao_e_cartao: 'A conta selecionada não é cartão de crédito. Escolha um cartão.',
+  mesma_conta: 'Conta de origem e destino iguais. A transferência exige contas distintas.',
+  // Lançamentos e documentos
+  lancamento_nao_encontrado: 'Lançamento não encontrado. Recarregue a tela.',
+  nf_pending_nao_encontrada: 'Documento não encontrado na caixa de entrada. Recarregue a tela.',
+  importacao_nao_encontrada: 'Importação não encontrada. Recarregue a tela.',
+  // Operação em lote
+  lote_grande_demais: 'Seleção acima do limite de 500 itens. Divida em grupos menores.',
+  lote_vazio: 'Nenhum item selecionado. Selecione ao menos um lançamento.',
+  // Fechamento
+  mes_nao_estava_fechado: 'Competência não estava encerrada. Recarregue a tela.',
+  competencia_invalida: 'Competência inválida. Use o formato AAAA-MM.',
+  // Destino e sessão
+  target_invalido: 'Destino inválido. Recarregue a tela e repita a operação.',
+  not_authenticated: 'Sessão expirada. Entre novamente.',
 }
 
 // Padrões de texto/código do Postgres e do Supabase.
