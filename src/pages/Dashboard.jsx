@@ -504,12 +504,20 @@ export default function Dashboard() {
       <div style={narrativaCard}>
         <div style={narrativaLabel}>Sua situação de caixa</div>
         <div style={{ fontSize: 16, lineHeight: 1.65, color: '#fff' }}>
-          Você tem <strong>{fmtMoney(caixaAtual)}</strong> em conta,{' '}
+          {/* Sem extrato importado, o sistema NAO sabe o saldo: sabe o saldo
+              inicial das contas. Afirmar "voce tem X em conta" ali seria dizer
+              um fato que ele nao tem — o aviso de estimativa existia, mas num
+              outro card, e esta frase e a primeira que se le. */}
+          {saldoConta.porExtrato
+            ? <>Você tem <strong>{fmtMoney(caixaAtual)}</strong> em conta,{' '}</>
+            : <>Ainda não há extrato importado. O saldo inicial das contas é <strong>{fmtMoney(caixaAtual)}</strong>,{' '}</>}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aReceber)}</strong> a receber e{' '}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aPagar)}</strong> a pagar.{' '}
-          {resumoCaixa.resultado >= 0
-            ? <>Sobram <strong style={{ color: '#7fe0a8' }}>{fmtMoney(resumoCaixa.resultado)}</strong> para aplicar. 💰</>
-            : <>Faltam <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(resumoCaixa.resultado))}</strong> para não ficar no negativo. ⚠️</>}
+          {!saldoConta.porExtrato
+            ? <>O saldo real aparece quando o extrato for importado.</>
+            : resumoCaixa.resultado >= 0
+              ? <>Sobram <strong style={{ color: '#7fe0a8' }}>{fmtMoney(resumoCaixa.resultado)}</strong> para aplicar. 💰</>
+              : <>Faltam <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(resumoCaixa.resultado))}</strong> para não ficar no negativo. ⚠️</>}
           {dividaCartao != null && Math.abs(dividaCartao) >= 0.01 && (
             <> Fora isso, o cartão vai cobrar <strong style={{ color: '#ff9b8f' }}>{fmtMoney(Math.abs(dividaCartao))}</strong>.</>
           )}
