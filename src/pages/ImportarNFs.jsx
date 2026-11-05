@@ -304,9 +304,15 @@ export default function ImportarNFs() {
     try {
       const isSaida = d.is_saida || d.tipo === 'saida'
       const target = d.target_table || (isSaida ? 'receivable' : 'payable')
-      // 1. Garante pessoa (auto-cadastra se preciso)
-      await ensurePessoaPorCnpj({
-        cnpj: isSaida ? d.destinatario_cnpj : d.emitente_cnpj,
+      // 1. Garante pessoa (auto-cadastra se preciso).
+      //
+      // O retorno desta função era DESCARTADO: ela achava ou criava o cadastro,
+      // devolvia o registro, e o lançamento nascia apontando só para o nome.
+      // Era por isso que 109 dos 110 lançamentos vindos de nota não tinham nem
+      // o CNPJ do documento que os originou.
+      const docDaParte = String(isSaida ? d.destinatario_cnpj : d.emitente_cnpj || '').replace(/D/g, '')
+      const pessoaDaNota = await ensurePessoaPorCnpj({
+        cnpj: docDaParte,
         nome: d.parte || (isSaida ? d.destinatario_nome : d.emitente_nome),
         isSaida,
         tipoDoc: d.tipo_documento,
@@ -318,6 +324,12 @@ export default function ImportarNFs() {
       const codigo = isSaida ? await proximoCodigoReceivable() : await proximoCodigoPayable()
       const novoLanc = {
         [isSaida ? 'client' : 'supplier']: d.parte || '(sem nome)',
+        // O VÍNCULO e a EVIDÊNCIA, lado a lado e com papéis diferentes:
+        // `pessoa_id` é a decisão de a quem o lançamento pertence; `cnpj` é o
+        // que o documento trazia. Misturar os dois é o que faz um CNPJ mal
+        // lido virar cadastro.
+        pessoa_id: pessoaDaNota?.id || null,
+        ...(docDaParte ? { cnpj: docDaParte } : {}),
         desc: d.desc_full || d.descricao,
         value: Number(d.valor || 0),
         due: d.data_vencimento || new Date().toISOString().slice(0, 10),

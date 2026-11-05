@@ -16,6 +16,7 @@ import { rotuloFatura } from '../lib/fatura'
 import { fetchPlanoContas, categoriasDe, subcategoriasDe } from '../lib/planoContas'
 import { somarLinhas, validarDivisao, montarLancamentos } from '../lib/agruparLinhas'
 import { useConfirm } from '../components/ConfirmDialog'
+import { acharPessoa } from '../lib/vinculoPessoa'
 import ResolverEmGrupo from './components/ResolverEmGrupo'
 import ParesQueSeAnulam from './components/ParesQueSeAnulam'
 
@@ -202,7 +203,7 @@ export default function Conciliacao() {
       supabase.from('payable').select('*').is('conciliado_em', null),
       supabase.from('conciliacao_periodos').select('competencia').eq('conta_id', contaId),
       supabase.from('transferencias').select('*'),
-      supabase.from('pessoas').select('id, data'),
+      supabase.from('pessoas').select('id,codigo,data'),
       // O que já foi conciliado é o material de aprendizado: é dele que sai a
       // proposta para a próxima vez que a mesma cobrança aparecer.
       supabase.from('payable').select('id, extrato_id, data').not('extrato_id', 'is', null),
@@ -212,7 +213,10 @@ export default function Conciliacao() {
       if (err) { setErro(err); setLoading(false); return }
       setErro(null)
       setExtratos(rE.data || [])
-      setPessoas((rPessoas?.data || []).map(p => ({ nome: p.data?.nome, doc: p.data?.doc })))
+      // O cadastro INTEIRO, com o identificador. Antes isto era
+      // `.map(p => ({ nome, doc }))`: o id vinha do banco e morria aqui, e por
+      // isso o lançamento nascido do extrato só podia apontar para um texto.
+      setPessoas(rPessoas?.data || [])
       setJaConciliados([
         ...(rPagos?.data || []).map(l => ({ ...l, tabela: 'payable' })),
         ...(rRecebidos?.data || []).map(l => ({ ...l, tabela: 'receivable' })),
@@ -719,9 +723,15 @@ export default function Conciliacao() {
     if (!nCat) { showToast('Escolha a categoria do lançamento.', 'warning'); return }
     const tipoTabela = extrato.data?.tipo === 'entrada' ? 'receivable' : 'payable'
     const dataExt = extrato.data?.data
+    // A parte vem da regra aprendida (o nome que ela já escolheu para linhas
+    // iguais) ou, na falta dela, do descritivo do banco. Quando esse nome é
+    // de um cadastro, o lançamento nasce VINCULADO — sem isso, a linha do
+    // extrato viraria mais um lançamento apontando para texto.
+    const nomeDaParte = (propostaDaLinha?.parte || extrato.data?.descricao || '').substring(0, 80)
+    const pessoaDaLinha = acharPessoa(pessoas, nomeDaParte)
     const novoLanc = {
-      [tipoTabela === 'receivable' ? 'client' : 'supplier']:
-        (propostaDaLinha?.parte || extrato.data?.descricao || '').substring(0, 80),
+      [tipoTabela === 'receivable' ? 'client' : 'supplier']: nomeDaParte,
+      pessoa_id: pessoaDaLinha?.id || null,
       desc: extrato.data?.descricao,
       value: Number(extrato.data?.valor || 0),
       due: dataExt, data_pagamento: dataExt,
@@ -1040,7 +1050,8 @@ export default function Conciliacao() {
     const todas = sugerirMatches(
       { ...(selecionadoExt.data || {}), fit_id: selecionadoExt.fit_id },
       pool,
-      { pessoas },
+      // sugerirMatches so quer nome e documento para identificar a parte.
+      { pessoas: pessoas.map(p => ({ nome: p.data?.nome, doc: p.data?.doc })) },
     )
     const sugeridos = todas.filter(s => s.dentroTol)                      // valor exato + data próxima
     const mesmoValor = todas.filter(s => !s.dentroTol && s.valorIgual)    // valor exato, data diferente
