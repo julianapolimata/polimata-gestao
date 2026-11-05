@@ -37,7 +37,7 @@ export default function EsqueciSenha() {
         </div>
 
         <div style={loginTitle}>Recuperar senha</div>
-        <div style={loginSub}>Vamos te enviar um link por e-mail</div>
+        <div style={loginSub}>Você receberá um link por e-mail</div>
 
         {sucesso ? (
           <div style={{ ...mensagemSucesso }}>

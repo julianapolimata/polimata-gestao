@@ -66,7 +66,7 @@ export default function ClassificarLancamentos() {
   // mudança de categoria). Fica de fora com aviso de quantos foram pulados.
   const emMesFechado = it => mesFechado(fechamentos, competenciaDe(it?.data))
   const avisarPulados = n => {
-    if (n > 0) showToast(`${n} lançamento(s) em mês fechado ficaram de fora — reabra o mês em Fechamento Mensal pra mexer neles.`, 'warning')
+    if (n > 0) showToast(`${n} lançamento(s) em mês fechado ficaram de fora — reabra o mês em Fechamento Mensal para alterá-los.`, 'warning')
   }
 
   const carregar = useCallback(() => {
@@ -262,7 +262,7 @@ export default function ClassificarLancamentos() {
           escriturado: true, escriturado_em: agora, escriturado_por: 'manual',
         } }).eq('id', it.id),
       ))
-      showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — já disponível(is) pra conciliação.`, 'success')
+      showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — disponível(is) para conciliação.`, 'success')
       carregar()
     } catch (e) {
       showToast(msgErro(e, 'Não consegui escriturar.'), 'error')
@@ -515,7 +515,7 @@ export default function ClassificarLancamentos() {
         } }).eq('id', it.id)))
         n += itens.length
       }
-      showToast(`${n} lançamento(s) escriturado(s) — já disponíveis pra conciliação.`, 'success')
+      showToast(`${n} lançamento(s) escriturado(s) — disponíveis para conciliação.`, 'success')
       avisarPulados(prontosEmMesFechado)
       setSel({}); carregar()
     } catch (e) { showToast(msgErro(e, 'Não consegui escriturar.'), 'error') }
@@ -579,7 +579,7 @@ export default function ClassificarLancamentos() {
       <div style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 16, lineHeight: 1.6 }}>
         Estes lançamentos estão <strong>aguardando escrituração</strong> — não sobem pra conciliação até você revisar
         categoria e <strong>situação fiscal</strong> e clicar <strong>Escriturar</strong>.
-        {totalPend === 0 && <span style={{ color: 'var(--green)' }}> Tudo escriturado! 🎉</span>}
+        {totalPend === 0 && <span style={{ color: 'var(--green)' }}> Tudo escriturado.</span>}
       </div>
 
       {gruposComRegra.length > 0 && (

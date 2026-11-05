@@ -602,7 +602,7 @@ export default function SimplesNacional() {
         </div>
         {anexoEfetivo === 'V' && saidasNaoLancadas.qtd > 0 && (
           <div style={avisoFolhaOculta}>
-            ⚠️ <strong>O Fator R só enxerga o que está lançado.</strong> Há{' '}
+            ⚠️ <strong>O Fator R considera apenas o que está lançado.</strong> Há{' '}
             <strong>{saidasNaoLancadas.qtd} saída(s)</strong> do extrato nesta janela ainda não conciliadas, somando{' '}
             <strong>{fmtMoney(saidasNaoLancadas.total)}</strong>. Se alguma delas for <strong>pró-labore ou salário</strong> ainda
             não lançado, a folha acima está subestimada e o anexo pode estar errado —{' '}

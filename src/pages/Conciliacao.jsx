@@ -833,7 +833,7 @@ export default function Conciliacao() {
       const p_criar = plano.criar.map((c, i) => ({ ...c, codigo: codigos[i] }))
       const { data: n, error } = await supabase.rpc('conciliar_fatura_cartao', { p_conta_id: contaId, p_criar, p_casar: plano.casar })
       if (error) throw error
-      showToast(`${n} linha(s) da fatura conciliada(s) (${p_criar.filter(c => c.extrato_id).length} compra(s) nova(s), ${plano.casar.length} casada(s)). Próximo passo: Escrituração.`, 'success')
+      showToast(`${n} linha(s) da fatura conciliada(s) (${p_criar.filter(c => c.extrato_id).length} compra(s) nova(s), ${plano.casar.length} conciliada(s)). Próximo passo: Escrituração.`, 'success')
       setSelecionado(null); carregar()
     } catch (e) { showToast(msgErro(e, 'Não consegui criar as compras da fatura.'), 'error') }
     finally { setCriandoCompras(false) }
@@ -876,7 +876,7 @@ export default function Conciliacao() {
   }
   async function restaurar(extrato) {
     await supabase.from('transacoes_extrato').update({ status: 'pendente' }).eq('id', extrato.id)
-    showToast('Voltou pra pendentes.', 'info'); setSelecionado(null); carregar()
+    showToast('Devolvido para pendentes.', 'info'); setSelecionado(null); carregar()
   }
   async function desconciliar(extrato) {
     if (extrato.lancamento_tipo === 'transferencia') {
@@ -1118,7 +1118,7 @@ export default function Conciliacao() {
                 {uploading ? '⏳ Processando…' : (ehCartao ? '📥 Importar OFX da fatura' : '📥 Importar OFX')}
               </label>
               {ehCartao && counts.pendente > 0 && (
-                <button onClick={() => criarComprasDaFatura()} disabled={criandoCompras} style={btnAuto} title="Transforma as linhas pendentes da fatura em compras do cartão (casa com parcelas já registradas; pagamentos ficam pra transferência)">
+                <button onClick={() => criarComprasDaFatura()} disabled={criandoCompras} style={btnAuto} title="Transforma as linhas pendentes da fatura em compras do cartão (concilia com parcelas já registradas; pagamentos vão para transferência)">
                   {criandoCompras ? '⏳ Criando…' : `＋ Criar compras (${counts.pendente} linha(s))`}
                 </button>
               )}
@@ -1235,7 +1235,7 @@ export default function Conciliacao() {
             <div style={painelBody}>
               {!selecionadoExt ? (
                 <div style={dicaVazia}>{ehCartao
-                  ? <>👈 Clique numa linha da fatura. Compra → casa com uma já registrada ou <strong>＋ Criar compra</strong>. Pagamento da fatura → <strong>↔ Transferência</strong> da conta corrente.</>
+                  ? <>Selecione uma linha da fatura. Compra → concilia com uma já registrada ou <strong>＋ Criar compra</strong>. Pagamento da fatura → <strong>↔ Transferência</strong> da conta corrente.</>
                   : <>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha. Pagamento de fatura de cartão → <strong>↔ Transferência</strong>.</>}</div>
               ) : periodoFechadoSelec ? (
                 <div style={dicaVazia}>🔒 O período <strong>{compSelec}</strong> está <strong>fechado</strong> — a conciliação deste mês está travada. <button onClick={() => reabrirPeriodo(compSelec)} style={btnLink}>↻ Reabrir período</button></div>
@@ -1520,8 +1520,8 @@ export default function Conciliacao() {
                       {naturezaDaLinha.tipo === 'encargo'
                         ? <>Não existe lançamento esperando por isto, e nem deveria: cobrança do próprio banco não se cadastra antes de acontecer. Use <strong>+ Criar lançamento</strong> e classifique.</>
                         : ehCartao
-                          ? <>Nenhuma compra registrada pra casar. Use <strong>＋ Criar compra</strong> acima.</>
-                          : <>Nenhuma nota em aberto pra casar. Use <strong>+ Criar lançamento</strong> acima.</>}
+                          ? <>Nenhuma compra registrada para conciliar. Use <strong>＋ Criar compra</strong> acima.</>
+                          : <>Nenhuma nota em aberto para conciliar. Use <strong>+ Criar lançamento</strong> acima.</>}
                     </div>
                   )}
 

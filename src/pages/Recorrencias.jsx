@@ -119,7 +119,7 @@ export default function Recorrencias() {
         </div>
 
         {rows.length === 0 ? (
-          <div style={emptyState}>Nenhuma recorrência cadastrada. Cadastre a mensalidade de um cliente ou uma despesa fixa pra começar.</div>
+          <div style={emptyState}>Nenhuma recorrência cadastrada. Cadastre a mensalidade de um cliente ou uma despesa fixa para começar.</div>
         ) : (
           <table style={tbl}>
             <thead>

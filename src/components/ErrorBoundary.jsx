@@ -46,7 +46,7 @@ export default class ErrorBoundary extends Component {
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'center' }}>
             <button onClick={this.resetar} style={btnGold}>↻ Tentar de novo</button>
-            <button onClick={() => { window.location.href = '/dashboard' }} style={btnNavy}>Voltar pro Painel</button>
+            <button onClick={() => { window.location.href = '/dashboard' }} style={btnNavy}>Voltar ao Painel</button>
           </div>
         </div>
       </div>

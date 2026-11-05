@@ -209,7 +209,7 @@ export default function FechamentoMensal() {
     switch (m.estado) {
       case 'fechado': return <Pill tom="navy" title={m.reg?.fechado_por || ''}>🔒 Fechado {m.reg?.fechado_em ? fmtDataHora(m.reg.fechado_em).slice(0, 5) : ''}{m.reg?.fechado_por ? ` por ${m.reg.fechado_por}` : ''}</Pill>
       case 'reaberto': return <Pill tom="alerta">🔓 Reaberto</Pill>
-      case 'pronto': return <Pill tom="ok">✅ Pronto pra fechar</Pill>
+      case 'pronto': return <Pill tom="ok">✅ Pronto para fechar</Pill>
       case 'corrente': return <Pill tom="vazio">⏳ Mês corrente</Pill>
       default: return <Pill tom="ruim">⚠️ {m.obrigFalta.length} pendência(s)</Pill>
     }
@@ -285,7 +285,7 @@ export default function FechamentoMensal() {
 
       <div style={tableCard}>
         {meses.length === 0 ? (
-          <div style={emptyState}>Nenhum movimento ainda. Importe um extrato ou lance contas pra ver o fechamento por mês.</div>
+          <div style={emptyState}>Nenhum movimento ainda. Importe um extrato ou lance contas para ver o fechamento por mês.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={tbl}>

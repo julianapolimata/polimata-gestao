@@ -782,7 +782,7 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                       <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinha} title="Anexar à guia que já existe — o valor não é lançado de novo">
                         🔗 Anexar
                       </button>
-                      <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Lançar mesmo assim (o sistema entende que este documento é prova, não desembolso)">
+                      <button onClick={() => onAprovar(p)} disabled={ocupada || emLote} style={btnLinhaGhost} title="Lançar mesmo assim: este documento é registrado como prova, não como desembolso">
                         {ocupada ? '…' : 'Lançar'}
                       </button>
                     </>

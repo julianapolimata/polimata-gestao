@@ -680,7 +680,7 @@ export default function Pagar() {
             <div style={chartHeader}>
               <div>
                 <div style={chartTitle}>Evolução da despesa — {anoSel}</div>
-                <div style={chartSub}>Passe o mouse num mês pra ver a composição · linha vermelha = gasto · tracejado verde = pago · empréstimos não entram aqui (é financiamento)</div>
+                <div style={chartSub}>Toque ou passe o cursor sobre um mês para ver a composição · linha vermelha = gasto · tracejado verde = pago · empréstimos não entram aqui (é financiamento)</div>
               </div>
               <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
                 {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}

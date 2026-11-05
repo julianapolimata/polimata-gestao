@@ -304,7 +304,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
             {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
-        <Field label="Tipo de Pessoa">
+        <Field label="Tipo de cadastro">
           <select value={pjpf} onChange={e => setPjpf(e.target.value)} style={input}>
             <option value="PJ">Pessoa Jurídica (PJ)</option>
             <option value="PF">Pessoa Física (PF)</option>
@@ -398,7 +398,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
               <input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://...logo.png" style={input} />
             </Field>
           </Row>
-          <div style={infoNote}>Estes campos são propagados automaticamente para o sistema operacional (Polímata CI) via webhook ao salvar.</div>
+          <div style={infoNote}>Ao salvar, estes campos são enviados ao Polímata CI.</div>
         </div>
       )}
 

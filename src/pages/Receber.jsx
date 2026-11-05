@@ -681,7 +681,7 @@ export default function Receber() {
             <div style={chartHeader}>
               <div>
                 <div style={chartTitle}>Evolução da receita — {anoSel}</div>
-                <div style={chartSub}>Passe o mouse num mês pra ver a composição · linha cobre = faturado · tracejado verde = recebido</div>
+                <div style={chartSub}>Toque ou passe o cursor sobre um mês para ver a composição · linha cobre = faturado · tracejado verde = recebido</div>
               </div>
               <select value={anoSel} onChange={e => setAnoSel(e.target.value)} style={anoSelect}>
                 {anosDisponiveis.map(y => <option key={y} value={y}>{y}</option>)}
