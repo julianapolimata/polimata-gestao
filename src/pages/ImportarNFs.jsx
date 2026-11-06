@@ -377,7 +377,17 @@ export default function ImportarNFs() {
         } catch (eAnx) { console.warn('anexo da NF não subiu:', eAnx); showToast('Lançado, mas o arquivo da nota não foi anexado — anexe pela edição.', 'warning') }
       }
 
-      if (!opcoes.emLote) showToast(`${codigo} aprovado e lançado.`, 'success')
+      if (!opcoes.emLote) {
+        // Criar cadastro é decisão dela, no clique — e por isso é dito em voz
+        // alta. Era isto que acontecia calado: 26 dos 34 fornecedores nasceram
+        // assim, 3 deles com CNPJ inválido.
+        showToast(
+          pessoaDaNota && !d.pessoa_id
+            ? `${codigo} aprovado e lançado. Cadastro ${pessoaDaNota.codigo || 'novo'} criado para "${d.parte || 'o emitente'}".`
+            : `${codigo} aprovado e lançado.`,
+          'success',
+        )
+      }
       baixarDaLista(pending, 'aprovado')
       return codigo
     } catch (e) {
@@ -754,6 +764,21 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                 <td style={{ ...tdFila, fontFamily: 'monospace', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.numero || ''}>{d.numero || '—'}</td>
                 <td style={tdFila}>
                   <div style={nomeDaParte} title={d.parte || ''}>{d.parte || '(parte não identificada)'}</div>
+                  {/* A outra metade da regra "o robô não cria cadastro": ele
+                      resolve o vínculo quando acha, e quando NÃO acha, diz. Sem
+                      isto, a fila ficaria igual e a decisão continuaria
+                      invisível. O documento entra na mesma; só não vira
+                      cadastro sozinho. */}
+                  {d.pessoa_codigo && (
+                    <div style={marcaVinculo} title="O emitente foi reconhecido no cadastro">
+                      cadastro {d.pessoa_codigo}
+                    </div>
+                  )}
+                  {d.emitente_sem_cadastro && (
+                    <div style={marcaSemCadastro} title="O emitente não está no cadastro. Ao aprovar, o cadastro é criado.">
+                      sem cadastro
+                    </div>
+                  )}
                   <div
                     style={{ ...linhaSecundaria, cursor: 'pointer' }}
                     title={`${d.descricao || d.fileName || ''} — clique para ver o documento`}
@@ -1027,6 +1052,12 @@ function UploadManualCard({ emailEntrada }) {
 
 const caixaSelecao = { width: 15, height: 15, accentColor: 'var(--gold-dark)', cursor: 'pointer', verticalAlign: 'middle' }
 const chipTipo = { fontSize: 9, fontWeight: 700, color: 'var(--gold-dark)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'rgba(204,145,94,0.12)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap' }
+const marcaVinculo = {
+  fontSize: 10, color: 'var(--green)', marginTop: 2,
+}
+const marcaSemCadastro = {
+  fontSize: 10, color: 'var(--gold-dark)', marginTop: 2, fontWeight: 600,
+}
 const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const remetenteEstilo = { fontSize: 10.5, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, cursor: 'help' }
 const chipProva = { display: 'inline-block', marginTop: 3, fontSize: 8.5, fontWeight: 700, color: 'var(--navy)', letterSpacing: 0.6, textTransform: 'uppercase', background: 'var(--cream)', border: '1px solid var(--cream-dark)', padding: '1px 6px', borderRadius: 999, whiteSpace: 'nowrap', cursor: 'help' }

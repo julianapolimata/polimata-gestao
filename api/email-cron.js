@@ -1729,8 +1729,11 @@ async function createLancamento(parsed, att, base64, email = {}) {
 
   const descFull = numero ? `${tipoDoc} ${numero} — ${desc}` : `${tipoDoc} — ${desc}`;
 
-  // Auto-cadastro pessoa
-  await ensurePessoa(parsed, isSaida);
+  // O vínculo nasce aqui, na leitura do e-mail — não mais um cadastro novo.
+  const pessoaCadastrada = await acharPessoaCadastrada(parsed, isSaida);
+  if (!pessoaCadastrada) {
+    console.log(`[sem cadastro] ${att.filename}: "${parte}" não está no cadastro — o documento entra na fila para decisão dela`);
+  }
 
   const targetTable = isSaida ? 'receivable' : 'payable';
 
@@ -1927,6 +1930,11 @@ async function createLancamento(parsed, att, base64, email = {}) {
   // humano revisar/aprovar. Mantém auto-vinculação a 'sem_documento' acima.
   const pendingId = crypto.randomUUID();
   const pendingData = {
+    // O VÍNCULO, resolvido na leitura. Nulo quando o emitente não está
+    // cadastrado — e aí a tela mostra, em vez de o robô criar por conta.
+    pessoa_id: pessoaCadastrada?.id || null,
+    pessoa_codigo: pessoaCadastrada?.codigo || null,
+    emitente_sem_cadastro: !pessoaCadastrada,
     fileName: att.filename,
     tipo: parsed.tipo,
     tipo_documento: tipoDoc,
@@ -2073,51 +2081,48 @@ function mesValido(ano, mes) {
   return n >= 1 && n <= 12 ? `${ano}-${String(n).padStart(2, '0')}` : '';
 }
 
-async function ensurePessoa(parsed, isSaida) {
+// ============================================================================
+// O ROBÔ NÃO CRIA CADASTRO. NUNCA.
+//
+// Regra dada pela Juliana em 04/11/2026: "fundamental que isso não volte a
+// acontecer." E não é zelo abstrato — é o que o banco mostrou:
+//
+//   - 26 dos 34 fornecedores tinham sido criados aqui, sem código e sem ela ver;
+//   - 3 nasceram com CNPJ INVÁLIDO, lido errado de comprovante e de carnê;
+//   - a JL Ramos virou 3 cadastros com 2 CNPJs, por um dígito trocado;
+//   - a Receita Federal virou SETE cadastros, um por grafia de guia;
+//   - e a própria Polímata foi cadastrada como fornecedora de si mesma, 2 vezes.
+//
+// Esta função fazia o insert. Agora ela só PROCURA: achando, devolve a pessoa,
+// e o vínculo nasce já na leitura do e-mail — que é de onde a base vem. Não
+// achando, devolve null, e a decisão de cadastrar fica com ela, na tela.
+//
+// O documento NÃO é descartado por isso: entra na fila como sempre, só que
+// marcado como "emitente não cadastrado", para a tela poder mostrar.
+// ============================================================================
+async function acharPessoaCadastrada(parsed, isSaida) {
   const cnpjRaw = isSaida ? parsed.destinatario_cnpj : parsed.emitente_cnpj;
   const nome = isSaida ? parsed.destinatario_nome : parsed.emitente_nome;
-  if (!nome) return;
-
   const cnpj = String(cnpjRaw || '').replace(/\D/g, '');
+  if (!cnpj && !nome) return null;
 
-  const { data: existing } = await getSupabase()
-    .from('pessoas').select('id, data').eq('user_id', process.env.POLIMATA_USER_ID);
+  const { data: cadastradas } = await getSupabase()
+    .from('pessoas').select('id, codigo, data').eq('user_id', process.env.POLIMATA_USER_ID);
 
-  const jaExiste = (existing || []).some(p => {
-    const pData = p.data || {};
-    const pDoc = String(pData.doc || '').replace(/\D/g, '');
-    return (cnpj && pDoc === cnpj) ||
-           (pData.nome || '').toLowerCase() === (nome || '').toLowerCase();
-  });
-  if (jaExiste) return;
+  // O CNPJ é prova; o nome é indício. Por isso o documento vem primeiro, e o
+  // nome só vale quando é EXATAMENTE igual — adivinhar por semelhança foi o
+  // que criou a duplicidade que estamos desfazendo.
+  const achaPorDoc = cnpj
+    ? (cadastradas || []).find(x => String(x.data?.doc || '').replace(/\D/g, '') === cnpj)
+    : null;
+  if (achaPorDoc) return achaPorDoc;
 
-  const td = (parsed.tipo_documento || '').toUpperCase();
-  const isGuia = ['DAS', 'DARF', 'GPS', 'GNRE'].includes(td) ||
-                 (parsed.categoria || '').toLowerCase().includes('imposto');
-  const tipoPessoa = isSaida ? 'Cliente' : (isGuia ? 'Órgão Público' : 'Fornecedor');
-
-  const today = new Date().toISOString().slice(0, 10);
-  const novoId = crypto.randomUUID();
-  const novo = {
-    id: novoId, created: today,
-    tipo: tipoPessoa,
-    pjpf: cnpj.length === 14 ? 'PJ' : (cnpj.length === 11 ? 'PF' : 'PJ'),
-    status: 'Ativo', nome,
-    doc: cnpj.length === 14
-      ? cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
-      : cnpj.length === 11
-        ? cnpj.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
-        : cnpj,
-    fantasia: '', segmento: '', porte: '', situacao: 'Não verificada',
-    email: '', telefone: '', contato: '',
-    logradouro: '', bairro: '', cidade: '', uf: '', cep: '',
-    banco: '', agencia: '', conta: '',
-    notes: `Auto-cadastrado via importação por email em ${today}`
-  };
-
-  await getSupabase().from('pessoas').insert({
-    id: novoId, user_id: process.env.POLIMATA_USER_ID, data: novo
-  });
+  const chave = (v) => String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+  const alvo = chave(nome);
+  if (!alvo) return null;
+  return (cadastradas || []).find(x => chave(x.data?.nome) === alvo) || null;
 }
 
 // Categorias do plano de contas (lidas uma vez por execução). Só sugerimos
