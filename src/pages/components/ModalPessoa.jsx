@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -64,6 +65,21 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   const [porte, setPorte] = useState('')
   const [situacao, setSituacao] = useState('')
   const [email, setEmail] = useState('')
+  // APELIDOS: como o fornecedor aparece escrito na fatura do cartão, que é a
+  // única via onde não há CNPJ. São vários porque o lojista escreve de um
+  // jeito diferente a cada mês — "POLI INSTR VINHEDO" e "POLIINSTRUMENTOS" são
+  // o mesmo. Deliberadamente NÃO se adivinha por semelhança: o apelido é
+  // aprendido uma vez, por decisão dela.
+  const [apelidos, setApelidos] = useState([])
+  const [novoApelido, setNovoApelido] = useState('')
+  // E-MAIL DE FATURAMENTO: por onde a nota chega quando não vem pelo ADN.
+  // Opcional, por decisão dela — sem ele, o reconhecimento é manual.
+  const [emailFaturamento, setEmailFaturamento] = useState('')
+  // Os projetos deste cliente. A ficha PRECISA levar a algum lugar: hoje ela
+  // é um beco — mostra os dados e não leva a nada. O vínculo mora no projeto;
+  // aqui a ficha apenas CONSULTA, nunca guarda uma cópia.
+  const [projetos, setProjetos] = useState([])
+  const navegar = useNavigate()
   const [telefone, setTelefone] = useState('')
   const [contato, setContato] = useState('') // contato pra não-Cliente
   // Endereço
@@ -100,6 +116,21 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
 
   // ── Hidratação ───────────────────────────────────────────────────────
   useEffect(() => {
+    if (!open || !isEdit || !registro?.id) { setProjetos([]); return undefined }
+    let cancelado = false
+    supabase.from('projects').select('id,codigo,data').then(({ data }) => {
+      if (cancelado) return
+      const nome = String(registro.data?.nome || '').trim().toLowerCase()
+      setProjetos((data || []).filter((pr) => (
+        pr.data?.pessoa_id
+          ? pr.data.pessoa_id === registro.id
+          : String(pr.data?.client || '').trim().toLowerCase() === nome
+      )))
+    })
+    return () => { cancelado = true }
+  }, [open, isEdit, registro])
+
+  useEffect(() => {
     if (!open) return
     setLookupMsg(null)
     if (isEdit && registro) {
@@ -117,6 +148,8 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setPorte(d.porte || '')
       setSituacao(d.situacao || '')
       setEmail(d.email || '')
+      setApelidos(Array.isArray(d.apelidos) ? d.apelidos : [])
+      setEmailFaturamento(d.email_faturamento || '')
       setTelefone(d.telefone || '')
       setContato(d.tipo === 'Cliente' ? '' : (d.contato_nome || ''))
       setLogradouro(d.logradouro || '')
@@ -142,6 +175,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setPais(''); setMoeda('USD')
       setDoc(''); setNome(''); setFantasia(''); setSegmento(''); setPorte(''); setSituacao('')
       setEmail(''); setTelefone(''); setContato('')
+      setApelidos([]); setNovoApelido(''); setEmailFaturamento('')
       setLogradouro(''); setBairro(''); setCidade(''); setUf(''); setCep('')
       setBanco(''); setAgencia(''); setConta(''); setNotes('')
       setEtapaFunil('Sondagem'); setOrigem('')
@@ -253,6 +287,8 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         banco: banco.trim(), agencia: agencia.trim(), conta: conta.trim(),
         notes: notes.trim(),
         validado_em: validadoEm || null,
+        apelidos,
+        email_faturamento: emailFaturamento.trim() || null,
       }
       if (isCliente) {
         data.etapa_funil = etapaFunil || 'Sondagem'
@@ -455,8 +491,18 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         </Field>
       </Row>
       <Row cols={3}>
-        <Field label="Segmento / Cargo">
-          <input value={segmento} onChange={e => setSegmento(e.target.value)} placeholder="Ex: TI, Contabilidade" style={input} />
+        {/* Era "Segmento / Cargo": um campo servindo a dois papéis. Segmento é
+            da empresa e vem do CNAE; cargo é do funcionário. O rótulo agora
+            muda com o papel marcado, e o conteúdo deixa de ser ambíguo. */}
+        <Field label={papeisSel.includes('funcionario') && !papeisSel.includes('fornecedor') && !papeisSel.includes('cliente')
+          ? 'Cargo' : 'Segmento'}>
+          <input
+            value={segmento}
+            onChange={e => setSegmento(e.target.value)}
+            placeholder={papeisSel.includes('funcionario') && !papeisSel.includes('fornecedor') && !papeisSel.includes('cliente')
+              ? 'Ex.: Analista de Controles Internos' : 'Vem do CNAE da Receita'}
+            style={input}
+          />
         </Field>
         <Field label="Porte">
           <select value={porte} onChange={e => setPorte(e.target.value)} style={input}>
@@ -511,6 +557,94 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
           <div style={infoNote}>Ao salvar, estes campos são enviados ao Polímata CI.</div>
         </div>
       )}
+
+      {isCliente && isEdit && (
+        <>
+          <Divider label="Projetos deste cliente" />
+          <Row cols={1}>
+            <Field label={projetos.length ? `${projetos.length} projeto(s)` : 'Nenhum projeto'}>
+              {projetos.length > 0 ? (
+                <div style={caixaApelidos}>
+                  {projetos.map(pr => (
+                    <button
+                      key={pr.id}
+                      type="button"
+                      onClick={() => { onClose(); navegar('/projetos') }}
+                      style={chipProjeto}
+                    >
+                      {pr.codigo || pr.data?.codigo || 'sem código'} · {pr.data?.name || '(sem nome)'} →
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div style={dica}>
+                  Este cliente ainda não tem projeto. Todo projeto nasce de uma proposta.
+                </div>
+              )}
+              {projetos.length > 0 && (
+                <div style={dica}>
+                  A lista é consultada do projeto, não copiada para cá — é uma ligação só,
+                  vista dos dois lados.
+                </div>
+              )}
+            </Field>
+          </Row>
+        </>
+      )}
+
+      {/* RECONHECIMENTO AUTOMÁTICO — os dois atalhos, ambos opcionais por
+          decisão dela. Preenchidos, o sistema casa o documento sozinho;
+          vazios, aquele fornecedor simplesmente não tem o atalho e o
+          reconhecimento volta a ser manual. Nada quebra. */}
+      <Divider label="Reconhecimento automático (opcional)" />
+      <Row cols={1}>
+        <Field label="Apelidos na fatura do cartão">
+          <div style={caixaApelidos}>
+            {apelidos.map(a => (
+              <span key={a} style={chipApelido}>
+                {a}
+                <button
+                  type="button"
+                  onClick={() => setApelidos(apelidos.filter(x => x !== a))}
+                  aria-label={`Remover apelido ${a}`}
+                  style={btnChip}
+                >×</button>
+              </span>
+            ))}
+            <input
+              value={novoApelido}
+              onChange={e => setNovoApelido(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const v = novoApelido.trim()
+                if (v && !apelidos.includes(v)) setApelidos([...apelidos, v])
+                setNovoApelido('')
+              }}
+              placeholder={apelidos.length ? 'mais um e Enter' : 'Como aparece na fatura, e Enter'}
+              style={{ ...input, flex: '1 1 180px', minWidth: 160 }}
+            />
+          </div>
+          <div style={dica}>
+            A fatura do cartão não traz CNPJ — o apelido é a única via. O mesmo
+            fornecedor costuma aparecer escrito de formas diferentes.
+          </div>
+        </Field>
+      </Row>
+      <Row cols={1}>
+        <Field label="E-mail de faturamento">
+          <input
+            type="email"
+            value={emailFaturamento}
+            onChange={e => setEmailFaturamento(e.target.value)}
+            placeholder="De onde a nota chega"
+            style={input}
+          />
+          <div style={dica}>
+            Usado para reconhecer a nota que não vem pelo Emissor Nacional.
+          </div>
+        </Field>
+      </Row>
 
       <Divider label="Endereço" />
       <Row cols={2}>
@@ -579,6 +713,26 @@ const papelSolto = {
 const papelMarcado = {
   ...papelSolto, border: '2px solid var(--navy)', padding: '6px 10px',
   fontWeight: 600, color: 'var(--navy)',
+}
+const chipProjeto = {
+  display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
+  border: '1px solid var(--navy)', borderRadius: 5, background: '#fff',
+  padding: '6px 10px', fontSize: 12, fontWeight: 600, color: 'var(--navy)',
+}
+const caixaApelidos = {
+  display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center',
+}
+const chipApelido = {
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+  border: '1px dashed var(--cream-dark)', borderRadius: 5,
+  padding: '5px 8px', fontSize: 12, color: 'var(--navy)', background: '#fff',
+}
+const btnChip = {
+  border: 'none', background: 'transparent', cursor: 'pointer',
+  color: 'var(--text-mid)', fontSize: 13, lineHeight: 1, padding: 0,
+}
+const dica = {
+  fontSize: 11, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.45,
 }
 const crmBox = { background: 'rgba(204,145,94,0.08)', borderLeft: '3px solid var(--gold)', padding: 14, borderRadius: 6, marginBottom: 14 }
 const infoNote = { fontSize: 10, color: 'var(--text-mid)', marginTop: 6, fontStyle: 'italic' }
