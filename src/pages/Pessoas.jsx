@@ -19,7 +19,7 @@ function fmtDoc(s) {
 /** 'YYYY-MM-DD' ou timestamp do banco em DD/MM/AAAA. */
 function fmtDataCurta(v) {
   const iso = String(v || '').slice(0, 10)
-  if (!/^d{4}-d{2}-d{2}$/.test(iso)) return '—'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
   const [a, m, dd] = iso.split('-')
   return `${dd}/${m}/${a}`
 }

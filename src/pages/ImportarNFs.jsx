@@ -194,6 +194,32 @@ export default function ImportarNFs() {
       notes: 'Auto-cadastrado via Importar NFs',
       created: new Date().toISOString().slice(0, 10),
     }
+    // Pergunta dela: ao criar daqui, consulta a Receita? NÃO consultava — o
+    // cadastro nascia só com o que o documento trazia, sem CNAE, sem cidade,
+    // sem situação cadastral e sem data de validação. Agora consulta, e se a
+    // consulta falhar o cadastro nasce assim mesmo: a aprovação nunca trava
+    // por causa de uma API de fora, e o cadastro fica marcado como não
+    // validado, que é a verdade.
+    if (cnpjClean.length === 14) {
+      try {
+        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjClean}`)
+        if (r.ok) {
+          const rf = await r.json()
+          Object.assign(novo, {
+            nome: rf.razao_social || novo.nome,
+            fantasia: rf.nome_fantasia || '',
+            situacao: rf.descricao_situacao_cadastral || '',
+            segmento: String(rf.cnae_fiscal_descricao || '').substring(0, 60),
+            logradouro: `${rf.logradouro || ''} ${rf.numero || ''}`.trim(),
+            bairro: rf.bairro || '',
+            cidade: rf.municipio || '',
+            uf: rf.uf || '',
+            cep: rf.cep ? String(rf.cep).replace(/^(\d{5})(\d{3})$/, '$1-$2') : '',
+            validado_em: new Date().toISOString().slice(0, 10),
+          })
+        }
+      } catch { /* sem rede ou API fora: segue com o que o documento trouxe */ }
+    }
     const { data: inserted, error } = await supabase.from('pessoas').insert({
       user_id: user.id, codigo, data: novo,
     }).select('id,codigo,data').single()
@@ -771,7 +797,7 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                       cadastro sozinho. */}
                   {d.pessoa_codigo && (
                     <div style={marcaVinculo} title="O emitente foi reconhecido no cadastro">
-                      cadastro {d.pessoa_codigo}
+                      {d.pessoa_codigo}
                     </div>
                   )}
                   {d.emitente_sem_cadastro && (

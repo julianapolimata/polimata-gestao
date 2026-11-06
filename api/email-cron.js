@@ -2122,7 +2122,14 @@ async function acharPessoaCadastrada(parsed, isSaida) {
     .toLowerCase().replace(/\s+/g, ' ').trim();
   const alvo = chave(nome);
   if (!alvo) return null;
-  return (cadastradas || []).find(x => chave(x.data?.nome) === alvo) || null;
+  return (cadastradas || []).find((x) => {
+    if (chave(x.data?.nome) !== alvo) return false;
+    const xDoc = String(x.data?.doc || '').replace(/\D/g, '');
+    // Se OS DOIS têm documento e eles não bateram acima, são entidades
+    // diferentes com o mesmo nome. O nome só faz ponte quando falta documento
+    // de um dos lados.
+    return !cnpj || !xDoc;
+  }) || null;
 }
 
 // Categorias do plano de contas (lidas uma vez por execução). Só sugerimos

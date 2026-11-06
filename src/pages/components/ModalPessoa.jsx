@@ -31,7 +31,7 @@ const PORTES = [
 /** Data em pt-BR a partir de 'YYYY-MM-DD' ou de um timestamp do banco. */
 function fmtData(v) {
   const iso = String(v || '').slice(0, 10)
-  if (!/^d{4}-d{2}-d{2}$/.test(iso)) return '—'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—'
   const [a, m, d] = iso.split('-')
   return `${d}/${m}/${a}`
 }
