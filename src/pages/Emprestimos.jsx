@@ -8,6 +8,7 @@ import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { fmtMoney } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
+import { linhasDeParcelas } from '../lib/parcelasEmprestimo'
 
 function fmtDataBR(s) {
   if (!s) return '—'
@@ -68,6 +69,7 @@ export default function Emprestimos() {
   const [busca, setBusca] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
+  const [gerando, setGerando] = useState(null)
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -110,26 +112,102 @@ export default function Emprestimos() {
     if (real && real.linhas > 0) {
       return { real: true, saldo: real.saldo, pagas: real.pagas, total: real.total, proxima: real.proxima }
     }
+    // ── SEM PARCELAS LANÇADAS NÃO HÁ SALDO APURADO ────────────────────
+    //
+    // O que existe é o número que alguém digitou no cadastro, e ele não se
+    // corrige sozinho: o Parcelamento do Simples Nacional mostrava ZERO de 36
+    // parcelas pagas, com os pagamentos no extrato. Os três contratos juntos
+    // carregavam R$ 38.345,11 assim.
+    //
+    // Então o número digitado para de se chamar saldo. Ele vira "declarado",
+    // fica em outro campo, e a tela diz que o saldo não foi apurado — que é
+    // uma informação diferente de um valor errado com um selo ao lado.
     const proxSnapshot = (r.parcelas || []).find(p => !p.pago)?.vencimento || null
-    return { real: false, saldo: Number(r.saldo_atual || 0), pagas: Number(r.parcelas_pagas || 0), total: Number(r.parcelas_total || 0), proxima: proxSnapshot }
+    return {
+      real: false, saldo: null,
+      declarado: Number(r.saldo_atual || 0),
+      pagas: Number(r.parcelas_pagas || 0), total: Number(r.parcelas_total || 0),
+      proxima: proxSnapshot,
+      // Dá para gerar as parcelas? Só quando o cronograma está lá.
+      cronograma: (r.parcelas || []).length,
+    }
   }, [reais])
 
   const totais = useMemo(() => {
     const ativos = filtrados.filter(r => r.status !== 'quitada')
-    let saldo = 0, parcelas = 0, informados = 0
+    // Somar o apurado com o declarado daria um total que não é nenhum dos
+    // dois. Eles ficam separados, e o segundo diz de onde veio.
+    let saldo = 0, declarado = 0, parcelas = 0, informados = 0
     for (const r of ativos) {
       const v = visao(r)
-      saldo += v.saldo
+      if (v.real) saldo += v.saldo
+      else { declarado += v.declarado || 0; informados += 1 }
       parcelas += Math.max(0, v.total - v.pagas)
-      if (!v.real) informados += 1
     }
-    return { saldo, parcelas, count: ativos.length, informados }
+    return { saldo, declarado, parcelas, count: ativos.length, informados }
   }, [filtrados, visao])
 
   function abrirNovo() { setEdicao(null); setModalOpen(true) }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
   const [confirmar, dialogoConfirmacao] = useConfirm()
+
+  // ── GERAR AS PARCELAS DE UM CONTRATO QUE JÁ EXISTE ────────────────────
+  //
+  // Na criação, as parcelas nascem junto. O contrato que já está cadastrado e
+  // ficou sem elas não tinha caminho nenhum — e é esse contrato que mostra
+  // saldo declarado, porque não há parcela para conciliar.
+  //
+  // A mesma montagem da criação, vinda de lib/parcelasEmprestimo.js.
+  async function gerarParcelas(row, e) {
+    e.stopPropagation()
+    const linhas = linhasDeParcelas(row.data ? row : { data: row })
+    if (!linhas.length) { showToast('Este contrato não tem cronograma para lançar.', 'error'); return }
+    const ok = await confirmar({
+      titulo: `Lançar ${linhas.length} linha(s) em Contas a Pagar?`,
+      texto: `${row.nome || row.credor || ''} — ${row.parcelas_total || linhas.length} parcela(s)`,
+      consequencias: [
+        'Cada parcela vira lançamento: amortização e juros em linhas separadas, quando o cronograma separa.',
+        'As parcelas que o cronograma marca como pagas entram como pagas — é história anterior ao sistema.',
+        'As demais nascem pendentes, e passam a ser baixadas pela conciliação do extrato.',
+        'A partir daí o saldo deste contrato sai da conciliação, e não mais do número digitado.',
+      ],
+      confirmarLabel: `Lançar ${linhas.length}`,
+    })
+    if (!ok) return
+    setGerando(row.id)
+    try {
+      // Confere de novo antes de inserir: entre abrir a tela e clicar, as
+      // parcelas podem ter sido lançadas de outro jeito. Duplicar o
+      // cronograma inteiro seria pior que não lançar.
+      const { count } = await supabase.from('payable')
+        .select('id', { count: 'exact', head: true }).eq('emprestimo_id', row.id)
+      if (count) { showToast('Este contrato já tem parcelas em Contas a Pagar.', 'error'); return }
+
+      // O código é sequencial e único por usuária: tomamos o maior que existe
+      // e seguimos a partir dele, como faz a rotina de criação no banco.
+      const { data: ultimos } = await supabase.from('payable')
+        .select('codigo').like('codigo', '2%').order('codigo', { ascending: false }).limit(1)
+      let proximo = Number(String(ultimos?.[0]?.codigo || '200000').slice(1)) || 0
+      const comCodigo = linhas.map(l => {
+        proximo += 1
+        return {
+          user_id: user.id,
+          emprestimo_id: row.id,
+          codigo: '2' + String(proximo).padStart(5, '0'),
+          data: l,
+        }
+      })
+      const { error } = await supabase.from('payable').insert(comCodigo)
+      if (error) throw error
+      showToast(`${comCodigo.length} linha(s) lançada(s). O saldo deste contrato passa a sair da conciliação.`, 'success')
+      recarregar()
+    } catch (err) {
+      showToast(msgErro(err, 'Não consegui lançar as parcelas.'), 'error')
+    } finally {
+      setGerando(null)
+    }
+  }
 
   async function excluir(row, e) {
     e.stopPropagation()
@@ -184,8 +262,8 @@ export default function Emprestimos() {
                 <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
                 <span style={{ fontWeight: 600, color: 'var(--red)' }}>{fmtMoney(totais.saldo)}</span>
                 {totais.informados > 0 && (
-                  <span style={seloInformado} title={`${totais.informados} sem parcelas geradas — valor digitado no cadastro`}>
-                    {totais.informados} informado(s)
+                  <span style={seloInformado} title={`${totais.informados} contrato(s) sem parcelas em Contas a Pagar: o saldo deles não foi apurado. O que está declarado no cadastro soma ${fmtMoney(totais.declarado)}, e esse número não entra no total ao lado.`}>
+                    + {fmtMoney(totais.declarado)} declarado, sem apuração
                   </span>
                 )}
               </div>
@@ -231,7 +309,7 @@ export default function Emprestimos() {
                 const status = r.status || 'ativa'
                 // Reais (Contas a Pagar) ou digitados no cadastro (selo "informado").
                 const v = visao(r)
-                const selo = v.real ? null : <span style={seloInformado} title="sem parcelas geradas — valor digitado no cadastro">informado</span>
+                const selo = v.real ? null : <span style={seloInformado} title="sem parcelas em Contas a Pagar — número digitado no cadastro">declarado</span>
                 return (
                   <tr key={r.id} onClick={() => abrirEdicao(r)} style={{ cursor: 'pointer' }} title="Clique para ver/editar">
                     <td style={tdMono}>{r.codigo || '—'}</td>
@@ -246,8 +324,15 @@ export default function Emprestimos() {
                     <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }} title={v.real ? 'Menor vencimento ainda não pago em Contas a Pagar' : 'cronograma digitado no cadastro'}>
                       {v.proxima ? fmtDataBR(v.proxima) : (status === 'quitada' ? '—' : (v.real ? 'tudo pago' : '—'))}
                     </td>
-                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: 'var(--red)' }} title={v.real ? 'Soma das parcelas não pagas em Contas a Pagar' : 'sem parcelas geradas — valor digitado no cadastro'}>
-                      {fmtMoney(v.saldo)}{selo}
+                    <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: v.real ? 'var(--red)' : 'var(--text-mid)' }} title={v.real
+                      ? 'Soma das parcelas ainda não conciliadas em Contas a Pagar'
+                      : 'As parcelas deste contrato não estão em Contas a Pagar, então não há o que conciliar e o saldo não é apurado. O número abaixo é o que foi declarado no cadastro.'}>
+                      {v.real ? fmtMoney(v.saldo) : (
+                        <>
+                          <div style={{ fontWeight: 400, fontSize: 10.5 }}>não apurado</div>
+                          <div style={{ fontWeight: 400, fontSize: 11 }}>{fmtMoney(v.declarado)}{selo}</div>
+                        </>
+                      )}
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       {status === 'quitada'
@@ -256,7 +341,17 @@ export default function Emprestimos() {
                         ? <span style={{ background: 'rgba(231,76,60,0.10)', color: 'var(--red)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Atraso</span>
                         : <span style={{ background: 'rgba(0,32,62,0.08)', color: 'var(--navy)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Ativa</span>}
                     </td>
-                    <td style={{ ...td, textAlign: 'center' }}>
+                    <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {!v.real && v.cronograma > 0 && (
+                        <button
+                          onClick={e => gerarParcelas(r, e)}
+                          disabled={gerando === r.id}
+                          title={`Lançar as ${v.cronograma} parcelas do cronograma em Contas a Pagar. A partir daí o saldo passa a sair da conciliação, e deixa de depender do que foi digitado.`}
+                          style={btnGerar}
+                        >
+                          {gerando === r.id ? '…' : 'Gerar parcelas'}
+                        </button>
+                      )}
                       <button onClick={e => excluir(r, e)} title="Excluir" style={btnExcluir}>×</button>
                     </td>
                   </tr>
@@ -275,6 +370,11 @@ export default function Emprestimos() {
 
 const searchInput = { width: '100%', padding: '9px 12px 9px 32px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const resumo = { display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12 }
+const btnGerar = {
+  padding: '4px 9px', marginRight: 6, borderRadius: 5, border: '1px solid var(--navy)',
+  background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)',
+  fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+}
 const btnNovo = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', textTransform: 'uppercase' }
 const btnExcluir = { background: 'none', border: 'none', color: 'var(--text-mid)', fontSize: 22, lineHeight: 1, cursor: 'pointer', padding: 0 }
 const seloInformado = { display: 'inline-block', marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--gold-dark)', border: '1px solid var(--gold-dark)', borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle', cursor: 'help' }

@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { showToast } from '../../components/Toast'
 import { proximoCodigoEmprestimo } from '../../lib/codigos'
 import { fmtMoney } from '../../lib/finance'
+import { linhasDeParcelas } from '../../lib/parcelasEmprestimo'
 import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
 
@@ -330,37 +331,12 @@ Importante:
           created: hoje,
         } : null
 
-        // Cada parcela vira 2 lançamentos: amortização (principal, fora do DRE) e
-        // juros (despesa financeira, no DRE). Sem split disponível → uma linha só,
-        // tratada como amortização (não infla o DRE com juros fictícios).
-        const parcelasData = []
-        for (const p of parcelas) {
-          const amort = Number(p.amortizacao) || 0
-          const jur = Number(p.juros) || 0
-          const base = {
-            supplier: credor || nome,
-            due: p.vencimento,
-            data_competencia: p.vencimento,
-            status: p.pago ? 'Pago' : 'Pendente',
-            data_pagamento: p.pago ? p.vencimento : null,
-            cat: 'Empréstimos e Financiamentos',
-            forma_pagamento: 'Débito Automático',
-            parcela_atual: Number(p.numero) || 0,
-            parcela_total: Number(parcelasTotal) || 0,
-            criado_via_emprestimo: true,
-            // Categoria vem do sistema e o contrato é o documento: nasce aceita,
-            // não vai pra fila de escrituração (72 linhas por financiamento).
-            escriturado: true, escriturado_em: new Date().toISOString(), escriturado_por: 'sistema',
-            doc_status: 'dispensado', doc_motivo_dispensa: 'Contrato de empréstimo', sem_documento: false,
-            created: hoje,
-          }
-          if (amort > 0 || jur > 0) {
-            if (amort > 0) parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal} (amortização)`, value: amort, subcat: 'Amortização do principal (saída)' })
-            if (jur > 0) parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal} (juros)`, value: jur, subcat: 'Juros de empréstimos' })
-          } else {
-            parcelasData.push({ ...base, desc: `${nome} — parcela ${p.numero}/${parcelasTotal}`, value: Number(p.valor) || 0, subcat: 'Amortização do principal (saída)' })
-          }
-        }
+        // A montagem das linhas mora em lib/parcelasEmprestimo.js: a MESMA
+        // regra serve aqui e no botão que gera as parcelas de um contrato que
+        // já existe. Duas cópias é a forma mais barata de as duas divergirem.
+        const parcelasData = linhasDeParcelas(
+          { data: { ...dataPayload, parcelas } }, hoje,
+        )
 
         // Empréstimo + entrada + parcelas numa transação atômica (RPC).
         // A RPC devolve o id; geramos o código (EMP-NNN) e gravamos na coluna.
