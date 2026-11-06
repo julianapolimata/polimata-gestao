@@ -233,10 +233,10 @@ export default function Emprestimos() {
     <colgroup>
       <col style={{ width: 100 }} />
       <col />
-      <col style={{ width: 150 }} />
+      <col style={{ width: 140 }} />
       <col style={{ width: 110, textAlign: 'center' }} />
       <col style={{ width: 100, textAlign: 'center' }} />
-      <col style={{ width: 140, textAlign: 'right' }} />
+      <col style={{ width: 160, textAlign: 'right' }} />
       <col style={{ width: 100, textAlign: 'center' }} />
       <col style={{ width: 50 }} />
     </colgroup>
@@ -331,6 +331,21 @@ export default function Emprestimos() {
                         <>
                           <div style={{ fontWeight: 400, fontSize: 10.5 }}>não apurado</div>
                           <div style={{ fontWeight: 400, fontSize: 11 }}>{fmtMoney(v.declarado)}{selo}</div>
+                          {/* O botão fica na célula do saldo, e não na coluna
+                              de ações: ele é a saída deste estado, e aqui
+                              está ao lado do que ele resolve. Na coluna de
+                              ações ele sobrava da tabela, e deixaria uma
+                              coluna larga e vazia nos contratos já apurados. */}
+                          {v.cronograma > 0 && (
+                            <button
+                              onClick={e => gerarParcelas(r, e)}
+                              disabled={gerando === r.id}
+                              title={`Lançar as ${v.cronograma} parcelas do cronograma em Contas a Pagar. A partir daí o saldo passa a sair da conciliação, e deixa de depender do que foi digitado.`}
+                              style={btnGerar}
+                            >
+                              {gerando === r.id ? 'lançando…' : 'Gerar parcelas'}
+                            </button>
+                          )}
                         </>
                       )}
                     </td>
@@ -341,17 +356,7 @@ export default function Emprestimos() {
                         ? <span style={{ background: 'rgba(231,76,60,0.10)', color: 'var(--red)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Atraso</span>
                         : <span style={{ background: 'rgba(0,32,62,0.08)', color: 'var(--navy)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Ativa</span>}
                     </td>
-                    <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      {!v.real && v.cronograma > 0 && (
-                        <button
-                          onClick={e => gerarParcelas(r, e)}
-                          disabled={gerando === r.id}
-                          title={`Lançar as ${v.cronograma} parcelas do cronograma em Contas a Pagar. A partir daí o saldo passa a sair da conciliação, e deixa de depender do que foi digitado.`}
-                          style={btnGerar}
-                        >
-                          {gerando === r.id ? '…' : 'Gerar parcelas'}
-                        </button>
-                      )}
+                    <td style={{ ...td, textAlign: 'center' }}>
                       <button onClick={e => excluir(r, e)} title="Excluir" style={btnExcluir}>×</button>
                     </td>
                   </tr>
@@ -371,9 +376,10 @@ export default function Emprestimos() {
 const searchInput = { width: '100%', padding: '9px 12px 9px 32px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const resumo = { display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12 }
 const btnGerar = {
-  padding: '4px 9px', marginRight: 6, borderRadius: 5, border: '1px solid var(--navy)',
-  background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)',
-  fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-block', marginTop: 5, padding: '3px 8px', borderRadius: 5,
+  border: '1px solid var(--navy)', background: 'var(--white)', color: 'var(--navy)',
+  fontFamily: 'var(--body)', fontSize: 10.5, fontWeight: 700, cursor: 'pointer',
+  whiteSpace: 'nowrap', maxWidth: '100%',
 }
 const btnNovo = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, border: 'none', background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer', textTransform: 'uppercase' }
 const btnExcluir = { background: 'none', border: 'none', color: 'var(--text-mid)', fontSize: 22, lineHeight: 1, cursor: 'pointer', padding: 0 }
