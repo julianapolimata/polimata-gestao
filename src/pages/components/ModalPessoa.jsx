@@ -179,9 +179,9 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         text: e?.message === 'CNPJ não encontrado'
           ? 'CNPJ não encontrado na Receita Federal.'
           : e?.message === 'consulta_nao_saiu'
-            ? 'Não foi possível consultar a Receita. O CNPJ não foi verificado — confira a conexão e tente de novo.'
+            ? 'Não foi possível consultar a Receita. Confira a conexão e tente de novo.'
           : e?.message === 'consulta_falhou'
-            ? 'A Receita não respondeu agora. O CNPJ não foi verificado; tente de novo em instantes.'
+            ? 'A Receita não respondeu. Tente mais tarde.'
           : 'Erro ao consultar. Verifique o CNPJ e tente novamente.',
       })
     } finally {
