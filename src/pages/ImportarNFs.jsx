@@ -6,6 +6,7 @@ import AppLayout from '../components/AppLayout'
 import { showToast } from '../components/Toast'
 import { fmtMoney } from '../lib/finance'
 import { proximoCodigoReceivable, proximoCodigoPayable, proximoCodigoPessoa } from '../lib/codigos'
+import { papelDoRotuloAntigo, tipoDerivado } from '../lib/vinculoPessoa'
 import { anexoDaNF } from '../lib/vincularNF'
 import { fetchPlanoContas, categoriasDe } from '../lib/planoContas'
 import SeletorLancamento from './components/SeletorLancamento'
@@ -178,8 +179,10 @@ export default function ImportarNFs() {
     const isGuia = ['DAS','DARF','GPS','GNRE'].includes(String(tipoDoc || '').toUpperCase())
     const tipo = isSaida ? 'Cliente' : (isGuia ? 'Órgão Público' : 'Fornecedor')
     const codigo = await proximoCodigoPessoa()
+    const papeis = [papelDoRotuloAntigo(tipo)].filter(Boolean)
     const novo = {
-      tipo,
+      papeis,
+      tipo: tipoDerivado(papeis),
       pjpf: cnpjClean.length === 14 ? 'PJ' : (cnpjClean.length === 11 ? 'PF' : 'PJ'),
       status: 'Ativo', nome: nome || '(sem nome)',
       doc: cnpjClean.length === 14

@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoPessoa } from '../../lib/codigos'
 import { maskDocumento as maskDoc, maskTelefone, maskCEP } from '../../lib/mascaras'
+import { PAPEIS, papeisDe, tipoDerivado, papelDoRotuloAntigo } from '../../lib/vinculoPessoa'
 
 // =============================================================================
 // MODAL PESSOA — replica savePessoa() do legado (linha 5738).
@@ -43,7 +44,11 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // Tipo da pessoa — em projetos onde a tela é dedicada (ex: /clientes), prop tipo
   // chega fixa; deixamos o usuário trocar mesmo assim porque o cadastro pode mudar
   // de natureza (Prospect → Cliente etc.)
-  const [pessoaTipo, setPessoaTipo] = useState(tipo || 'Fornecedor')
+  // PAPEL É MÚLTIPLO. Era um texto só, e por isso quem fosse cliente E
+  // fornecedor precisava de dois cadastros. A Poli Instrumentos é o caso.
+  const [papeisSel, setPapeisSel] = useState(
+    () => [papelDoRotuloAntigo(tipo) || 'fornecedor'],
+  )
   const [statusV, setStatusV] = useState('Ativo')
   // PJ · PF · EX. "EX" e a natureza ESTRANGEIRA: empresa ou pessoa de fora do
   // Brasil nao tem CNPJ, nem situacao cadastral, nem CNAE, nem porte, nem
@@ -90,7 +95,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [lookupMsg, setLookupMsg] = useState(null)
   const [saving, setSaving] = useState(false)
-  const isCliente = pessoaTipo === 'Cliente'
+  const isCliente = papeisSel.includes('cliente')
   const isEstrangeiro = pjpf === 'EX'
 
   // ── Hidratação ───────────────────────────────────────────────────────
@@ -99,7 +104,8 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
     setLookupMsg(null)
     if (isEdit && registro) {
       const d = registro.data || {}
-      setPessoaTipo(d.tipo || tipo || 'Fornecedor')
+      const ps = papeisDe(d)
+      setPapeisSel(ps.length ? ps : [papelDoRotuloAntigo(tipo) || 'fornecedor'])
       setStatusV(d.status || 'Ativo')
       setPjpf(d.pjpf || 'PJ')
       setPais(d.pais || '')
@@ -132,7 +138,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setRetemIss(d.retem_iss === true)
       setValidadoEm(d.validado_em || '')
     } else {
-      setPessoaTipo(tipo || 'Fornecedor'); setStatusV('Ativo'); setPjpf('PJ')
+      setPapeisSel([papelDoRotuloAntigo(tipo) || 'fornecedor']); setStatusV('Ativo'); setPjpf('PJ')
       setPais(''); setMoeda('USD')
       setDoc(''); setNome(''); setFantasia(''); setSegmento(''); setPorte(''); setSituacao('')
       setEmail(''); setTelefone(''); setContato('')
@@ -226,7 +232,13 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
     setSaving(true)
     try {
       const data = {
-        nome: nome.trim(), tipo: pessoaTipo,
+        nome: nome.trim(),
+        papeis: papeisSel,
+        // `tipo` CONTINUA gravado, derivado. O webhook do Polímata CI decide
+        // por ele: parar de escrevê-lo removeria ou desativaria cada cliente
+        // de lá, com projetos e matrizes pendurados. A função já foi para a v5,
+        // que entende os dois formatos — este campo é o segundo cinto.
+        tipo: tipoDerivado(papeisSel),
         pjpf, status: statusV,
         // Estrangeiro NAO recebe documento: campo vazio e honesto, numero
         // inventado e armadilha que depois colide com a chave verdadeira.
@@ -304,7 +316,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
 
   const title = isEdit
     ? `Editar Cadastro${registro.codigo ? ` · ${registro.codigo}` : ''}`
-    : `Novo ${pessoaTipo}`
+    : `Novo cadastro`
 
   return (
     <Modal
@@ -353,17 +365,32 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       </div>
 
       <Row cols={3}>
-        <Field label="Tipo *">
-          <select value={pessoaTipo} onChange={e => setPessoaTipo(e.target.value)} style={input}>
-            <option value="Fornecedor">Fornecedor</option>
-            {/* Era "Cliente / Prospect". Prospect NAO e papel: e pessoa com
-                proposta em aberto e sem o papel de Cliente. Quem ja registra
-                isso e o campo Status, ao lado. Juntar os dois no mesmo rotulo
-                fazia a tela dizer uma coisa que o modelo nao sustenta. */}
-            <option value="Cliente">Cliente</option>
-            <option value="Funcionário">Funcionário</option>
-            <option value="Órgão Público">Órgão Público</option>
-          </select>
+        {/* PAPEL É MÚLTIPLO, e por isso deixou de ser uma lista suspensa.
+            Uma pessoa pode ser cliente E fornecedora — a Poli Instrumentos é o
+            caso. Com um valor só, ela precisava de dois cadastros, e era assim
+            que a duplicidade entrava pela porta dos fundos.
+            "Prospect" não está aqui de propósito: não é papel, é pessoa com
+            proposta em aberto e sem o papel de Cliente. Quem registra isso é o
+            campo Status, ao lado. */}
+        <Field label="Papéis *">
+          <div style={caixaPapeis}>
+            {PAPEIS.map(pp => {
+              const marcado = papeisSel.includes(pp.v)
+              return (
+                <label key={pp.v} style={marcado ? papelMarcado : papelSolto}>
+                  <input
+                    type="checkbox"
+                    checked={marcado}
+                    onChange={() => setPapeisSel(
+                      marcado ? papeisSel.filter(x => x !== pp.v) : [...papeisSel, pp.v],
+                    )}
+                    style={{ accentColor: 'var(--navy)', margin: 0 }}
+                  />
+                  {pp.label}
+                </label>
+              )
+            })}
+          </div>
         </Field>
         <Field label="Status">
           <select value={statusV} onChange={e => setStatusV(e.target.value)} style={input}>
@@ -541,6 +568,18 @@ const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransf
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const lookupBox = { background: 'var(--cream)', borderRadius: 8, padding: 16, marginBottom: 18, borderLeft: '3px solid var(--gold)' }
 const sectionLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--navy)', fontFamily: 'var(--body)' }
+const caixaPapeis = {
+  display: 'flex', flexWrap: 'wrap', gap: 6,
+}
+const papelSolto = {
+  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+  border: '1px solid var(--cream-dark)', borderRadius: 6,
+  padding: '7px 11px', fontSize: 12.5, color: 'var(--navy-mid)', background: '#fff',
+}
+const papelMarcado = {
+  ...papelSolto, border: '2px solid var(--navy)', padding: '6px 10px',
+  fontWeight: 600, color: 'var(--navy)',
+}
 const crmBox = { background: 'rgba(204,145,94,0.08)', borderLeft: '3px solid var(--gold)', padding: 14, borderRadius: 6, marginBottom: 14 }
 const infoNote = { fontSize: 10, color: 'var(--text-mid)', marginTop: 6, fontStyle: 'italic' }
 const btnGhost = { padding: '10px 18px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.5 }

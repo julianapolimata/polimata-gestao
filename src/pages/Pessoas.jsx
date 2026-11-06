@@ -7,6 +7,7 @@ import EstadoErro from '../components/EstadoErro'
 import ModalPessoa from './components/ModalPessoa'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
+import { temPapel, papelDoRotuloAntigo, papeisDe, PAPEIS } from '../lib/vinculoPessoa'
 
 function fmtDoc(s) {
   if (!s) return '—'
@@ -42,7 +43,13 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
       .order('updated_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) { setErro(error); setRows([]) }
-        else { setErro(null); setRows((data || []).filter(p => (p.data?.tipo || '') === tipo)) }
+        else {
+          setErro(null)
+          // A rota filtra por PAPEL, não pelo texto único: quem é cliente e
+          // fornecedor aparece nas duas listas, com um cadastro só.
+          const papel = papelDoRotuloAntigo(tipo)
+          setRows((data || []).filter(p => (!papel || temPapel(p.data, papel))))
+        }
         setLoading(false)
       })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -138,7 +145,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                     <th style={th}>Email</th>
                     <th style={th}>Telefone</th>
                     <th style={th}>Cidade/UF</th>
-                    <th style={th}>Atualizado</th>
+                    <th style={{ ...th, whiteSpace: 'nowrap' }}>Atualização</th>
                     <th style={{ ...th, textAlign: 'center' }}></th>
                   </tr>
                 </thead>
@@ -171,7 +178,14 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                     title="Clique para editar"
                   >
                     <td style={tdMono}>{p.codigo || '—'}</td>
-                    <td style={td}>{d.nome || '—'}</td>
+                    <td style={td}>
+                      {d.nome || '—'}
+                      {papeisDe(d).length > 1 && (
+                        <span style={marcaPapeis}>
+                          {papeisDe(d).map(v => PAPEIS.find(p => p.v === v)?.label || v).join(' · ')}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtDoc(d.doc)}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.email || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.telefone || '—'}</td>
@@ -220,6 +234,9 @@ const btnNovo = {
   border: 'none', background: 'var(--gold)', color: '#fff',
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
   cursor: 'pointer', textTransform: 'uppercase',
+}
+const marcaPapeis = {
+  display: 'block', fontSize: 10, color: 'var(--gold-dark)', marginTop: 2,
 }
 const btnExcluir = {
   background: 'none', border: '1px solid transparent', borderRadius: 4,
