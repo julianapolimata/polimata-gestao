@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CampoData from '../../components/CampoData'
+import SelectMultiplo from '../../components/SelectMultiplo'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -455,32 +456,20 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       </div>
 
       <Row cols={3}>
-        {/* PAPEL É MÚLTIPLO, e por isso deixou de ser uma lista suspensa.
-            Uma pessoa pode ser cliente E fornecedora — a Poli Instrumentos é o
-            caso. Com um valor só, ela precisava de dois cadastros, e era assim
-            que a duplicidade entrava pela porta dos fundos.
+        {/* PAPEL É MÚLTIPLO: uma pessoa pode ser cliente E fornecedora — a
+            Poli Instrumentos é o caso. Com um valor só, ela precisava de dois
+            cadastros, e era assim que a duplicidade entrava pela porta dos
+            fundos. A lista é suspensa pela forma, e múltipla pelo conteúdo.
             "Prospect" não está aqui de propósito: não é papel, é pessoa com
             proposta em aberto e sem o papel de Cliente. Quem registra isso é o
             campo Status, ao lado. */}
         <Field label="Papéis *">
-          <div style={caixaPapeis}>
-            {PAPEIS.map(pp => {
-              const marcado = papeisSel.includes(pp.v)
-              return (
-                <label key={pp.v} style={marcado ? papelMarcado : papelSolto}>
-                  <input
-                    type="checkbox"
-                    checked={marcado}
-                    onChange={() => setPapeisSel(
-                      marcado ? papeisSel.filter(x => x !== pp.v) : [...papeisSel, pp.v],
-                    )}
-                    style={{ accentColor: 'var(--navy)', margin: 0 }}
-                  />
-                  {pp.label}
-                </label>
-              )
-            })}
-          </div>
+          <SelectMultiplo
+            opcoes={PAPEIS}
+            valor={papeisSel}
+            onChange={setPapeisSel}
+            vazio="Selecione o papel"
+          />
         </Field>
         <Field label="Status">
           <select value={statusV} onChange={e => setStatusV(e.target.value)} style={input}>
@@ -815,18 +804,6 @@ const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransf
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const lookupBox = { background: 'var(--cream)', borderRadius: 8, padding: 16, marginBottom: 18, borderLeft: '3px solid var(--gold)' }
 const sectionLabel = { fontSize: 9, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--navy)', fontFamily: 'var(--body)' }
-const caixaPapeis = {
-  display: 'flex', flexWrap: 'wrap', gap: 6,
-}
-const papelSolto = {
-  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-  border: '1px solid var(--cream-dark)', borderRadius: 6,
-  padding: '7px 11px', fontSize: 12.5, color: 'var(--navy-mid)', background: '#fff',
-}
-const papelMarcado = {
-  ...papelSolto, border: '2px solid var(--navy)', padding: '6px 10px',
-  fontWeight: 600, color: 'var(--navy)',
-}
 const avisoDadoPessoal = {
   fontSize: 11.5, lineHeight: 1.5, color: 'var(--navy-mid)',
   background: 'var(--cream)', border: '1px solid var(--cream-dark)',
