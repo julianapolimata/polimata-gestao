@@ -136,8 +136,20 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
     setBuscandoCnpj(true)
     setLookupMsg({ kind: 'load', text: 'Consultando Receita Federal…' })
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`)
-      if (!res.ok) throw new Error('CNPJ não encontrado')
+      // Duas falhas diferentes, que a tela confundia numa só:
+      //  404 = a Receita respondeu, e o CNPJ não existe lá;
+      //  fetch que nem sai = a consulta não aconteceu — e aí o sistema NÃO
+      //  SABE se o CNPJ é válido, em vez de saber que não é.
+      // Foi assim que a política de segurança do próprio site, ao bloquear o
+      // endereço, fez a tela acusar o número do usuário por meses.
+      let res
+      try {
+        res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`)
+      } catch {
+        throw new Error('consulta_nao_saiu')
+      }
+      if (res.status === 404) throw new Error('CNPJ não encontrado')
+      if (!res.ok) throw new Error('consulta_falhou')
       const d = await res.json()
       setNome(d.razao_social || '')
       setFantasia(d.nome_fantasia || '')
@@ -166,6 +178,10 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         kind: 'err',
         text: e?.message === 'CNPJ não encontrado'
           ? 'CNPJ não encontrado na Receita Federal.'
+          : e?.message === 'consulta_nao_saiu'
+            ? 'Não foi possível consultar a Receita. O CNPJ não foi verificado — confira a conexão e tente de novo.'
+          : e?.message === 'consulta_falhou'
+            ? 'A Receita não respondeu agora. O CNPJ não foi verificado; tente de novo em instantes.'
           : 'Erro ao consultar. Verifique o CNPJ e tente novamente.',
       })
     } finally {
