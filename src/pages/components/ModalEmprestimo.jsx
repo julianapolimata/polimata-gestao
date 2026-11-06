@@ -51,6 +51,14 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
   const [credorId, setCredorId] = useState(null)
   const [pessoas, setPessoas] = useState([])
   const [numeroContrato, setNumeroContrato] = useState('')
+  // O CÓDIGO DE RECEITA — o que vem impresso na guia.
+  //
+  // O número do parcelamento identifica o ACORDO; o código de receita
+  // identifica o PAGAMENTO. São coisas diferentes, e só o segundo aparece no
+  // documento que chega todo mês. É a regra dela: imposto se classifica pelo
+  // CÓDIGO da guia, nunca pelo descritivo do extrato — porque o DAS corrente e
+  // o DAS de parcelamento têm códigos diferentes e descritivo igual.
+  const [codigoReceita, setCodigoReceita] = useState('')
   const [modalidade, setModalidade] = useState('')
   const [valorOriginal, setValorOriginal] = useState('')
   const [saldoAtual, setSaldoAtual] = useState('')
@@ -108,6 +116,7 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
       setCredor(d.credor || '')
       setCredorId(d.pessoa_id || null)
       setNumeroContrato(d.numero_contrato || '')
+      setCodigoReceita(d.codigo_receita || '')
       setModalidade(d.modalidade || '')
       setValorOriginal(d.valor_original || '')
       setSaldoAtual(d.saldo_atual || '')
@@ -276,6 +285,7 @@ Importante:
         // O nome continua gravado; ao lado dele vai o identificador.
         pessoa_id: credorId,
         numero_contrato: numeroContrato.trim(),
+        codigo_receita: codigoReceita.trim() || null,
         modalidade: modalidade.trim(),
         valor_original: Number(valorOriginal) || 0,
         parcelas_total: Number(parcelasTotal) || 0,
@@ -420,6 +430,19 @@ Importante:
           </Field>
           <Field label="Número do contrato">
             <input value={numeroContrato} onChange={e => setNumeroContrato(e.target.value)} style={input} />
+          </Field>
+          <Field label="Código de receita da guia">
+            <input
+              value={codigoReceita}
+              onChange={e => setCodigoReceita(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+              placeholder="Ex.: 1124"
+              inputMode="numeric"
+              style={input}
+            />
+            <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.45 }}>
+              É por ele que a guia paga se encaminha a esta obrigação. O DAS corrente
+              e o DAS de parcelamento têm descritivo igual e código diferente.
+            </div>
           </Field>
           <Field label="Modalidade">
             <input value={modalidade} onChange={e => setModalidade(e.target.value)} placeholder="Ex: Capital de Giro" style={input} />

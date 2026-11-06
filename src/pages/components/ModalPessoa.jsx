@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import CampoData from '../../components/CampoData'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
@@ -79,6 +80,33 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // é um beco — mostra os dados e não leva a nada. O vínculo mora no projeto;
   // aqui a ficha apenas CONSULTA, nunca guarda uma cópia.
   const [projetos, setProjetos] = useState([])
+  // FUNCIONÁRIO — o que se pede a quem é contratado.
+  //
+  // Decisão dela: "o que quero são apenas os dados do cadastro obrigatório, pq
+  // se eu for registrar alguém, vou ter que pedir de qqr jeito". O sistema NÃO
+  // transmite ao eSocial — quem transmite é a contadora. Isto é a ficha de
+  // admissão, para ela pedir uma vez só e no formato certo.
+  //
+  // RESSALVA, e ela está escrita na tela: não consegui alcançar o leiaute
+  // S-2200 oficial no gov.br — o que achei foram manuais de fornecedores de
+  // folha. Os campos abaixo são os que qualquer ficha de admissão pede e que a
+  // contadora vai precisar. A lista definitiva, com os códigos e as regras de
+  // validação, tem de ser conferida no Manual de Orientação vigente antes de
+  // virar transmissão.
+  //
+  // CPF e os demais são DADO PESSOAL: entram na regra de quem vê, onde
+  // aparece, e nunca saem em documento comercial. A base legal é cumprimento
+  // de obrigação legal — a Polímata é a empregadora e a lei exige.
+  const [vinculo, setVinculo] = useState('CLT')
+  const [nascimento, setNascimento] = useState('')
+  const [nomeMae, setNomeMae] = useState('')
+  const [pisNis, setPisNis] = useState('')
+  const [ctps, setCtps] = useState('')
+  const [cbo, setCbo] = useState('')
+  const [admissao, setAdmissao] = useState('')
+  const [desligamento, setDesligamento] = useState('')
+  const [salario, setSalario] = useState('')
+  const [jornada, setJornada] = useState('')
   const navegar = useNavigate()
   const [telefone, setTelefone] = useState('')
   const [contato, setContato] = useState('') // contato pra não-Cliente
@@ -149,6 +177,16 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setSituacao(d.situacao || '')
       setEmail(d.email || '')
       setApelidos(Array.isArray(d.apelidos) ? d.apelidos : [])
+      setVinculo(d.vinculo || 'CLT')
+      setNascimento(d.nascimento || '')
+      setNomeMae(d.nome_mae || '')
+      setPisNis(d.pis_nis || '')
+      setCtps(d.ctps || '')
+      setCbo(d.cbo || '')
+      setAdmissao(d.admissao || '')
+      setDesligamento(d.desligamento || '')
+      setSalario(d.salario != null ? String(d.salario) : '')
+      setJornada(d.jornada || '')
       setEmailFaturamento(d.email_faturamento || '')
       setTelefone(d.telefone || '')
       setContato(d.tipo === 'Cliente' ? '' : (d.contato_nome || ''))
@@ -176,6 +214,8 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setDoc(''); setNome(''); setFantasia(''); setSegmento(''); setPorte(''); setSituacao('')
       setEmail(''); setTelefone(''); setContato('')
       setApelidos([]); setNovoApelido(''); setEmailFaturamento('')
+      setVinculo('CLT'); setNascimento(''); setNomeMae(''); setPisNis(''); setCtps('')
+      setCbo(''); setAdmissao(''); setDesligamento(''); setSalario(''); setJornada('')
       setLogradouro(''); setBairro(''); setCidade(''); setUf(''); setCep('')
       setBanco(''); setAgencia(''); setConta(''); setNotes('')
       setEtapaFunil('Sondagem'); setOrigem('')
@@ -289,6 +329,20 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         validado_em: validadoEm || null,
         apelidos,
         email_faturamento: emailFaturamento.trim() || null,
+        // Dado de funcionário só é gravado quando o papel existe. Guardar dado
+        // pessoal de quem não é funcionário seria guardar sem necessidade.
+        ...(papeisSel.includes('funcionario') ? {
+          vinculo,
+          nascimento: nascimento || null,
+          nome_mae: nomeMae.trim() || null,
+          pis_nis: pisNis.trim() || null,
+          ctps: ctps.trim() || null,
+          cbo: cbo.trim() || null,
+          admissao: admissao || null,
+          desligamento: desligamento || null,
+          salario: salario === '' ? null : Number(String(salario).replace(',', '.')),
+          jornada: jornada.trim() || null,
+        } : {}),
       }
       if (isCliente) {
         data.etapa_funil = etapaFunil || 'Sondagem'
@@ -592,6 +646,65 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         </>
       )}
 
+      {papeisSel.includes('funcionario') && (
+        <>
+          <Divider label="Funcionário · ficha de admissão" />
+          <div style={avisoDadoPessoal}>
+            Dado pessoal, guardado por <strong>obrigação legal</strong>. Não sai em documento
+            comercial. <strong>Não é transmissão ao eSocial</strong> — quem transmite é a
+            contadora; aqui é para pedir uma vez só e no formato que ela precisa.
+          </div>
+          <Row cols={3}>
+            <Field label="Vínculo">
+              <select value={vinculo} onChange={e => setVinculo(e.target.value)} style={input}>
+                <option value="CLT">CLT</option>
+                <option value="Estagiário">Estagiário</option>
+                <option value="Jovem Aprendiz">Jovem Aprendiz</option>
+              </select>
+            </Field>
+            <Field label="Data de nascimento">
+              <CampoData value={nascimento} onChange={setNascimento} />
+            </Field>
+            <Field label="PIS / NIS / PASEP">
+              <input value={pisNis} onChange={e => setPisNis(e.target.value)} style={input} />
+            </Field>
+          </Row>
+          <Row cols={2}>
+            <Field label="Nome da mãe">
+              <input value={nomeMae} onChange={e => setNomeMae(e.target.value)} style={input} />
+            </Field>
+            <Field label="CTPS (número, série e UF)">
+              <input value={ctps} onChange={e => setCtps(e.target.value)} placeholder="Ex.: 1234567 / 0001 / SP" style={input} />
+            </Field>
+          </Row>
+          <Row cols={3}>
+            <Field label="CBO do cargo">
+              <input value={cbo} onChange={e => setCbo(e.target.value.replace(/[^0-9-]/g, ''))} placeholder="Ex.: 2522-10" style={input} />
+            </Field>
+            <Field label="Salário (R$)">
+              <input value={salario} onChange={e => setSalario(e.target.value)} inputMode="decimal" style={input} />
+            </Field>
+            <Field label="Jornada semanal">
+              <input value={jornada} onChange={e => setJornada(e.target.value)} placeholder="Ex.: 44h" style={input} />
+            </Field>
+          </Row>
+          <Row cols={2}>
+            <Field label="Admissão">
+              <CampoData value={admissao} onChange={setAdmissao} />
+            </Field>
+            <Field label="Desligamento">
+              <CampoData value={desligamento} onChange={setDesligamento} />
+            </Field>
+          </Row>
+          <div style={dica}>
+            Não consegui alcançar o leiaute S-2200 oficial no gov.br — o que encontrei
+            foram manuais de fornecedores de folha. Estes são os campos que qualquer ficha
+            de admissão pede. <strong>Confirme com a contadora</strong> antes de tratar a
+            lista como completa.
+          </div>
+        </>
+      )}
+
       {/* RECONHECIMENTO AUTOMÁTICO — os dois atalhos, ambos opcionais por
           decisão dela. Preenchidos, o sistema casa o documento sozinho;
           vazios, aquele fornecedor simplesmente não tem o atalho e o
@@ -713,6 +826,11 @@ const papelSolto = {
 const papelMarcado = {
   ...papelSolto, border: '2px solid var(--navy)', padding: '6px 10px',
   fontWeight: 600, color: 'var(--navy)',
+}
+const avisoDadoPessoal = {
+  fontSize: 11.5, lineHeight: 1.5, color: 'var(--navy-mid)',
+  background: 'var(--cream)', border: '1px solid var(--cream-dark)',
+  borderRadius: 6, padding: '9px 12px', marginBottom: 10,
 }
 const chipProjeto = {
   display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
