@@ -329,6 +329,31 @@ export default function ImportarNFs() {
       }
     }
 
+    // ── A FICHA QUE NÃO PASSOU NO PORTÃO ──────────────────────────────────
+    //
+    // Ela não fica proibida de lançar: o sistema pode ter errado, e quem
+    // decide é ela. O que muda é que o lançamento deixa de acontecer com um
+    // clique distraído — o motivo aparece antes, e o valor precisa voltar.
+    //
+    // Em lote o aviso já foi dado uma vez, na confirmação do lote.
+    if (d.portao_aprovado === false && !opcoes.emLote) {
+      const seguir = await confirmar({
+        titulo: 'Este documento não passou no portão de entrada',
+        texto: `${d.parte || d.fileName || ''}${Number(d.valor_lido || 0) ? ' · ' + fmtMoney(d.valor_lido) : ''}`,
+        consequencias: [
+          d.portao_motivo || 'O motivo não ficou registrado nesta ficha.',
+          Number(d.valor_lido || 0)
+            ? `Lançando, o valor de ${fmtMoney(d.valor_lido)} entra nas suas contas como despesa ou receita.`
+            : 'A ficha entrou sem valor: o lançamento nasceria em zero.',
+          'Se o documento for prova de algo que já está lançado, o certo é anexar.',
+        ],
+        confirmarLabel: 'Lançar mesmo assim',
+        cancelarLabel: 'Voltar',
+        variante: 'perigo',
+      })
+      if (!seguir) return
+    }
+
     setConfirmando(pending.id)
     try {
       const isSaida = d.is_saida || d.tipo === 'saida'
@@ -339,7 +364,9 @@ export default function ImportarNFs() {
       // devolvia o registro, e o lançamento nascia apontando só para o nome.
       // Era por isso que 109 dos 110 lançamentos vindos de nota não tinham nem
       // o CNPJ do documento que os originou.
-      const docDaParte = String(isSaida ? d.destinatario_cnpj : d.emitente_cnpj || '').replace(/D/g, '')
+      // Só os dígitos. O resto do sistema compara CNPJ por dígito, e um
+      // número com pontuação aqui não casa com nada depois.
+      const docDaParte = String((isSaida ? d.destinatario_cnpj : d.emitente_cnpj) || '').replace(/\D/g, '')
       const pessoaDaNota = await ensurePessoaPorCnpj({
         cnpj: docDaParte,
         nome: d.parte || (isSaida ? d.destinatario_nome : d.emitente_nome),
@@ -360,7 +387,9 @@ export default function ImportarNFs() {
         pessoa_id: pessoaDaNota?.id || null,
         ...(docDaParte ? { cnpj: docDaParte } : {}),
         desc: d.desc_full || d.descricao,
-        value: Number(d.valor || 0),
+        // A ficha barrada guarda o valor em `valor_lido` — ele volta aqui,
+        // depois de ela ter dito que quer lançar assim mesmo.
+        value: Number(d.valor || d.valor_lido || 0),
         due: d.data_vencimento || new Date().toISOString().slice(0, 10),
         data_competencia: competenciaDoDocumento(d),
         data_pagamento: null,
@@ -549,10 +578,18 @@ export default function ImportarNFs() {
     // documento, e um aviso só — dentro da confirmação que ela já ia ler.
     const comprasDoCartao = await carregarComprasDeCartao()
     const suspeitas = marcadas.filter(p => comprasQuePodemSerEsta(p.data || {}, comprasDoCartao).length)
+    // Documento barrado no lote: ele perde o aviso individual, então o aviso
+    // do lote precisa carregar essa informação.
+    const barradas = marcadas.filter(p => p.data?.portao_aprovado === false)
     const ok = await confirmar({
       titulo: `Aprovar ${marcadas.length} documento(s)?`,
       texto: `Somam ${fmtMoney(totalMarcado)}`,
       consequencias: [
+        ...(barradas.length ? [
+          `${barradas.length} destes NÃO passaram no portão de entrada `
+          + `(${barradas.map(p => p.data?.parte || p.data?.fileName || 'sem nome').join(' · ')}). `
+          + 'Aprovar em lote lança todos, inclusive esses, com o valor que a leitura tinha encontrado.',
+        ] : []),
         ...(suspeitas.length ? [
           `ATENÇÃO: ${suspeitas.length} destes já parecem estar lançados pelo cartão `
           + `(${suspeitas.map(p => p.data?.parte || p.data?.fileName || 'sem nome').join(' · ')}). `
@@ -820,6 +857,16 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                       ✉ de {remetenteDe(d).endereco}
                     </div>
                   )}
+                  {barrado(d) && (
+                    <div style={marcaPortao} title={d.portao_motivo || ''}>
+                      ⚠ não passou no portão de entrada — {d.portao_motivo}
+                    </div>
+                  )}
+                  {d.cnpj_conferido === 'nao_respondeu' && (
+                    <div style={marcaSemConfirmacao} title="A consulta à Receita não aconteceu. Isso não acusa o documento — só quer dizer que o CNPJ segue sem confirmação.">
+                      CNPJ sem confirmação na Receita
+                    </div>
+                  )}
                   {paraQueServe(d) && (
                     <div style={paraQueServeEstilo} title={paraQueServe(d)}>
                       ⓘ {paraQueServe(d)}
@@ -829,7 +876,16 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                 <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_emissao)}</td>
                 <td style={{ ...tdFila, color: 'var(--text-mid)', fontSize: 11 }}>{fmtData(d.data_vencimento)}</td>
                 <td style={{ ...tdFila, textAlign: 'right', fontWeight: 700, color: cor, whiteSpace: 'nowrap' }}>
-                  {isSaida ? '+' : '−'} {fmtMoney(d.valor)}
+                  {barrado(d) ? (
+                    <>
+                      <span style={{ color: 'var(--text-mid)', fontWeight: 400 }}>—</span>
+                      {Number(d.valor_lido || 0) > 0 && (
+                        <div style={valorNaoLancado} title="O valor que a leitura encontrou. Ele não foi lançado porque o documento não passou no portão.">
+                          lido {fmtMoney(d.valor_lido)}
+                        </div>
+                      )}
+                    </>
+                  ) : <>{isSaida ? '+' : '−'} {fmtMoney(d.valor)}</>}
                   {d.moeda && d.moeda !== 'BRL' && (
                     <div style={{ fontSize: 9, fontWeight: 400, color: 'var(--text-mid)' }}>
                       orig {d.moeda} {Number(d.valor_original || 0).toFixed(2)}
@@ -843,7 +899,7 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                   {/* A ordem dos botões É a recomendação do sistema. Para um
                       comprovante ou uma base de cálculo, o certo é ANEXAR à
                       guia que já existe — lançar duplicaria a despesa. */}
-                  {papelDoDoc(d) && !papelDoDoc(d).lanca ? (
+                  {barrado(d) || (papelDoDoc(d) && !papelDoDoc(d).lanca) ? (
                     <>
                       <button onClick={() => onAnexar(p)} disabled={ocupada || emLote} style={btnLinha} title="Anexar à guia que já existe — o valor não é lançado de novo">
                         🔗 Anexar
@@ -916,6 +972,17 @@ const PAPEL_NA_TELA = {
 }
 
 const papelDoDoc = d => PAPEL_NA_TELA[String(d?.papel_documento || '')] || null
+
+// ── A FICHA QUE NÃO PASSOU NO PORTÃO ──────────────────────────────────────
+//
+// Três perguntas são feitas na entrada (ver lib/portoes.js): isto é meu, isto
+// é desembolso, e o CNPJ existe. Falhando numa, o documento entra na mesma —
+// mas entra SEM valor e SEM destino, e esta é a tela onde isso aparece.
+//
+// `portao_aprovado` ausente é ficha anterior ao portão: ela se comporta como
+// sempre se comportou. Tratar a falta de informação como reprovação encheria a
+// fila de avisos sobre documentos que ninguém conferiu.
+const barrado = d => d?.portao_aprovado === false
 
 // ── QUEM MANDOU ────────────────────────────────────────────────────────────
 //
@@ -1086,6 +1153,16 @@ const marcaVinculo = {
 }
 const marcaSemCadastro = {
   fontSize: 10, color: 'var(--gold-dark)', marginTop: 2, fontWeight: 600,
+}
+const marcaPortao = {
+  fontSize: 10.5, color: 'var(--red)', marginTop: 2, fontWeight: 600,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'help',
+}
+const marcaSemConfirmacao = {
+  fontSize: 10, color: 'var(--text-mid)', marginTop: 2, cursor: 'help',
+}
+const valorNaoLancado = {
+  fontSize: 9.5, fontWeight: 400, color: 'var(--text-mid)', cursor: 'help',
 }
 const nomeDaParte = { fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const remetenteEstilo = { fontSize: 10.5, color: 'var(--text-mid)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, cursor: 'help' }

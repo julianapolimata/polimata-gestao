@@ -49,7 +49,7 @@ const MAX_POR_RODADA = 25;
 const palavrasDe = texto =>
   String(texto || '')
     .replace(/[^A-Za-zÀ-ÿ0-9 .,:/()%$-]+/g, ' ')
-    .replace(/s+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 
 let _supabase = null;

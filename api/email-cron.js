@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import { lerXmlFiscal, notaCanceladaNoXml } from '../lib/xmlFiscal.js';
 import { peneirarPdf, textoCompleto } from '../lib/peneiraPdf.js';
 import { reconhecerPapel } from '../lib/papelDocumento.js';
+import { portoesDeEntrada, resumoDasFalhas } from '../lib/portoes.js';
+import { consultarCnpj } from '../lib/receita.js';
 import { naoEhDocumentoFiscal, numeroCanonico } from '../lib/documentoFiscal.js';
 import { construirRegrasDeDispensa, dispensaPara } from '../lib/regrasDocumento.js';
 
@@ -1735,6 +1737,43 @@ async function createLancamento(parsed, att, base64, email = {}) {
     console.log(`[sem cadastro] ${att.filename}: "${parte}" não está no cadastro — o documento entra na fila para decisão dela`);
   }
 
+  // ── O TERCEIRO PORTÃO: o CNPJ que a IA leu existe? ───────────────────
+  //
+  // Só a contraparte é conferida — o CNPJ da própria empresa vem da
+  // configuração, não da leitura.
+  //
+  // Duas economias, e as duas são argumento, não atalho:
+  //   • CNPJ que veio do XML não se consulta. O XML é assinado digitalmente:
+  //     o número ali é prova, e não leitura de PDF.
+  //   • CNPJ que já bate com um cadastro não se consulta. Aquele cadastro já
+  //     foi validado na Receita quando nasceu, e a validação está gravada.
+  const cnpjContraparte = String((isSaida ? parsed.destinatario_cnpj : parsed.emitente_cnpj) || '')
+    .replace(/\D/g, '');
+  let receita = null;
+  if (cnpjContraparte.length === 14 && parsed.papel_origem !== 'xml') {
+    const jaNoCadastro = String(pessoaCadastrada?.data?.doc || '').replace(/\D/g, '') === cnpjContraparte;
+    receita = jaNoCadastro
+      ? { estado: 'confirmado', cnpj: cnpjContraparte, origem: 'cadastro' }
+      : await consultarCnpj(cnpjContraparte);
+    if (receita.estado === 'nao_respondeu') {
+      console.log(`[receita] ${att.filename}: não consegui confirmar o CNPJ ${cnpjContraparte} (${receita.detalhe || ''}) — a ficha diz isso, e o documento não é acusado por causa disso`);
+    }
+  }
+
+  // ── OS TRÊS PORTÕES ───────────────────────────────────────────────────
+  //
+  // Falhou num, o documento continua entrando — mas entra como FICHA PARA
+  // DECIDIR: sem valor, sem destino e com o motivo escrito. O "✓ Aprovar" da
+  // Caixa de entrada deixa de oferecer um lançamento pronto a partir de um
+  // documento que o sistema não conseguiu justificar.
+  //
+  // Era aqui o furo: o robô já reconhecia que o documento era prova e não
+  // desembolso, e só escrevia isso no log do servidor. Ninguém lê o log.
+  const portao = portoesDeEntrada({ parsed, cnpjEmpresa, receita });
+  if (!portao.aprovado) {
+    console.log(`[portão] ${att.filename}: ${resumoDasFalhas(portao.falhas)}`);
+  }
+
   const targetTable = isSaida ? 'receivable' : 'payable';
 
   // ── Detecção de duplicata: bate por numero_nf + parte ou valor+parte+data ±3 dias?
@@ -1778,7 +1817,10 @@ async function createLancamento(parsed, att, base64, email = {}) {
     return diffDays <= 45;
   });
 
-  if (matchSemDoc) {
+  // O auto-vínculo sobrescreve valor, parte e vencimento do lançamento que já
+  // existe. Documento que não passou no portão não tem autoridade para isso:
+  // um comprovante de entrega reescreveria a guia que ele comprova.
+  if (matchSemDoc && portao.aprovado) {
     const updated = {
       ...matchSemDoc.data,
       desc: descFull,
@@ -1960,14 +2002,32 @@ async function createLancamento(parsed, att, base64, email = {}) {
     parte,
     descricao: desc,
     desc_full: descFull,
-    valor: val,
+    // ── O QUE O PORTÃO DECIDIU ────────────────────────────────────────
+    //
+    // Reprovado, o valor NÃO é apagado: ele muda de campo. Vai para
+    // `valor_lido`, onde continua visível para conferência, e o campo que
+    // vira lançamento fica em zero. Apagar esconderia a evidência; deixar
+    // no lugar faria o documento virar despesa com um clique.
+    valor: portao.aprovado ? val : 0,
+    valor_lido: portao.aprovado ? null : val,
+    portao_aprovado: portao.aprovado,
+    portao_falhas: portao.falhas.length ? portao.falhas : null,
+    portao_motivo: portao.aprovado ? null : resumoDasFalhas(portao.falhas),
+    // A confirmação do CNPJ na Receita, do jeito que ela veio: confirmado,
+    // inexistente ou "não respondeu". Nulo = não precisou consultar.
+    cnpj_conferido: receita ? receita.estado : null,
+    cnpj_conferido_origem: receita?.origem || (receita ? 'receita' : null),
+    receita_razao_social: receita?.razao_social || null,
+    receita_situacao: receita?.situacao || null,
     moeda,
     valor_original: valorOrig,
     cotacao_ptax: cotacao ? (isSaida ? cotacao.compra : cotacao.venda) : null,
     cotacao_tipo: cotacao ? (isSaida ? 'compra' : 'venda') : null,
     data_cotacao: cotacao ? cotacao.dataCotacao : null,
-    categoria_sugerida: isSaida ? '' : await mapNFCategoria(parsed, isSaida),
-    target_table: targetTable,
+    categoria_sugerida: portao.aprovado && !isSaida ? await mapNFCategoria(parsed, isSaida) : '',
+    // Sem destino quando o portão reprova. A tela usa este campo para saber
+    // em que tabela gravaria — sem ele, não há o que aprovar sem decisão.
+    target_table: portao.aprovado ? targetTable : null,
     is_saida: isSaida,
     anexo: base64,
     anexoNome: att.filename,
@@ -2041,8 +2101,12 @@ async function createLancamento(parsed, att, base64, email = {}) {
       numero_documento: numeroDoc || null,
       periodo_apuracao: periodoApuracao || null,
       origem_anexo: att.origem === 'link' ? 'link' : 'mime',
-      parte, valor: val,
-      status: 'Aguardando aprovação (nf_pending)',
+      parte, valor: portao.aprovado ? val : 0,
+      portao_aprovado: portao.aprovado,
+      portao_motivo: portao.aprovado ? null : resumoDasFalhas(portao.falhas),
+      status: portao.aprovado
+        ? 'Aguardando aprovação (nf_pending)'
+        : 'Na fila para decisão — não passou no portão de entrada',
       pending_id: pendingId,
     },
   });
