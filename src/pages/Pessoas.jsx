@@ -16,6 +16,14 @@ function fmtDoc(s) {
   return s
 }
 
+/** 'YYYY-MM-DD' ou timestamp do banco em DD/MM/AAAA. */
+function fmtDataCurta(v) {
+  const iso = String(v || '').slice(0, 10)
+  if (!/^d{4}-d{2}-d{2}$/.test(iso)) return '—'
+  const [a, m, dd] = iso.split('-')
+  return `${dd}/${m}/${a}`
+}
+
 export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
@@ -130,6 +138,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                     <th style={th}>Email</th>
                     <th style={th}>Telefone</th>
                     <th style={th}>Cidade/UF</th>
+                    <th style={th}>Atualizado</th>
                     <th style={{ ...th, textAlign: 'center' }}></th>
                   </tr>
                 </thead>
@@ -167,6 +176,17 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.email || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.telefone || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{[d.cidade, d.uf].filter(Boolean).join('/') || '—'}</td>
+                    {/* A lista ja vinha ordenada por updated_at e nao mostrava a
+                        data. Quando a Receita foi consultada e outra coisa, e
+                        fica na ficha: da para salvar sem revalidar. */}
+                    <td style={{ ...td, color: 'var(--text-mid)' }}>
+                      {fmtDataCurta(p.updated_at)}
+                      {d.validado_em && (
+                        <span style={{ display: 'block', fontSize: 10, color: 'var(--green)' }}>
+                          Receita · {fmtDataCurta(d.validado_em)}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ ...td, textAlign: 'center' }}>
                       <button
                         onClick={e => excluir(p, e)}

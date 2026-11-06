@@ -28,6 +28,14 @@ const PORTES = [
 
 // maskDocumento agora vem de '../../lib/mascaras' como maskDoc
 
+/** Data em pt-BR a partir de 'YYYY-MM-DD' ou de um timestamp do banco. */
+function fmtData(v) {
+  const iso = String(v || '').slice(0, 10)
+  if (!/^d{4}-d{2}-d{2}$/.test(iso)) return '—'
+  const [a, m, d] = iso.split('-')
+  return `${d}/${m}/${a}`
+}
+
 export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) {
   const { user } = useAuth()
   const isEdit = !!registro
@@ -37,7 +45,13 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // de natureza (Prospect → Cliente etc.)
   const [pessoaTipo, setPessoaTipo] = useState(tipo || 'Fornecedor')
   const [statusV, setStatusV] = useState('Ativo')
+  // PJ · PF · EX. "EX" e a natureza ESTRANGEIRA: empresa ou pessoa de fora do
+  // Brasil nao tem CNPJ, nem situacao cadastral, nem CNAE, nem porte, nem
+  // Simples — sao todos campos da Receita. Em troca precisa de pais e moeda.
+  // E como o SPED trata (Registro 0150: documento vazio + codigo de pais).
   const [pjpf, setPjpf] = useState('PJ')
+  const [pais, setPais] = useState('')
+  const [moeda, setMoeda] = useState('USD')
   const [doc, setDoc] = useState('')
   const [nome, setNome] = useState('')
   const [fantasia, setFantasia] = useState('')
@@ -70,10 +84,14 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   const [logoUrl, setLogoUrl] = useState('')
   const [retemIss, setRetemIss] = useState(false) // cliente retém ISS na fonte quando você emite NF
 
+  // Quando a Receita foi consultada pela ultima vez. Diferente de updated_at,
+  // que e quando o cadastro foi SALVO: da para salvar sem revalidar.
+  const [validadoEm, setValidadoEm] = useState('')
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [lookupMsg, setLookupMsg] = useState(null)
   const [saving, setSaving] = useState(false)
   const isCliente = pessoaTipo === 'Cliente'
+  const isEstrangeiro = pjpf === 'EX'
 
   // ── Hidratação ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -84,6 +102,8 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setPessoaTipo(d.tipo || tipo || 'Fornecedor')
       setStatusV(d.status || 'Ativo')
       setPjpf(d.pjpf || 'PJ')
+      setPais(d.pais || '')
+      setMoeda(d.moeda_padrao || 'USD')
       setDoc(d.doc || '')
       setNome(d.nome || '')
       setFantasia(d.fantasia || '')
@@ -110,19 +130,26 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setContatoTel(d.contato_telefone || '')
       setLogoUrl(d.logo_url || '')
       setRetemIss(d.retem_iss === true)
+      setValidadoEm(d.validado_em || '')
     } else {
       setPessoaTipo(tipo || 'Fornecedor'); setStatusV('Ativo'); setPjpf('PJ')
+      setPais(''); setMoeda('USD')
       setDoc(''); setNome(''); setFantasia(''); setSegmento(''); setPorte(''); setSituacao('')
       setEmail(''); setTelefone(''); setContato('')
       setLogradouro(''); setBairro(''); setCidade(''); setUf(''); setCep('')
       setBanco(''); setAgencia(''); setConta(''); setNotes('')
       setEtapaFunil('Sondagem'); setOrigem('')
       setContatoNome(''); setContatoCargo(''); setContatoEmail(''); setContatoTel(''); setLogoUrl(''); setRetemIss(false)
+      setValidadoEm('')
     }
   }, [open, isEdit, registro, tipo])
 
   // ── Buscar CNPJ na Receita (BrasilAPI) ───────────────────────────────
   async function buscarCNPJ() {
+    if (isEstrangeiro) {
+      setLookupMsg({ kind: 'info', text: 'Empresa ou pessoa de fora do Brasil não tem CNPJ na Receita.' })
+      return
+    }
     const raw = doc.replace(/\D/g, '')
     if (raw.length !== 14 && raw.length !== 11) {
       setLookupMsg({ kind: 'err', text: 'Informe um CNPJ (14 dígitos) ou CPF (11 dígitos).' })
@@ -168,6 +195,10 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       else if (porteRaw.includes('GRANDE')) setPorte('Grande')
       else if (porteRaw.includes('M')) setPorte('Médio')
       if (d.cnae_fiscal_descricao) setSegmento(String(d.cnae_fiscal_descricao).substring(0, 60))
+      // A data da consulta e dado do SISTEMA e vai em campo proprio. Escrever
+      // isso dentro de "Observacoes" misturaria com o texto dela — e ela pode
+      // apagar sem querer o unico registro de quando o cadastro foi conferido.
+      setValidadoEm(new Date().toISOString().slice(0, 10))
       const isAtiva = (d.descricao_situacao_cadastral || '').toLowerCase().includes('ativa')
       setLookupMsg({
         kind: isAtiva ? 'ok' : 'warn',
@@ -196,7 +227,11 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
     try {
       const data = {
         nome: nome.trim(), tipo: pessoaTipo,
-        pjpf, status: statusV, doc: doc.trim(),
+        pjpf, status: statusV,
+        // Estrangeiro NAO recebe documento: campo vazio e honesto, numero
+        // inventado e armadilha que depois colide com a chave verdadeira.
+        doc: isEstrangeiro ? '' : doc.trim(),
+        ...(isEstrangeiro ? { pais: pais.trim(), moeda_padrao: moeda } : {}),
         fantasia: fantasia.trim(), segmento: segmento.trim(),
         porte, situacao: situacao.trim(),
         email: email.trim(), telefone: telefone.trim(),
@@ -205,6 +240,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         cidade: cidade.trim(), uf: uf.trim(), cep: cep.trim(),
         banco: banco.trim(), agencia: agencia.trim(), conta: conta.trim(),
         notes: notes.trim(),
+        validado_em: validadoEm || null,
       }
       if (isCliente) {
         data.etapa_funil = etapaFunil || 'Sondagem'
@@ -304,13 +340,27 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         {lookupMsg && (
           <div style={{ fontSize: 11, marginTop: 8, color: lookupColor, minHeight: 16 }}>{lookupMsg.text}</div>
         )}
+        {/* As duas datas que o cadastro ja tinha e nao mostrava: quando a
+            Receita foi consultada e quando o registro foi salvo. Sao coisas
+            diferentes — da para salvar sem revalidar. */}
+        {(validadoEm || registro?.updated_at) && (
+          <div style={{ fontSize: 11, marginTop: 4, color: 'var(--text-mid)' }}>
+            {validadoEm && <>Validado na Receita em <strong>{fmtData(validadoEm)}</strong></>}
+            {validadoEm && registro?.updated_at && ' · '}
+            {registro?.updated_at && <>Cadastro salvo em <strong>{fmtData(registro.updated_at)}</strong></>}
+          </div>
+        )}
       </div>
 
       <Row cols={3}>
         <Field label="Tipo *">
           <select value={pessoaTipo} onChange={e => setPessoaTipo(e.target.value)} style={input}>
             <option value="Fornecedor">Fornecedor</option>
-            <option value="Cliente">Cliente / Prospect</option>
+            {/* Era "Cliente / Prospect". Prospect NAO e papel: e pessoa com
+                proposta em aberto e sem o papel de Cliente. Quem ja registra
+                isso e o campo Status, ao lado. Juntar os dois no mesmo rotulo
+                fazia a tela dizer uma coisa que o modelo nao sustenta. */}
+            <option value="Cliente">Cliente</option>
             <option value="Funcionário">Funcionário</option>
             <option value="Órgão Público">Órgão Público</option>
           </select>
@@ -324,9 +374,26 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
           <select value={pjpf} onChange={e => setPjpf(e.target.value)} style={input}>
             <option value="PJ">Pessoa Jurídica (PJ)</option>
             <option value="PF">Pessoa Física (PF)</option>
+            <option value="EX">Estrangeiro</option>
           </select>
         </Field>
       </Row>
+
+      {isEstrangeiro && (
+        <Row cols={2}>
+          <Field label="País *">
+            <input value={pais} onChange={e => setPais(e.target.value)} placeholder="Ex.: Estados Unidos" style={input} />
+          </Field>
+          <Field label="Moeda padrão">
+            <select value={moeda} onChange={e => setMoeda(e.target.value)} style={input}>
+              <option value="USD">Dólar (USD)</option>
+              <option value="EUR">Euro (EUR)</option>
+              <option value="GBP">Libra (GBP)</option>
+              <option value="BRL">Real (BRL)</option>
+            </select>
+          </Field>
+        </Row>
+      )}
 
       {/* CRM — só Cliente */}
       {isCliente && (
