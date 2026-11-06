@@ -177,7 +177,7 @@ export default function ImportarNFs() {
     // Cria
     const isGuia = ['DAS','DARF','GPS','GNRE'].includes(String(tipoDoc || '').toUpperCase())
     const tipo = isSaida ? 'Cliente' : (isGuia ? 'Órgão Público' : 'Fornecedor')
-    const codigo = await proximoCodigoPessoa(tipo)
+    const codigo = await proximoCodigoPessoa()
     const novo = {
       tipo,
       pjpf: cnpjClean.length === 14 ? 'PJ' : (cnpjClean.length === 11 ? 'PF' : 'PJ'),

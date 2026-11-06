@@ -278,7 +278,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         showToast('Cadastro atualizado.', 'success')
       } else {
         if (!user) { showToast('Sessão expirada.', 'error'); return }
-        const codigo = await proximoCodigoPessoa(pessoaTipo)
+        const codigo = await proximoCodigoPessoa()
         const payload = {
           user_id: user.id, codigo,
           data: { ...data, created: new Date().toISOString().slice(0, 10) },

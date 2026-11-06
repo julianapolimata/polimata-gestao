@@ -11,9 +11,20 @@ import { supabase } from './supabase'
 //   Contrato:   CTR-YYYY-NNN
 //   Projeto:    PRJ-YYYY-NNN
 
-const PREFIX_PESSOA = {
-  Cliente: 'CLI', Fornecedor: 'FOR', 'Funcionário': 'FUN', 'Órgão Público': 'ORG',
-}
+// O codigo da pessoa NAO carrega o papel, e a sequencia e UMA SO.
+//
+// O que estava errado: o prefixo vinha do tipo (CLI, FOR, FUN, ORG) e a
+// sequencia contava DENTRO do tipo. Duas consequencias:
+//
+//   1. trocar o tipo de um cadastro deixava o codigo mentindo — e a tela
+//      PERMITE trocar, de proposito, porque a relacao muda;
+//   2. com papel multiplo nao ha prefixo possivel: quem e cliente E
+//      fornecedor nao e CLI nem FOR.
+//
+// Verificado em 05/11/2026: o codigo NAO atravessa a ponte para o Polimata CI
+// — quem liga os dois sistemas e o identificador da pessoa e o CNPJ. Trocar o
+// formato nao afeta o outro lado.
+const CASAS_CODIGO_PESSOA = 4
 
 function seqMax(rows, regex) {
   let max = 0
@@ -48,13 +59,10 @@ export async function proximosCodigosPayable(n) {
   return Array.from({ length: n }, (_, i) => `2${String(base + 1 + i).padStart(5, '0')}`)
 }
 
-export async function proximoCodigoPessoa(tipoPessoa) {
-  const pref = PREFIX_PESSOA[tipoPessoa]
-  if (!pref) return ''
-  const { data } = await supabase.from('pessoas').select('codigo,data')
-  const mesmoTipo = (data || []).filter(p => (p.data?.tipo || '') === tipoPessoa)
-  const next = seqMax(mesmoTipo, new RegExp(`^${pref}-(\\d+)$`)) + 1
-  return `${pref}-${String(next).padStart(3, '0')}`
+export async function proximoCodigoPessoa() {
+  const { data } = await supabase.from('pessoas').select('codigo')
+  const next = seqMax(data, /^(\d+)$/) + 1
+  return String(next).padStart(CASAS_CODIGO_PESSOA, '0')
 }
 
 export async function proximoCodigoEmprestimo() {
