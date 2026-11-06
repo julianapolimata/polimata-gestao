@@ -11,6 +11,7 @@ import {
   construirRegras, regraPara, escriturarAuto,
   SITUACOES_FISCAIS, rotuloSituacaoFiscal, semDocumentoDe,
 } from '../lib/escrituracao'
+import { lerMemoria, guardarMemoria, juntarRegras } from '../lib/memoriaRegras'
 import SeletorNF from './components/SeletorNF'
 import { rankearNFs, notaObvia, motivosDoMatch } from '../lib/nfMatch'
 import { vincularNFEmail } from '../lib/vincularNF'
@@ -92,7 +93,15 @@ export default function ClassificarLancamentos() {
         ...(rP.data || []).map(r => ({ ...r, tabela: 'payable' })),
         ...(rR.data || []).map(r => ({ ...r, tabela: 'receivable' })),
       ]
-      setRegras(construirRegras(manuais))
+      // As regras VIVAS, do jeito de sempre: só escrituração manual, só
+      // quando o histórico é unânime.
+      const vivas = construirRegras(manuais)
+      // E a MEMÓRIA, que sobrevive ao dado. Guardada agora, lida sempre: o
+      // que ela aprendeu antes da limpeza continua valendo depois dela.
+      lerMemoria().then(async (memoria) => {
+        setRegras(juntarRegras(memoria, vivas))
+        await guardarMemoria(vivas, memoria)
+      })
       setPlano(pl || [])
       setLoading(false)
     })
