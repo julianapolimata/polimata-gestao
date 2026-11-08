@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import AppLayout from '../components/AppLayout'
 import EstadoErro from '../components/EstadoErro'
 import ModalPessoa from './components/ModalPessoa'
+import AvisoSincronizacaoCI from './components/AvisoSincronizacaoCI'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { temPapel, papelDoRotuloAntigo, papeisDe, PAPEIS } from '../lib/vinculoPessoa'
@@ -112,6 +113,10 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
       title={titulo}
       stickyTop={(
         <>
+          {/* A sincronização com o Polímata App. A faixa só aparece quando
+              algo não chegou — aviso que fica sempre na tela deixa de ser
+              aviso. */}
+          <AvisoSincronizacaoCI />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, maxWidth: 480 }}>
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
