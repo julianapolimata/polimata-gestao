@@ -68,6 +68,10 @@ const assinatura = c => `${c.cat}||${c.subcat}||${c.doc_status}||${c.doc_motivo_
 //   @returns Map<chave, {tabela, ...classificacao}>
 export function construirRegras(notas) {
   const acc = new Map() // chave -> Map<assinatura, {classificacao, tabela}>
+  // Quantos lançamentos sustentam cada chave. A tela mostra esse número: uma
+  // regra apoiada em sete escriturações iguais pede menos conferência que uma
+  // apoiada em uma só, e quem decide isso é ela, não o sistema.
+  const quantos = new Map()
   for (const n of notas || []) {
     const d = n.data || n
     if (d?.escriturado !== true) continue
@@ -77,6 +81,7 @@ export function construirRegras(notas) {
     if (!chave) continue
     const c = classificacaoDe(d)
     const sig = assinatura(c)
+    quantos.set(chave, (quantos.get(chave) || 0) + 1)
     if (!acc.has(chave)) acc.set(chave, new Map())
     const m = acc.get(chave)
     if (!m.has(sig)) m.set(sig, { classificacao: c, tabela: n.tabela || null })
@@ -85,7 +90,9 @@ export function construirRegras(notas) {
   for (const [chave, m] of acc) {
     if (m.size === 1) { // UNÂNIME
       const only = [...m.values()][0]
-      regras.set(chave, only.classificacao)
+      // `origem` e `quantos` são para a TELA, não para o lançamento:
+      // escriturarAuto copia campo a campo e não os leva junto.
+      regras.set(chave, { ...only.classificacao, origem: 'viva', quantos: quantos.get(chave) || 0 })
     }
     // m.size > 1 → histórico divergente: NÃO cria regra (espera manual)
   }

@@ -179,6 +179,30 @@ export default function ClassificarLancamentos() {
       motivo: d.doc_motivo_dispensa || g.regra?.doc_motivo_dispensa || '',
     }
   }
+
+  // ── DE ONDE VEIO O QUE ESTÁ NO CAMPO ──────────────────────────────────
+  //
+  // Campo preenchido sem dizer por quê é palpite silencioso, e palpite
+  // silencioso é pior que campo vazio: ele convida a confirmar sem conferir.
+  // São três procedências, e elas pedem conferência diferente:
+  //
+  //   lancamento  o próprio lançamento já estava classificado assim. Ela
+  //               decidiu isto, neste lançamento, antes.
+  //   viva        o histórico deste fornecedor é unânime. Ela decidiu isto
+  //               nos irmãos dele, e a tela diz em quantos.
+  //   memoria     a regra guardada antes da limpeza da base. Ela decidiu
+  //               isto, mas os lançamentos que provavam já não existem.
+  //
+  // Nenhuma delas decide nada: a escrituração continua sendo o clique dela.
+  function origemDaPrecarga(g) {
+    const d = g.rep?.data || {}
+    if (catNoPlano(d.cat)) return { tipo: 'lancamento' }
+    if (!g.regra?.cat) return null
+    if (g.regra.origem === 'memoria') {
+      return { tipo: 'memoria', guardadoEm: g.regra.guardado_em || null }
+    }
+    return { tipo: 'viva', quantos: g.regra.quantos || 0 }
+  }
   const selDe = (g, base = sel) => base[g.key] || prefillDe(g)
   function setCampo(g, campo, valor) {
     setSel(prev => ({ ...prev, [g.key]: { ...selDe(g, prev), [campo]: valor, ...(campo === 'cat' ? { subcat: '' } : {}) } }))
@@ -215,12 +239,18 @@ export default function ClassificarLancamentos() {
     setDesmarcados(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
-  async function escriturar(grupo) {
+  /**
+   * @param grupo    o grupo da tela
+   * @param apenas   quando vem uma lista, escritura só esses lançamentos —
+   *                 é o "só este" de cada linha. Sem ela, vale a marcação do
+   *                 grupo, como sempre valeu.
+   */
+  async function escriturar(grupo, apenas = null) {
     const s = selDe(grupo)
     const erro = validar(s)
     if (erro) { showToast(erro, 'warning'); return }
     // Só escritura os itens MARCADOS (permite dividir um grupo heterogêneo tipo Sicoob).
-    const marcados = grupo.itens.filter(it => !desmarcados.has(it.id))
+    const marcados = apenas || grupo.itens.filter(it => !desmarcados.has(it.id))
     if (!marcados.length) { showToast('Nenhum item marcado neste grupo.', 'warning'); return }
     const itensAlvo = marcados.filter(it => !emMesFechado(it))
     const pulados = marcados.length - itensAlvo.length
@@ -685,6 +715,28 @@ export default function ClassificarLancamentos() {
                     {SITUACOES_FISCAIS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
+                {!descartada && s.cat && origemDaPrecarga(g) && (
+                  <div style={avisoPrecarga}>
+                    {(() => {
+                      const o = origemDaPrecarga(g)
+                      if (o.tipo === "lancamento") {
+                        return <>Já estava classificado assim <strong>neste lançamento</strong>. Confirme ou corrija.</>
+                      }
+                      if (o.tipo === "memoria") {
+                        return <>
+                          Veio da <strong>regra guardada</strong>
+                          {o.guardadoEm ? <> em {br(o.guardadoEm)}</> : null} — você decidiu isto antes,
+                          e os lançamentos que provavam não estão mais na base. <strong>Confira.</strong>
+                        </>
+                      }
+                      return <>
+                        Veio do <strong>histórico deste fornecedor</strong>
+                        {o.quantos > 1 ? <>: {o.quantos} lançamentos, todos classificados assim</> : null}.
+                        Confirme ou corrija.
+                      </>
+                    })()}
+                  </div>
+                )}
                 {descartada && (
                   <div style={avisoForaDoPlano}>
                     Este grupo estava gravado como <strong>{descartada}</strong>, que não existe no seu plano de contas
@@ -742,6 +794,18 @@ export default function ClassificarLancamentos() {
                           </span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.desc || it.data?.supplier || it.data?.client || '—'}</span>
                           <span style={{ fontWeight: 600, width: 96, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(it.value)}</span>
+                          {/* UM POR VEZ. O grupo continua existindo — é ele que
+                              torna 300 lançamentos tratáveis —, mas quem quiser
+                              decidir lançamento a lançamento não precisa mais
+                              desmarcar os outros para isso. */}
+                          <button
+                            onClick={() => escriturar(g, [it])}
+                            disabled={salvando === g.key}
+                            title="Escriturar só este lançamento, com a classificação escolhida acima"
+                            style={btnSoEste}
+                          >
+                            só este
+                          </button>
                           {comNF
                             ? (jaTem
                                 ? <span
@@ -821,6 +885,17 @@ const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none', flex: '1 1 160px', minWidth: 140 }
+const avisoPrecarga = {
+  fontSize: 11, lineHeight: 1.5, color: 'var(--navy-mid)',
+  background: 'var(--cream)', border: '1px solid var(--cream-dark)',
+  borderRadius: 6, padding: '7px 10px', marginTop: 8,
+}
+const btnSoEste = {
+  flexShrink: 0, padding: '3px 8px', borderRadius: 5,
+  border: '1px solid var(--cream-dark)', background: 'var(--white)',
+  color: 'var(--navy)', fontFamily: 'var(--body)', fontSize: 10,
+  fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+}
 const motivoInput = { width: '100%', boxSizing: 'border-box', fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', outline: 'none', marginTop: 8 }
 const btnAplicar = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700, background: 'var(--navy)', color: '#fff', fontFamily: 'var(--body)' }
 const btnAuto = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 12, fontWeight: 700, background: 'var(--gold)', color: '#fff', fontFamily: 'var(--body)', cursor: 'pointer', whiteSpace: 'nowrap' }
