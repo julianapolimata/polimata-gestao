@@ -129,3 +129,84 @@ export function consolidarContratos(linhas) {
 function round(v) { return Math.round((Number(v) || 0) * 100) / 100 }
 
 export default consolidarContratos
+
+/**
+ * As parcelas de um contrato, uma por linha da tela, em ordem.
+ *
+ * Por que agrupar: uma parcela vira DUAS linhas em Contas a Pagar quando o
+ * cronograma separa amortização de juros. O Sicoob tem 72 linhas para 36
+ * parcelas. Listar as linhas cruas faria a parcela 1 aparecer duas vezes, com
+ * dois valores que não são o valor dela.
+ *
+ * O que fica de fora do agrupamento: os ajustes nascidos na conciliação
+ * (juros de mora, tarifa). Eles pertencem ao contrato, mas não a uma parcela
+ * do cronograma — então viram linhas próprias, no fim, marcadas como ajuste.
+ *
+ * @param {Array} linhas  de `payable`, com { id, due, st, val, num, subcat,
+ *                        ajuste_tipo, conciliado_em, ajuste_historico,
+ *                        data_pagamento, data_pagamento_presumida, codigo }
+ */
+export function parcelasDoContrato(linhas) {
+  const porNumero = new Map()
+  const ajustes = []
+
+  for (const l of linhas || []) {
+    const val = num(l.val)
+    const pago = ehPago(l)
+    if (String(l.ajuste_tipo || '')) {
+      ajustes.push({
+        ajuste: true,
+        tipo: String(l.ajuste_tipo),
+        codigo: l.codigo || '',
+        vencimento: l.due || '',
+        principal: 0,
+        juros: ehJuros(l) ? val : 0,
+        outros: ehJuros(l) ? 0 : val,
+        total: val,
+        pago,
+        conciliadoEm: l.conciliado_em || null,
+      })
+      continue
+    }
+    const chave = l.num != null && l.num !== '' ? String(l.num) : `linha:${l.id}`
+    if (!porNumero.has(chave)) {
+      porNumero.set(chave, {
+        numero: Number(l.num) || null,
+        codigos: [],
+        vencimento: l.due || '',
+        principal: 0, juros: 0, outros: 0, total: 0,
+        pago: true,
+        conciliadoEm: null,
+        // O ajuste de história: a parcela foi dada como paga porque venceu
+        // antes do recorte, e o extrato daquele período não entra. Quem olhar
+        // a lista precisa ver que ali não houve conciliação.
+        ajusteHistorico: false,
+        pagamentoPresumido: false,
+        pagoEm: null,
+      })
+    }
+    const p = porNumero.get(chave)
+    if (l.codigo) p.codigos.push(l.codigo)
+    if (ehJuros(l)) p.juros += val
+    else p.principal += val
+    p.total += val
+    p.pago = p.pago && pago
+    if (l.conciliado_em && !p.conciliadoEm) p.conciliadoEm = l.conciliado_em
+    if (l.ajuste_historico === true || l.ajuste_historico === 'true') p.ajusteHistorico = true
+    if (l.data_pagamento_presumida === true || l.data_pagamento_presumida === 'true') p.pagamentoPresumido = true
+    if (l.data_pagamento && !p.pagoEm) p.pagoEm = l.data_pagamento
+    // O vencimento é o mesmo nas duas linhas da parcela; o menor, se divergirem.
+    if (l.due && (!p.vencimento || l.due < p.vencimento)) p.vencimento = l.due
+  }
+
+  const parcelas = [...porNumero.values()].map(p => ({
+    ...p,
+    principal: round(p.principal), juros: round(p.juros), total: round(p.total),
+  }))
+  parcelas.sort((a, b) => {
+    if (a.numero && b.numero) return a.numero - b.numero
+    return String(a.vencimento).localeCompare(String(b.vencimento))
+  })
+  ajustes.sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)))
+  return { parcelas, ajustes }
+}

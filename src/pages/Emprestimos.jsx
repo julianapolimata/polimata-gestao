@@ -8,6 +8,7 @@ import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { fmtMoney } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
+import ModalParcelas from './components/ModalParcelas'
 import { linhasDeParcelas } from '../lib/parcelasEmprestimo'
 import { consolidarContratos } from '../lib/contratoVisao'
 
@@ -43,6 +44,9 @@ export default function Emprestimos() {
   const [modalOpen, setModalOpen] = useState(false)
   const [edicao, setEdicao] = useState(null)
   const [gerando, setGerando] = useState(null)
+  // O contrato cujas parcelas estão abertas no pop-up. A contagem "5/36" é um
+  // resumo, e resumo sem detalhe obriga a confiar: aqui ela vê quais cinco.
+  const [vendoParcelas, setVendoParcelas] = useState(null)
 
   const recarregar = useCallback(() => {
     if (!user) return
@@ -301,8 +305,17 @@ export default function Emprestimos() {
                       {r.numero_contrato && <div style={{ fontSize: 10, color: 'var(--text-mid)', fontFamily: 'monospace' }}>{r.numero_contrato}</div>}
                     </td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{TIPO_LABEL[r.tipo] || '—'}</td>
-                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }} title={v.real ? 'Contagem real das parcelas em Contas a Pagar' : 'sem parcelas geradas — valor digitado no cadastro'}>
-                      {v.pagas}/{v.total}{selo}
+                    <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }}>
+                      {v.real ? (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setVendoParcelas(r) }}
+                          title="Ver as parcelas uma a uma: vencimento, valor e como cada uma foi paga"
+                          style={btnContagem}
+                        >
+                          {v.pagas}/{v.total}
+                        </button>
+                      ) : <span title="sem parcelas em Contas a Pagar — número digitado no cadastro">{v.pagas}/{v.total}{selo}</span>}
                     </td>
                     <td style={{ ...td, textAlign: 'center', color: 'var(--text-mid)' }} title={v.real ? 'Menor vencimento ainda não pago em Contas a Pagar' : 'cronograma digitado no cadastro'}>
                       {v.proxima ? fmtDataBR(v.proxima) : (status === 'quitada' ? '—' : (v.real ? 'tudo pago' : '—'))}
@@ -376,6 +389,12 @@ export default function Emprestimos() {
         )}
       </div>
 
+      <ModalParcelas
+        open={!!vendoParcelas}
+        onClose={() => setVendoParcelas(null)}
+        contrato={vendoParcelas}
+      />
+
       <ModalEmprestimo open={modalOpen} onClose={() => setModalOpen(false)} registro={edicao} reais={edicao ? (reais[edicao.id] || null) : null} onSaved={recarregar} />
     {dialogoConfirmacao}
     </AppLayout>
@@ -397,6 +416,13 @@ const caixaTitulo = {
 const caixaValor = { fontSize: 13, fontWeight: 700, color: 'var(--red)', lineHeight: 1.2 }
 const caixaLinha = { fontSize: 9.5, fontWeight: 400, color: 'var(--text-mid)', marginTop: 2, lineHeight: 1.35 }
 const caixaNota = { fontSize: 9, fontWeight: 400, color: 'var(--gold-dark)', marginTop: 2, lineHeight: 1.3 }
+// A contagem é um botão, e precisa parecer um: sublinhado tracejado, como o
+// resto do sistema marca o que se pode abrir.
+const btnContagem = {
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+  fontFamily: 'var(--body)', fontSize: 12, fontWeight: 600, color: 'var(--navy)',
+  borderBottom: '1px dashed var(--gold-dark)', lineHeight: 1.4,
+}
 const btnGerar = {
   display: 'inline-block', marginTop: 5, padding: '3px 8px', borderRadius: 5,
   border: '1px solid var(--navy)', background: 'var(--white)', color: 'var(--navy)',
