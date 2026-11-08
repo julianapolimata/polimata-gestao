@@ -9,6 +9,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { fmtMoney } from '../lib/finance'
 import ModalEmprestimo from './components/ModalEmprestimo'
 import { linhasDeParcelas } from '../lib/parcelasEmprestimo'
+import { consolidarContratos } from '../lib/contratoVisao'
 
 function fmtDataBR(s) {
   if (!s) return '—'
@@ -23,42 +24,14 @@ const TIPO_LABEL = {
 }
 
 // =============================================================================
-// Saldo e parcelas VIVOS: a verdade das parcelas está em Contas a Pagar
-// (payable.emprestimo_id). O que foi digitado no cadastro (saldo_atual,
-// parcelas_pagas) é só o ponto de partida pra gerar as parcelas — depois
-// disso congela. Aqui consolidamos as parcelas reais por empréstimo.
+// A consolidação das parcelas mora em lib/contratoVisao.js, com prova própria
+// (provas/contrato-visao.mjs). O que ela devolve por contrato: PRINCIPAL e
+// JUROS, cada um com previsto e realizado.
 //
-// Uma parcela pode virar 2 linhas em payable (amortização + juros) — por isso
-// contagem é por número de parcela (parcela_atual), não por linha. Saldo e
-// próximo vencimento somam/olham todas as linhas não pagas.
+// A verdade das parcelas está em Contas a Pagar (payable.emprestimo_id). O
+// que foi digitado no cadastro é só o ponto de partida para gerar as parcelas
+// — depois disso, congela.
 // =============================================================================
-function consolidarParcelas(linhas) {
-  const porEmp = new Map()
-  for (const l of linhas || []) {
-    if (!l.emprestimo_id) continue
-    if (!porEmp.has(l.emprestimo_id)) porEmp.set(l.emprestimo_id, { linhas: 0, saldo: 0, proxima: null, nums: new Map() })
-    const e = porEmp.get(l.emprestimo_id)
-    const pago = l.st === 'Pago'
-    const val = Number(l.val || 0)
-    e.linhas += 1
-    if (!pago) {
-      e.saldo += val
-      if (l.due && (!e.proxima || l.due < e.proxima)) e.proxima = l.due
-    }
-    // Número da parcela (fallback: a própria linha, quando não veio numerada)
-    const num = l.num != null && l.num !== '' ? String(l.num) : `linha:${l.id}`
-    const cur = e.nums.get(num) || { pago: true }
-    cur.pago = cur.pago && pago
-    e.nums.set(num, cur)
-  }
-  const out = {}
-  for (const [id, e] of porEmp) {
-    let pagas = 0
-    for (const n of e.nums.values()) if (n.pago) pagas += 1
-    out[id] = { total: e.nums.size, pagas, saldo: e.saldo, proxima: e.proxima, linhas: e.linhas }
-  }
-  return out
-}
 
 export default function Emprestimos() {
   const { user } = useAuth()
@@ -78,7 +51,9 @@ export default function Emprestimos() {
       supabase.from('emprestimos_financiamentos').select('*').order('created_at', { ascending: false }),
       // Parcelas reais em Contas a Pagar (só o que precisamos — nada de data inteiro).
       supabase.from('payable')
-        .select('id, emprestimo_id, due:data->>due, st:data->>status, val:data->>value, num:data->>parcela_atual')
+        // `subcat` separa amortização de juros; `ajuste_tipo` reconhece o
+        // juro que nasceu na conciliação, e que nenhum cronograma previu.
+        .select('id, emprestimo_id, due:data->>due, st:data->>status, val:data->>value, num:data->>parcela_atual, subcat:data->>subcat, ajuste_tipo:data->>ajuste_tipo')
         .not('emprestimo_id', 'is', null),
     ])
       .then(([rE, rP]) => {
@@ -88,7 +63,7 @@ export default function Emprestimos() {
         else { setErro(null); setRows((rE.data || []).map(r => ({ ...r, ...r.data }))) }
         // Parcelas: erro aqui não derruba a tela — cai no valor digitado (com selo).
         if (rP.error) { console.warn('parcelas de empréstimo:', rP.error.message); setReais({}) }
-        else setReais(consolidarParcelas(rP.data))
+        else setReais(consolidarContratos(rP.data))
         setLoading(false)
       })
       .catch((e) => { setErro(e); setLoading(false) })
@@ -110,7 +85,15 @@ export default function Emprestimos() {
   const visao = useCallback((r) => {
     const real = reais[r.id]
     if (real && real.linhas > 0) {
-      return { real: true, saldo: real.saldo, pagas: real.pagas, total: real.total, proxima: real.proxima }
+      return {
+        real: true,
+        // O SALDO DEVEDOR é o principal em aberto, e só ele. Juros a apropriar
+        // são o custo de carregar a dívida: viram despesa conforme o tempo
+        // passa, e não são dívida hoje.
+        saldo: real.principal.emAberto,
+        principal: real.principal, juros: real.juros,
+        pagas: real.pagas, total: real.total, proxima: real.proxima,
+      }
     }
     // ── SEM PARCELAS LANÇADAS NÃO HÁ SALDO APURADO ────────────────────
     //
@@ -233,10 +216,10 @@ export default function Emprestimos() {
     <colgroup>
       <col style={{ width: 100 }} />
       <col />
-      <col style={{ width: 140 }} />
-      <col style={{ width: 110, textAlign: 'center' }} />
+      <col style={{ width: 130 }} />
       <col style={{ width: 100, textAlign: 'center' }} />
-      <col style={{ width: 160, textAlign: 'right' }} />
+      <col style={{ width: 95, textAlign: 'center' }} />
+      <col style={{ width: 260, textAlign: 'right' }} />
       <col style={{ width: 100, textAlign: 'center' }} />
       <col style={{ width: 50 }} />
     </colgroup>
@@ -281,7 +264,7 @@ export default function Emprestimos() {
                     <th style={th}>Tipo</th>
                     <th style={{ ...th, textAlign: 'center' }}>Parcelas</th>
                     <th style={{ ...th, textAlign: 'center' }}>Próx. venc.</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saldo</th>
+                    <th style={{ ...th, textAlign: 'right' }} title="Em aberto: principal (o saldo devedor) e juros, cada um com o previsto no contrato e o realizado na conciliação.">Em aberto</th>
                     <th style={{ ...th, textAlign: 'center' }}>Status</th>
                     <th style={{ ...th, textAlign: 'center' }}></th>
                   </tr>
@@ -327,7 +310,33 @@ export default function Emprestimos() {
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600, color: v.real ? 'var(--red)' : 'var(--text-mid)' }} title={v.real
                       ? 'Soma das parcelas ainda não conciliadas em Contas a Pagar'
                       : 'As parcelas deste contrato não estão em Contas a Pagar, então não há o que conciliar e o saldo não é apurado. O número abaixo é o que foi declarado no cadastro.'}>
-                      {v.real ? fmtMoney(v.saldo) : (
+                      {v.real ? (
+                        <div style={caixas}>
+                          <div style={caixa} title="Principal: a dívida em si. Previsto é o que o contrato prevê amortizar; realizado é o que já foi conciliado contra o extrato. Não é despesa — sai do caixa e abate o passivo.">
+                            <div style={caixaTitulo}>Principal</div>
+                            <div style={caixaValor}>{fmtMoney(v.principal.emAberto)}</div>
+                            <div style={caixaLinha}>
+                              previsto {fmtMoney(v.principal.previsto)} · realizado {fmtMoney(v.principal.realizado)}
+                            </div>
+                          </div>
+                          <div style={caixa} title={v.juros.previsto === null
+                            ? 'Juros: este contrato não abre juros no cronograma — a parcela veio cheia. O valor realizado é o que foi medido na conciliação, pagamento a pagamento, e por isso cresce conforme você lança.'
+                            : 'Juros: despesa financeira. Previsto é o que o contrato prevê; realizado é o que foi efetivamente pago, incluindo mora e multa medidas na conciliação.'}>
+                            <div style={caixaTitulo}>Juros</div>
+                            <div style={{ ...caixaValor, color: 'var(--navy-mid)' }}>
+                              {v.juros.previsto === null ? fmtMoney(v.juros.realizado) : fmtMoney(v.juros.emAberto)}
+                            </div>
+                            <div style={caixaLinha}>
+                              {v.juros.previsto === null
+                                ? <>previsto <em>não consta</em> · realizado {fmtMoney(v.juros.realizado)}</>
+                                : <>previsto {fmtMoney(v.juros.previsto)} · realizado {fmtMoney(v.juros.realizado)}</>}
+                            </div>
+                            {v.juros.medidoNaConciliacao > 0 && v.juros.previsto !== null && (
+                              <div style={caixaNota}>inclui {fmtMoney(v.juros.medidoNaConciliacao)} medido na conciliação</div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
                         <>
                           <div style={{ fontWeight: 400, fontSize: 10.5 }}>não apurado</div>
                           <div style={{ fontWeight: 400, fontSize: 11 }}>{fmtMoney(v.declarado)}{selo}</div>
@@ -375,6 +384,19 @@ export default function Emprestimos() {
 
 const searchInput = { width: '100%', padding: '9px 12px 9px 32px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none' }
 const resumo = { display: 'inline-flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'var(--white)', border: '1px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 12 }
+const caixas = { display: 'flex', gap: 6, justifyContent: 'flex-end' }
+const caixa = {
+  flex: '1 1 0', minWidth: 0, textAlign: 'left', cursor: 'help',
+  border: '1px solid var(--cream-dark)', borderRadius: 6, padding: '6px 8px',
+  background: 'var(--cream-light, #FBF8F2)',
+}
+const caixaTitulo = {
+  fontSize: 8, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
+  color: 'var(--text-mid)', marginBottom: 2,
+}
+const caixaValor = { fontSize: 13, fontWeight: 700, color: 'var(--red)', lineHeight: 1.2 }
+const caixaLinha = { fontSize: 9.5, fontWeight: 400, color: 'var(--text-mid)', marginTop: 2, lineHeight: 1.35 }
+const caixaNota = { fontSize: 9, fontWeight: 400, color: 'var(--gold-dark)', marginTop: 2, lineHeight: 1.3 }
 const btnGerar = {
   display: 'inline-block', marginTop: 5, padding: '3px 8px', borderRadius: 5,
   border: '1px solid var(--navy)', background: 'var(--white)', color: 'var(--navy)',

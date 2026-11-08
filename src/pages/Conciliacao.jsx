@@ -677,6 +677,21 @@ export default function Conciliacao() {
       let baseR = null, nR = 0, baseP = null, nP = 0
       const hoje = new Date().toISOString().slice(0, 10)
       const nome = (ext.data?.descricao || '').substring(0, 80)
+      // ── O AJUSTE FICA LIGADO AO CONTRATO ─────────────────────────────
+      //
+      // Quando tudo que está sendo conciliado pertence ao MESMO empréstimo, o
+      // juro, a multa e a tarifa cobrados naquele pagamento pertencem a ele
+      // também. Sem este vínculo, o juro de mora de uma parcela vira uma
+      // despesa financeira solta, e a caixa de juros do contrato nunca se
+      // preenche — justamente nos dois parcelamentos, onde o cronograma não
+      // abre juros e a conciliação é a ÚNICA fonte desse número.
+      //
+      // Só quando é inequívoco: contratos diferentes na mesma linha do extrato
+      // deixam o ajuste sem dono, que é a verdade.
+      const contratos = [...new Set(selecionados.map(l => l.emprestimo_id).filter(Boolean))]
+      const contratoUnico = contratos.length === 1 && selecionados.every(l => l.emprestimo_id)
+        ? contratos[0] : null
+
       const p_ajustes = []
       for (const a of ajValidos) {
         let codigo
@@ -690,6 +705,7 @@ export default function Conciliacao() {
         p_ajustes.push({
           tabela: a.def.tabela,
           codigo,
+          emprestimo_id: contratoUnico,
           data: {
             [a.def.tabela === 'receivable' ? 'client' : 'supplier']: nome,
             desc: `${a.def.label} — conciliação`,
