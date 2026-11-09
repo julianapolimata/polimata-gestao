@@ -194,6 +194,12 @@ export default function ClassificarLancamentos() {
   //               isto, mas os lançamentos que provavam já não existem.
   //
   // Nenhuma delas decide nada: a escrituração continua sendo o clique dela.
+  // Por que a situação fiscal deste grupo nasceu vazia, quando nasceu.
+  function motivoFiscalAberto(g) {
+    const d = g.rep?.data || {}
+    return (d.fiscal_em_aberto === true && d.fiscal_motivo_aberto) || null
+  }
+
   function origemDaPrecarga(g) {
     const d = g.rep?.data || {}
     if (catNoPlano(d.cat)) return { tipo: 'lancamento' }
@@ -715,6 +721,18 @@ export default function ClassificarLancamentos() {
                     {SITUACOES_FISCAIS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
+                {/* C8 — BOLETO NÃO DECIDE A SITUAÇÃO FISCAL.
+                    O documento anexado é instrução de pagamento, não nota. A
+                    ACIAS só emite boleto (dispensado é a verdade); a JL Ramos
+                    emite nota (pendente é a verdade). Mesmo documento, duas
+                    respostas certas — então quem decide é ela, uma vez por
+                    fornecedor. A partir daí a regra aprendida repete sozinha. */}
+                {motivoFiscalAberto(g) && !s.situacao_fiscal && (
+                  <div style={avisoFiscalAberto}>
+                    <strong>A situação fiscal ficou em aberto de propósito.</strong>{" "}
+                    {motivoFiscalAberto(g)}
+                  </div>
+                )}
                 {!descartada && s.cat && origemDaPrecarga(g) && (
                   <div style={avisoPrecarga}>
                     {(() => {
@@ -885,6 +903,11 @@ const tabBase = { border: 'none', borderRadius: 6, padding: '8px 16px', fontSize
 const tabActive = { ...tabBase, background: 'var(--navy)', color: '#fff' }
 const tabInactive = { ...tabBase, background: 'transparent', color: 'var(--text-mid)' }
 const selectStyle = { fontFamily: 'var(--body)', fontSize: 12, padding: '8px 10px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, background: 'var(--white)', color: 'var(--navy)', cursor: 'pointer', outline: 'none', flex: '1 1 160px', minWidth: 140 }
+const avisoFiscalAberto = {
+  fontSize: 11.5, lineHeight: 1.55, color: "var(--navy)",
+  background: "rgba(204,145,94,0.10)", border: "1px solid rgba(204,145,94,0.4)",
+  borderRadius: 6, padding: "8px 11px", marginTop: 8,
+}
 const avisoPrecarga = {
   fontSize: 11, lineHeight: 1.5, color: 'var(--navy-mid)',
   background: 'var(--cream)', border: '1px solid var(--cream-dark)',

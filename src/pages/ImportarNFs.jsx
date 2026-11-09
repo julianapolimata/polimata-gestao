@@ -14,6 +14,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import VisualizadorDocumento from '../components/VisualizadorDocumento'
 import { msgErro } from '../lib/erros'
 import { comprasQuePodemSerEsta, avisoDeCompraJaLancada } from '../lib/compraJaLancada'
+import { situacaoFiscalDe } from '../lib/situacaoFiscal'
 
 // O endereço que recebe as notas é configuração DA EMPRESA (tabela
 // config_empresa), não do build: num sistema usado por várias empresas, cada
@@ -234,22 +235,6 @@ export default function ImportarNFs() {
   // Guia de imposto, folha e pró-labore não são nota fiscal — e nunca vão ser,
   // porque não existe nota a emitir. O documento deles é a guia, o recibo, o
   // contracheque. Dizer "tenho a nota" nesses casos é afirmar o que não existe.
-  const SEM_NOTA_FISCAL = {
-    DAS: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
-    DARF: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
-    GPS: 'Guia previdenciária: o documento é a própria guia, não há nota fiscal.',
-    GNRE: 'Guia de tributo: o documento é a própria guia, não há nota fiscal.',
-    FOLHA: 'Folha de pagamento: o documento é o recibo, não há nota fiscal a emitir.',
-    'PRÓ-LABORE': 'Retirada de sócio: o documento é o recibo, não há nota fiscal a emitir.',
-    'PRO-LABORE': 'Retirada de sócio: o documento é o recibo, não há nota fiscal a emitir.',
-  }
-
-  function situacaoFiscalDe(d) {
-    const motivo = SEM_NOTA_FISCAL[String(d?.tipo_documento || '').trim().toUpperCase()]
-    if (motivo) return { doc_status: 'dispensado', doc_motivo_dispensa: motivo }
-    return { doc_status: 'vinculado' }
-  }
-
   // A competência de um documento com período de apuração é o próprio
   // período — o mês a que ele se refere —, não a data em que foi emitido.
   // Recibo de folha de agosto sai em setembro; guia de agosto vence em
