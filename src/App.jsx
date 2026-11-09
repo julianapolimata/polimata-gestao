@@ -10,6 +10,7 @@ import Receber from './pages/Receber'
 import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
 import Catalogo from './pages/Catalogo'
+import Oportunidades from './pages/Oportunidades'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
 import Cartoes from './pages/Cartoes'
 import ContasBancarias from './pages/ContasBancarias'
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="/clientes" element={<ProtectedRoute><Pessoas tipo="Cliente" titulo="Clientes" /></ProtectedRoute>} />
           <Route path="/funcionarios" element={<ProtectedRoute><Pessoas tipo="Funcionário" titulo="Funcionários" labelDoc="CPF" /></ProtectedRoute>} />
           <Route path="/orgaos-publicos" element={<ProtectedRoute><Pessoas tipo="Órgão Público" titulo="Órgãos Públicos" /></ProtectedRoute>} />
+          <Route path="/funil" element={<ProtectedRoute><Oportunidades /></ProtectedRoute>} />
           <Route path="/projetos" element={<ProtectedRoute><Catalogo tabela="projects" titulo="Projetos" /></ProtectedRoute>} />
           <Route path="/contratos" element={<ProtectedRoute><Catalogo tabela="contracts" titulo="Contratos" /></ProtectedRoute>} />
           <Route path="/fluxo-caixa" element={<ProtectedRoute><FluxoCaixa /></ProtectedRoute>} />

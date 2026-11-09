@@ -171,6 +171,7 @@ export default function Sidebar() {
             <NavItem to="/fornecedores" collapsed={collapsed} label="Fornecedores" icon={ico(<><path d="M16 11V7a4 4 0 0 0-8 0v4"/><rect x="3" y="11" width="18" height="11" rx="2"/></>)} />
             <NavItem to="/funcionarios" collapsed={collapsed} label="Funcionários" icon={ico(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>)} />
             <NavItem to="/orgaos-publicos" collapsed={collapsed} label="Órgãos Públicos" icon={ico(<><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 21V10l7-7 7 7v11"/></>)} />
+            <NavItem to="/funil" collapsed={collapsed} label="Funil" icon={ico(<><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></>)} />
             <NavItem to="/projetos" collapsed={collapsed} label="Projetos" icon={ico(<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></>)} />
             <NavItem to="/contratos" collapsed={collapsed} label="Contratos" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
             <NavItem to="/emprestimos" collapsed={collapsed} label="Empréstimos" icon={ico(<><path d="M12 2v6"/><path d="M9 19l3 3 3-3"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></>)} />

@@ -19,7 +19,6 @@ import { PAPEIS, papeisDe, tipoDerivado, papelDoRotuloAntigo } from '../../lib/v
 // =============================================================================
 
 const STATUSES = ['Ativo', 'Prospect', 'Inativo']
-const ETAPAS_FUNIL = ['Sondagem', 'Proposta', 'Fechado', 'Perdido']
 const ORIGENS = ['Indicação', 'LinkedIn', 'Site', 'Evento', 'Outro']
 const PORTES = [
   { v: '', l: 'Não informado' },
@@ -81,6 +80,9 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // é um beco — mostra os dados e não leva a nada. O vínculo mora no projeto;
   // aqui a ficha apenas CONSULTA, nunca guarda uma cópia.
   const [projetos, setProjetos] = useState([])
+  // As oportunidades desta pessoa. Consultadas, nunca copiadas: o vinculo mora
+  // na oportunidade, que aponta para a pessoa -- e nao o contrario.
+  const [oportunidades, setOportunidades] = useState([])
   // FUNCIONÁRIO — o que se pede a quem é contratado.
   //
   // Decisão dela: "o que quero são apenas os dados do cadastro obrigatório, pq
@@ -124,7 +126,6 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // Observações
   const [notes, setNotes] = useState('')
   // CRM (Cliente)
-  const [etapaFunil, setEtapaFunil] = useState('Sondagem')
   const [origem, setOrigem] = useState('')
   // Contato principal (Cliente)
   const [contatoNome, setContatoNome] = useState('')
@@ -144,6 +145,21 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   const isEstrangeiro = pjpf === 'EX'
 
   // ── Hidratação ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!open || !isEdit || !registro?.id) { setOportunidades([]); return undefined }
+    let cancelado2 = false
+    supabase.from('oportunidades').select('id, codigo, data')
+      .eq('data->>pessoa_id', registro.id)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        // A tabela pode ainda nao existir num ambiente antigo: a ficha segue
+        // funcionando sem o bloco, em vez de quebrar inteira.
+        if (cancelado2 || error) { setOportunidades([]); return }
+        setOportunidades(data || [])
+      })
+    return () => { cancelado2 = true }
+  }, [open, isEdit, registro])
+
   useEffect(() => {
     if (!open || !isEdit || !registro?.id) { setProjetos([]); return undefined }
     let cancelado = false
@@ -200,7 +216,6 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setAgencia(d.agencia || '')
       setConta(d.conta || '')
       setNotes(d.notes || '')
-      setEtapaFunil(d.etapa_funil || 'Sondagem')
       setOrigem(d.origin || '')
       setContatoNome(d.tipo === 'Cliente' ? (d.contato_nome || '') : '')
       setContatoCargo(d.contato_cargo || '')
@@ -219,7 +234,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       setCbo(''); setAdmissao(''); setDesligamento(''); setSalario(''); setJornada('')
       setLogradouro(''); setBairro(''); setCidade(''); setUf(''); setCep('')
       setBanco(''); setAgencia(''); setConta(''); setNotes('')
-      setEtapaFunil('Sondagem'); setOrigem('')
+      setOrigem('')
       setContatoNome(''); setContatoCargo(''); setContatoEmail(''); setContatoTel(''); setLogoUrl(''); setRetemIss(false)
       setValidadoEm('')
     }
@@ -346,7 +361,9 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
         } : {}),
       }
       if (isCliente) {
-        data.etapa_funil = etapaFunil || 'Sondagem'
+        // `etapa_funil` NAO e mais gravada aqui: ela mora na oportunidade.
+        // O que ja estava gravado fica intocado -- e historico, e o Polimata
+        // App recebe esse campo no aviso de mudanca de cadastro.
         data.origin = origem || ''
         data.contato_cargo = contatoCargo.trim()
         data.contato_telefone = contatoTel.trim()
@@ -504,12 +521,36 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       {/* CRM — só Cliente */}
       {isCliente && (
         <div style={crmBox}>
+          {/* A ETAPA SAIU DAQUI (B5.1, 09/11/2026).
+              Colada na ficha, ela so admitia uma: duas propostas para o mesmo
+              cliente, uma em aberto e uma perdida, nao cabiam. A etapa agora
+              mora na OPORTUNIDADE, que e a negociacao -- a pessoa pode ter
+              varias, e a ficha dela deixa de carregar um estado que muda.
+              A origem fica: ela descreve como o CONTATO chegou, o que e da
+              pessoa. Cada oportunidade tem a origem dela, a parte. */}
+          <div style={avisoFunil}>
+            A etapa do funil agora fica em <strong>cada oportunidade</strong>, e nao na ficha.{' '}
+            {oportunidades.length > 0
+              ? <>Esta pessoa tem {oportunidades.length} oportunidade(s) registrada(s).</>
+              : <>Esta pessoa ainda nao tem oportunidade registrada.</>}
+          </div>
+          {oportunidades.length > 0 && (
+            <div style={caixaApelidos}>
+              {oportunidades.map(o => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => { onClose(); navegar('/funil') }}
+                  style={chipProjeto}
+                  title="Abrir o funil"
+                >
+                  {o.codigo || 'sem referencia'} - {rotuloSituacao(o.data?.situacao)}
+                  {o.data?.etapa ? ' - ' + o.data.etapa : ''} →
+                </button>
+              ))}
+            </div>
+          )}
           <Row cols={2} gap={10}>
-            <Field label="Etapa do Funil">
-              <select value={etapaFunil} onChange={e => setEtapaFunil(e.target.value)} style={input}>
-                {ETAPAS_FUNIL.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-            </Field>
             <Field label="Origem do Contato">
               <select value={origem} onChange={e => setOrigem(e.target.value)} style={input}>
                 <option value="">— selecione —</option>
@@ -800,6 +841,10 @@ function Divider({ label }) {
   )
 }
 
+function rotuloSituacao(v) {
+  return { aberta: 'em aberto', ganha: 'ganha', perdida: 'perdida' }[String(v || 'aberta')] || String(v)
+}
+
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const lookupBox = { background: 'var(--cream)', borderRadius: 8, padding: 16, marginBottom: 18, borderLeft: '3px solid var(--gold)' }
@@ -808,6 +853,11 @@ const avisoDadoPessoal = {
   fontSize: 11.5, lineHeight: 1.5, color: 'var(--navy-mid)',
   background: 'var(--cream)', border: '1px solid var(--cream-dark)',
   borderRadius: 6, padding: '9px 12px', marginBottom: 10,
+}
+const avisoFunil = {
+  fontSize: 11.5, lineHeight: 1.5, color: 'var(--navy-mid)',
+  background: 'var(--white)', border: '1px solid var(--cream-dark)',
+  borderRadius: 6, padding: '8px 11px', marginBottom: 10,
 }
 const chipProjeto = {
   display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
