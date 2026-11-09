@@ -95,6 +95,8 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
   const [numParcelas, setNumParcelas] = useState(2)
 
   const [pessoas, setPessoas] = useState([])
+  const [projetos, setProjetos] = useState([])
+  const [projetoId, setProjetoId] = useState('')
   const [plano, setPlano] = useState([])
   const [fechamentos, setFechamentos] = useState([]) // meses fechados (portão)
   const [saving, setSaving] = useState(false)
@@ -112,9 +114,14 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       fetchPlanoContas(),
       isRec ? Promise.resolve({ data: [] }) : supabase.from('contas_bancarias').select('id,data').order('updated_at', { ascending: false }),
       fetchFechamentos().catch(() => []),
-    ]).then(([rPess, plano, rCart, fech]) => {
+      // Os projetos, só na receita: e por este campo que o faturamento se liga
+      // ao que foi vendido. Sem ele, o projeto nao sabe o que faturou e a
+      // receita nao sabe de onde veio.
+      isRec ? supabase.from('projects').select('id, codigo, data') : Promise.resolve({ data: [] }),
+    ]).then(([rPess, plano, rCart, fech, rProj]) => {
       if (cancelled) return
       setPessoas(rPess.data || [])
+      setProjetos(rProj?.data || [])
       setPlano(plano || [])
       setFechamentos(fech || [])
       // Cartão = conta com data.tipo === 'cartao' (mesma tabela das contas bancárias)
@@ -130,6 +137,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       const d = registro.data || {}
       setParte(d.client || d.supplier || '')
       setPessoaId(d.pessoa_id || null)
+      setProjetoId(d.projeto_id || '')
       setParteTipo(d.parte_tipo || (isRec ? 'Cliente' : 'Fornecedor'))
       setValor(String(d.value ?? ''))
       setDescricao(d.desc || '')
@@ -270,6 +278,9 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
         // O nome continua gravado: nada que le hoje quebra. Quem le passa a
         // PREFERIR o identificador quando ele existe.
         pessoa_id: pessoaId,
+        // O projeto desta receita. Vazio e legitimo: nem toda entrada pertence
+        // a um projeto (juros, reembolso, venda avulsa).
+        ...(isRec ? { projeto_id: projetoId || null } : {}),
         parte_tipo: parteTipo,
         value: Number(valor),
         desc: descricao.trim(),
@@ -579,6 +590,29 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
           </select>
         </Field>
       </Row>
+
+      {/* O PROJETO DESTA RECEITA.
+          É por este campo que o faturamento se liga ao que foi vendido: sem
+          ele, o projeto não sabe o que faturou e a receita não sabe de onde
+          veio. Vazio é legítimo — nem toda entrada pertence a um projeto
+          (juros, reembolso, venda avulsa). */}
+      {isRec && projetos.length > 0 && (
+        <Row>
+          <Field label="Projeto">
+            <select value={projetoId} onChange={e => setProjetoId(e.target.value)} style={input}>
+              <option value="">— nenhum —</option>
+              {projetos.map(pr => (
+                <option key={pr.id} value={pr.id}>
+                  {pr.codigo ? pr.codigo + " · " : ""}{pr.data?.name || "(sem nome)"}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 10.5, color: "var(--text-mid)", marginTop: 4, lineHeight: 1.45 }}>
+              Ligando aqui, o projeto passa a mostrar quanto já faturou contra o que foi vendido.
+            </div>
+          </Field>
+        </Row>
+      )}
 
       <Row>
         <Field label="Observações">

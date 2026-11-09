@@ -7,6 +7,9 @@ import { useAuth } from '../../contexts/AuthContext'
 import { msgErro } from '../../lib/erros'
 import { fmtMoney } from '../../lib/finance'
 import { ETAPAS, SITUACOES, ORIGENS, proximaReferencia, problemaNaOportunidade } from '../../lib/funil'
+import { projetoDaOportunidade, ultimoProjetoDaPessoa } from '../../lib/projetoDaVenda'
+import { proximoCodigoProjeto } from '../../lib/codigos'
+import { useConfirm } from '../../components/ConfirmDialog'
 
 // =============================================================================
 // A OPORTUNIDADE — o que está sendo negociado com uma pessoa.
@@ -32,6 +35,17 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
   const [motivoPerda, setMotivoPerda] = useState('')
   const [descricao, setDescricao] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [gerandoProjeto, setGerandoProjeto] = useState(false)
+  const [projetos, setProjetos] = useState([])
+  const [confirmar, dialogoConfirmacao] = useConfirm()
+
+  // Os projetos existentes: é deles que sai o candidato a ser renovado.
+  useEffect(() => {
+    if (!open) return
+    supabase.from('projects').select('id, codigo, data').then(({ data, error }) => {
+      setProjetos(error ? [] : (data || []))
+    })
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -66,6 +80,57 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
     const { data, error } = await supabase.from('oportunidades').select('codigo')
     if (error) { showToast(msgErro(error, 'Não consegui ler as referências já usadas.'), 'error'); return }
     setCodigo(proximaReferencia((data || []).map(o => o.codigo), ano))
+  }
+
+  // ── A VENDA GANHA VIRA PROJETO, POR UM CLIQUE DELA ───────────────────
+  //
+  // Nunca sozinho. Foi um gatilho automático de "prospect fechado vira
+  // projeto" que deixou duas cascas de R$ 0 no sistema, sem valor, sem prazo
+  // e sem dono -- ligadas ao cliente por TEXTO, não por vínculo.
+  //
+  // Quando a pessoa já tem projeto, este nasce como RENOVAÇÃO: ciclo
+  // seguinte, apontando para o anterior. É a decisão dela de 09/11/2026 --
+  // cada ano é uma venda, e a continuidade mora no cliente, não no projeto.
+  async function gerarProjeto() {
+    const pessoa = (pessoas || []).find(p => p.id === pessoaId)
+    if (!pessoa) { showToast('Escolha a pessoa antes de gerar o projeto.', 'warning'); return }
+    const anterior = ultimoProjetoDaPessoa(projetos, pessoaId)
+    const novo = projetoDaOportunidade(
+      { id: registro?.id, data: { pessoa_id: pessoaId, descricao, data_proposta: dataProposta, valor_estimado: valor === '' ? null : Number(String(valor).replace(',', '.')) } },
+      pessoa, anterior,
+    )
+    const ok = await confirmar({
+      titulo: anterior ? `Gerar o projeto do ciclo ${novo.ciclo}?` : 'Gerar o projeto desta venda?',
+      texto: novo.name,
+      consequencias: [
+        anterior
+          ? `Nasce como renovação do projeto anterior (ciclo ${novo.ciclo - 1}), encadeado a ele.`
+          : 'É o primeiro projeto desta pessoa.',
+        `Valor vendido: ${fmtMoney(novo.value)}. O faturamento se liga a ele pelos lançamentos de receita.`,
+        'O projeto nasce ligado à pessoa e a esta oportunidade por identificador, e não por texto.',
+        'Prazo e etapas ficam em branco: você preenche na tela de Projetos.',
+      ],
+      confirmarLabel: 'Gerar projeto',
+    })
+    if (!ok) return
+    setGerandoProjeto(true)
+    try {
+      const codigoProjeto = await proximoCodigoProjeto()
+      const { data: criado, error } = await supabase.from('projects')
+        .insert({ user_id: user.id, codigo: codigoProjeto, data: novo })
+        .select('id').single()
+      if (error) throw error
+      // O elo volta para a oportunidade: é por ele que a venda sabe o que virou.
+      const { error: errLiga } = await supabase.from('oportunidades')
+        .update({ data: { ...(registro.data || {}), projeto_id: criado.id } })
+        .eq('id', registro.id)
+      if (errLiga) throw errLiga
+      showToast(`${codigoProjeto} criado e ligado a esta venda.`, 'success')
+      onSaved?.()
+      onClose()
+    } catch (e) {
+      showToast(msgErro(e, 'Não consegui gerar o projeto.'), 'error')
+    } finally { setGerandoProjeto(false) }
   }
 
   async function salvar() {
@@ -202,6 +267,29 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
         </Linha>
       )}
 
+      {/* O projeto desta venda. Só aparece quando a venda foi GANHA e está
+          salva: gerar projeto de uma negociação em aberto seria afirmar uma
+          venda que não houve. */}
+      {isEdit && situacao === 'ganha' && (
+        <div style={blocoProjeto}>
+          {registro?.data?.projeto_id ? (
+            <>Esta venda já gerou projeto. O faturamento dele se liga pelos lançamentos de receita.</>
+          ) : (
+            <>
+              <div style={{ marginBottom: 8 }}>
+                Esta venda foi ganha e ainda não gerou projeto.
+                {ultimoProjetoDaPessoa(projetos, pessoaId)
+                  ? ' A pessoa já tem projeto, então este nasce como renovação, encadeado ao anterior.'
+                  : ' Será o primeiro projeto desta pessoa.'}
+              </div>
+              <button type="button" onClick={gerarProjeto} disabled={gerandoProjeto} style={btnMini}>
+                {gerandoProjeto ? 'Gerando…' : 'Gerar projeto desta venda'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <Linha>
         <Campo label="O que está sendo negociado" flex="1 1 100%">
           <input
@@ -212,6 +300,8 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
           />
         </Campo>
       </Linha>
+
+      {dialogoConfirmacao}
     </Modal>
   )
 }
@@ -238,6 +328,11 @@ const input = {
   background: 'var(--white)', outline: 'none', boxSizing: 'border-box',
 }
 const dica = { fontSize: 10.5, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.45 }
+const blocoProjeto = {
+  fontSize: 12, lineHeight: 1.55, color: 'var(--navy)',
+  background: 'var(--cream)', border: '1px solid var(--cream-dark)',
+  borderRadius: 7, padding: '11px 13px', marginBottom: 12,
+}
 const btnPrimario = {
   padding: '9px 18px', borderRadius: 6, border: 'none', background: 'var(--gold-dark)',
   color: '#fff', fontFamily: 'var(--body)', fontSize: 13, fontWeight: 700, cursor: 'pointer',
