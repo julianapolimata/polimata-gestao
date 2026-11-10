@@ -11,6 +11,7 @@ import Pagar from './pages/Pagar'
 import Pessoas from './pages/Pessoas'
 import Catalogo from './pages/Catalogo'
 import Oportunidades from './pages/Oportunidades'
+import DadosEmpresa from './pages/DadosEmpresa'
 import EmConstrucaoModulo from './pages/EmConstrucaoModulo'
 import Cartoes from './pages/Cartoes'
 import ContasBancarias from './pages/ContasBancarias'
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="/classificar" element={<ProtectedRoute><ClassificarLancamentos /></ProtectedRoute>} />
           <Route path="/fechamento-mensal" element={<ProtectedRoute><FechamentoMensal /></ProtectedRoute>} />
           <Route path="/conciliacao" element={<ProtectedRoute><Conciliacao /></ProtectedRoute>} />
+          <Route path="/dados-empresa" element={<ProtectedRoute><DadosEmpresa /></ProtectedRoute>} />
           <Route path="/nfse-config" element={<ProtectedRoute><NfseConfig /></ProtectedRoute>} />
           <Route path="/emitir-nf" element={<ProtectedRoute><EmConstrucaoModulo titulo="Emitir NF" descricao="A emissão de nota fiscal pelo sistema, no Padrão Nacional, ainda não está pronta." comoFazerAgora={<>Emita a nota no portal do Emissor Nacional e envie o PDF para a caixa de e-mail das notas: ela chega na Caixa de entrada e é lançada em um clique.</>} /></ProtectedRoute>} />
           <Route path="/simples-nacional" element={<ProtectedRoute><SimplesNacional /></ProtectedRoute>} />

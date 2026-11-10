@@ -83,6 +83,19 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
   // As oportunidades desta pessoa. Consultadas, nunca copiadas: o vinculo mora
   // na oportunidade, que aponta para a pessoa -- e nao o contrario.
   const [oportunidades, setOportunidades] = useState([])
+  // O CNPJ da própria empresa. A Polímata não é pessoa do cadastro: ela é a
+  // dona dele. Cadastrada como cliente ou fornecedor, viraria linha em toda
+  // lista sem nunca ser receita nem despesa, e casaria com os próprios
+  // documentos emitidos.
+  const [cnpjDaEmpresa, setCnpjDaEmpresa] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    supabase.from('config_empresa').select('data').limit(1).then(({ data, error }) => {
+      if (error) { setCnpjDaEmpresa(''); return }
+      setCnpjDaEmpresa(String(data?.[0]?.data?.cnpj || '').replace(/\D/g, ''))
+    })
+  }, [open])
   // FUNCIONÁRIO — o que se pede a quem é contratado.
   //
   // Decisão dela: "o que quero são apenas os dados do cadastro obrigatório, pq
@@ -373,6 +386,20 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
       }
 
       const docLimpo = data.doc.replace(/\D/g, '')
+
+      // A EMPRESA NÃO ENTRA NO PRÓPRIO CADASTRO (B6.3).
+      //
+      // Cadastrada como pessoa, ela apareceria em toda lista de clientes e
+      // fornecedores sem nunca ser receita nem despesa — e, pior, casaria com
+      // as notas que ela mesma emite, porque o vínculo é pelo CNPJ.
+      if (cnpjDaEmpresa && docLimpo && docLimpo === cnpjDaEmpresa) {
+        showToast(
+          'Este é o CNPJ da própria empresa. Ele não entra no cadastro de pessoas: '
+          + 'os dados da empresa ficam em Dados da empresa.',
+          'warning',
+        )
+        return
+      }
 
       // Dedup
       const { data: existentes } = await supabase

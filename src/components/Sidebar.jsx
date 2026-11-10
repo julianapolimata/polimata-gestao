@@ -176,6 +176,7 @@ export default function Sidebar() {
             <NavItem to="/contratos" collapsed={collapsed} label="Contratos" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
             <NavItem to="/emprestimos" collapsed={collapsed} label="Empréstimos" icon={ico(<><path d="M12 2v6"/><path d="M9 19l3 3 3-3"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></>)} />
             <NavItem to="/importacoes" collapsed={collapsed} label="Histórico de Importações" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
+            <NavItem to="/dados-empresa" collapsed={collapsed} label="Dados da empresa" icon={ico(<><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></>)} />
             <NavItem to="/nfse-config" collapsed={collapsed} label="NFS-e (em preparação)" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
           </>
         )}
