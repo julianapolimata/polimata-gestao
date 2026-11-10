@@ -5,6 +5,7 @@ import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { proximoCodigoProjeto } from '../../lib/codigos'
+import { fmtMoney } from '../../lib/finance'
 import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloVinculoFalta } from '../../lib/vinculoPessoa'
 
 // =============================================================================
@@ -30,6 +31,23 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
   const [etapas, setEtapas] = useState([])
 
   const [pessoas, setPessoas] = useState([])
+  // A oportunidade que originou este projeto. Consultada, nunca copiada: a
+  // referência da venda mora na oportunidade e em lugar nenhum mais.
+  const [venda, setVenda] = useState(null)
+  const cicloDoProjeto = registro?.data?.ciclo || 1
+
+  useEffect(() => {
+    const id = registro?.data?.oportunidade_id
+    if (!open || !id) { setVenda(null); return undefined }
+    let cancelado = false
+    supabase.from('oportunidades').select('id, codigo, data').eq('id', id).maybeSingle()
+      .then(({ data, error }) => {
+        // A oportunidade pode ter sido apagada: o projeto continua valendo, e
+        // a tela apenas deixa de mostrar a origem.
+        if (!cancelado) setVenda(error ? null : data)
+      })
+    return () => { cancelado = true }
+  }, [open, registro])
   const [contratos, setContratos] = useState([])
   const [saving, setSaving] = useState(false)
 
@@ -175,6 +193,30 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
       }
     >
       <Row>
+        {/* DE QUAL VENDA ESTE PROJETO VEIO.
+            O projeto guardava `oportunidade_id` desde 09/11/2026 e nenhuma
+            tela lia: o elo proposta → projeto existia no dado e não na tela.
+            Abrir um projeto não dizia de qual proposta ele veio, nem por
+            quanto foi vendido — que é justamente contra o que o faturamento
+            precisa ser comparado. */}
+        {venda && (
+          <div style={blocoVenda}>
+            <div style={blocoVendaTitulo}>Veio da venda</div>
+            <div>
+              <strong>{venda.codigo || 'sem referência'}</strong>
+              {venda.data?.data_proposta ? ` · proposta de ${dataBR(venda.data.data_proposta)}` : ''}
+              {Number(venda.data?.valor_estimado) > 0
+                ? ` · vendido por ${fmtMoney(Number(venda.data.valor_estimado))}`
+                : ''}
+            </div>
+            {Number(cicloDoProjeto) > 1 && (
+              <div style={blocoVendaNota}>
+                Ciclo {cicloDoProjeto} deste cliente: é a renovação do projeto anterior.
+              </div>
+            )}
+          </div>
+        )}
+
         <Field label="Nome do Projeto *">
           <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do projeto" style={input} />
         </Field>
@@ -281,6 +323,23 @@ function Row({ children, cols = 1, gap = 14, mt }) {
 }
 
 const labelStyle = { fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)' }
+function dataBR(iso) {
+  if (!iso) return ""
+  const [a, m, d] = String(iso).slice(0, 10).split("-")
+  return d ? `${d}/${m}/${a}` : iso
+}
+
+const blocoVenda = {
+  gridColumn: "1 / -1",
+  background: "var(--cream)", border: "1px solid var(--cream-dark)",
+  borderRadius: 7, padding: "10px 13px", marginBottom: 4,
+  fontSize: 12.5, color: "var(--navy)", lineHeight: 1.6,
+}
+const blocoVendaTitulo = {
+  fontSize: 9, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase",
+  color: "var(--text-mid)", marginBottom: 3,
+}
+const blocoVendaNota = { fontSize: 11, color: "var(--text-mid)", marginTop: 3 }
 const input = { width: '100%', padding: '9px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6, fontFamily: 'var(--body)', fontSize: 13, color: 'var(--navy)', background: 'var(--white)', outline: 'none', boxSizing: 'border-box' }
 const etapasBox = { marginTop: 4, padding: 14, background: 'rgba(0,32,62,0.03)', borderLeft: '3px solid var(--navy)', borderRadius: 6 }
 const etapaRow = { display: 'flex', alignItems: 'center', gap: 8 }
