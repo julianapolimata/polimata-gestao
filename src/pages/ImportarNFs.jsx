@@ -14,6 +14,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import VisualizadorDocumento from '../components/VisualizadorDocumento'
 import { msgErro } from '../lib/erros'
 import { comprasQuePodemSerEsta, avisoDeCompraJaLancada } from '../lib/compraJaLancada'
+import { projetoUnicoDaPessoa } from '../lib/projetoDaVenda'
 import { situacaoFiscalDe } from '../lib/situacaoFiscal'
 
 // O endereço que recebe as notas é configuração DA EMPRESA (tabela
@@ -358,6 +359,22 @@ export default function ImportarNFs() {
         isSaida,
         tipoDoc: d.tipo_documento,
       })
+      // ── O PROJETO DESTA RECEITA ────────────────────────────────────
+      //
+      // Achado na auditoria de 10/11/2026: `projeto_id` só era gravado no
+      // lançamento manual. Mas o caminho normal da receita é esta tela — a
+      // nota que chega por e-mail e é aprovada aqui. Por ela, o lançamento
+      // nascia sem projeto, e a coluna "Faturado" ficaria vazia para sempre.
+      //
+      // UM projeto aberto da pessoa resolve sozinho; vários não são
+      // adivinhados, porque errar aqui manda o faturamento para o projeto
+      // errado, em silêncio.
+      let projetoDaReceita = null
+      if (isSaida && pessoaDaNota?.id) {
+        const { data: projs } = await supabase.from('projects').select('id, data')
+        projetoDaReceita = projetoUnicoDaPessoa(projs || [], pessoaDaNota.id)
+      }
+
       // 2. Cria lançamento
       const cats = categoriasDe(plano, isSaida ? 'Entrada' : 'Saída')
       const sugerida = String(d.categoria_sugerida || '').trim()
@@ -371,6 +388,7 @@ export default function ImportarNFs() {
         // lido virar cadastro.
         pessoa_id: pessoaDaNota?.id || null,
         ...(docDaParte ? { cnpj: docDaParte } : {}),
+        ...(projetoDaReceita ? { projeto_id: projetoDaReceita } : {}),
         desc: d.desc_full || d.descricao,
         // A ficha barrada guarda o valor em `valor_lido` — ele volta aqui,
         // depois de ela ter dito que quer lançar assim mesmo.

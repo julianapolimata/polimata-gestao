@@ -148,3 +148,32 @@ export function ultimoProjetoDaPessoa(projetos, pessoaId) {
   return dela.reduce((maior, p) =>
     num(dadosDe(p).ciclo || 1) >= num(dadosDe(maior).ciclo || 1) ? p : maior)
 }
+
+/**
+ * O projeto ao qual uma receita desta pessoa pertence, quando é inequívoco.
+ *
+ * ── O DEFEITO QUE ISTO FECHA, achado na auditoria de 10/11/2026 ────────────
+ *
+ * `projeto_id` só era gravado no lançamento manual de receita. Mas o caminho
+ * normal da receita dela não é esse: é a nota que chega por e-mail e é
+ * aprovada na Caixa de entrada. Por ali, o lançamento nascia SEM projeto — e
+ * a coluna "Faturado" da tela de Projetos ficaria vazia para sempre, sem que
+ * nada na tela explicasse por quê.
+ *
+ * A regra é a mesma do resto do sistema: UM candidato resolve; vários são
+ * decisão dela. Dois projetos abertos para o mesmo cliente é exatamente a
+ * situação em que adivinhar erra — e erra em silêncio, porque o faturamento
+ * iria parar no projeto errado.
+ *
+ * Projeto encerrado não conta: uma receita nova não pertence a um trabalho
+ * que acabou.
+ */
+export function projetoUnicoDaPessoa(projetos, pessoaId) {
+  if (!pessoaId) return null
+  const abertos = (projetos || []).filter(p => {
+    const d = dadosDe(p)
+    if (d.pessoa_id !== pessoaId) return false
+    return String(d.status || '') !== 'Encerrado'
+  })
+  return abertos.length === 1 ? abertos[0].id : null
+}

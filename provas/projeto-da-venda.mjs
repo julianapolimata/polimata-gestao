@@ -16,7 +16,7 @@
 // ===========================================================================
 import {
   projetoDaOportunidade, faturamentoPorProjeto, confrontoDoProjeto,
-  cadeiaDeRenovacao, ultimoProjetoDaPessoa, nomeDoProjeto,
+  cadeiaDeRenovacao, ultimoProjetoDaPessoa, nomeDoProjeto, projetoUnicoDaPessoa,
 } from '../src/lib/projetoDaVenda.js'
 
 let falhas = 0
@@ -109,6 +109,27 @@ ok('sem descrição, o nome é só o cliente',
   nomeDoProjeto({ nomePessoa: 'Plancus', ciclo: 1 }) === 'Plancus', '')
 ok('sem nome de pessoa, não sai vazio',
   nomeDoProjeto({ ciclo: 1 }) === 'Projeto', nomeDoProjeto({ ciclo: 1 }))
+
+// ── A receita que chega pela nota precisa achar o projeto ───────────────
+// Achado na auditoria de 10/11/2026: o caminho normal da receita e a nota
+// aprovada na Caixa de entrada, e por ali o lancamento nascia sem projeto.
+const umSo = [{ id: "prj-1", data: { pessoa_id: "p1", status: "Em andamento" } }]
+ok("um projeto aberto resolve sozinho",
+  projetoUnicoDaPessoa(umSo, "p1") === "prj-1", String(projetoUnicoDaPessoa(umSo, "p1")))
+const dois = [
+  { id: "prj-1", data: { pessoa_id: "p1", status: "Em andamento" } },
+  { id: "prj-2", data: { pessoa_id: "p1", status: "Em planejamento" } },
+]
+ok("dois projetos abertos NAO sao adivinhados",
+  projetoUnicoDaPessoa(dois, "p1") === null, String(projetoUnicoDaPessoa(dois, "p1")))
+const comEncerrado = [
+  { id: "prj-1", data: { pessoa_id: "p1", status: "Encerrado" } },
+  { id: "prj-2", data: { pessoa_id: "p1", status: "Em andamento" } },
+]
+ok("projeto encerrado nao concorre: receita nova nao e de trabalho que acabou",
+  projetoUnicoDaPessoa(comEncerrado, "p1") === "prj-2", String(projetoUnicoDaPessoa(comEncerrado, "p1")))
+ok("pessoa sem projeto devolve nulo", projetoUnicoDaPessoa(umSo, "p9") === null, "")
+ok("sem pessoa, nao procura", projetoUnicoDaPessoa(umSo, null) === null, "")
 
 console.log(falhas ? `\n${falhas} falha(s).` : '\nTodos os casos passaram.')
 process.exit(falhas ? 1 : 0)
