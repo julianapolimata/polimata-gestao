@@ -9,6 +9,7 @@ import ModalContrato from './components/ModalContrato'
 import ModalProjeto from './components/ModalProjeto'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
+import { faturamentoPorProjeto, confrontoDoProjeto } from '../lib/projetoDaVenda'
 
 function fmtMoeda(v) {
   const n = parseFloat(v) || 0
@@ -23,6 +24,7 @@ function fmtData(s) {
 export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
+  const [receitas, setReceitas] = useState([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
@@ -37,17 +39,26 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const recarregar = useCallback(() => {
     if (!user) return
     setLoading(true)
-    supabase
-      .from(tabela)
-      .select('*')
-      .order('updated_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) { setErro(error); setRows([]) }
-        else { setErro(null); setRows(data || []) }
-        setLoading(false)
-      })
-      .catch((e) => { setErro(e); setLoading(false) })
-  }, [user, tabela])
+    Promise.all([
+      supabase.from(tabela).select('*').order('updated_at', { ascending: false }),
+      // O FATURAMENTO DE CADA PROJETO.
+      //
+      // So os campos que a conta usa: trazer o `data` inteiro de centenas de
+      // receitas para ler tres campos seria pagar caro por um numero.
+      // Em contratos isto nao se aplica -- o elo e do projeto.
+      isContrato
+        ? Promise.resolve({ data: [] })
+        : supabase.from('receivable')
+            .select('projeto_id:data->>projeto_id, value:data->>value, status:data->>status, data_pagamento:data->>data_pagamento'),
+    ]).then(([rT, rR]) => {
+      if (rT.error) { setErro(rT.error); setRows([]) }
+      else { setErro(null); setRows(rT.data || []) }
+      // Falha aqui nao derruba a tela: a lista aparece sem a coluna de
+      // faturamento, que e um ganho, nao um requisito.
+      setReceitas(rR?.error ? [] : (rR?.data || []).map(r => ({ data: r })))
+      setLoading(false)
+    }).catch((e) => { setErro(e); setLoading(false) })
+  }, [user, tabela, isContrato])
 
   useEffect(() => { recarregar() }, [recarregar])
 
@@ -104,14 +115,18 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     recarregar()
   }
 
+  // Quanto cada projeto ja faturou, por identificador.
+  const faturamento = useMemo(() => faturamentoPorProjeto(receitas), [receitas])
+
   const colgroup = (
     <colgroup>
       <col style={{ width: 110 }} />
       <col />
       <col />
-      <col style={{ width: 140 }} />
-      <col style={{ width: 110 }} />
-      <col style={{ width: 110 }} />
+      <col style={{ width: 130 }} />
+      {!isContrato && <col style={{ width: 160 }} />}
+      <col style={{ width: 100 }} />
+      <col style={{ width: 105 }} />
       <col style={{ width: 50 }} />
     </colgroup>
   )
@@ -162,7 +177,12 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
                     <th style={th}>Cód.</th>
                     <th style={th}>{isContrato ? 'Objeto' : 'Nome'}</th>
                     <th style={th}>{labelParte}</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Valor</th>
+                    <th style={{ ...th, textAlign: 'right' }}>{isContrato ? 'Valor' : 'Vendido'}</th>
+                    {!isContrato && (
+                      <th style={{ ...th, textAlign: 'right' }} title="Quanto ja foi faturado neste projeto, pelos lancamentos de receita ligados a ele. Recebido e a receber ficam separados: receita pendente e promessa.">
+                        Faturado
+                      </th>
+                    )}
                     <th style={th}>{isContrato ? 'Início' : 'Prazo'}</th>
                     <th style={th}>Status</th>
                     <th style={{ ...th, textAlign: 'center' }}></th>
@@ -195,6 +215,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
                     <td style={td}>{(isContrato ? d.object : d.name) || '—'}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{(isContrato ? d.party : d.client) || '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtMoeda(d.value)}</td>
+                    {!isContrato && <CelulaFaturado confronto={confrontoDoProjeto(p, faturamento.get(p.id))} />}
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{fmtData(isContrato ? d.start : d.deadline)}</td>
                     <td style={{ ...td, color: 'var(--text-mid)' }}>{d.status || '—'}</td>
                     <td style={{ ...td, textAlign: 'center' }}>
@@ -226,6 +247,45 @@ const btnNovo = {
   fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700, letterSpacing: 0.5,
   cursor: 'pointer', textTransform: 'uppercase',
 }
+// ── O FATURADO DE UM PROJETO ────────────────────────────────────────────────
+//
+// Tres numeros, e eles nao sao a mesma coisa:
+//   recebido    o dinheiro que entrou;
+//   a receber   o que foi lancado e ainda nao entrou -- promessa, e somar as
+//               duas faria o projeto parecer pago antes da hora;
+//   diferenca   faturado menos vendido. Negativa, falta faturar; positiva,
+//               faturou-se mais que o vendido (aditivo, hora extra).
+//
+// Projeto sem valor vendido nao mostra diferenca: zero afirmaria estar em dia.
+function CelulaFaturado({ confronto }) {
+  const c = confronto
+  if (!c || !c.lancamentos) {
+    return (
+      <td style={{ ...td, textAlign: "right", color: "var(--text-mid)", fontSize: 11 }}
+          title="Nenhum lancamento de receita aponta para este projeto.">
+        sem receita ligada
+      </td>
+    )
+  }
+  return (
+    <td style={{ ...td, textAlign: "right" }}>
+      <div style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmtMoeda(c.recebido)}</div>
+      {c.aReceber > 0 && (
+        <div style={{ fontSize: 10, color: "var(--text-mid)", fontVariantNumeric: "tabular-nums" }}
+             title="Lancado e ainda nao recebido.">
+          + {fmtMoeda(c.aReceber)} a receber
+        </div>
+      )}
+      {c.diferenca !== null && (
+        <div style={{ fontSize: 10, color: c.diferenca < 0 ? "var(--gold-dark)" : "var(--green)" }}
+             title={c.diferenca < 0 ? "Ainda falta faturar este valor do que foi vendido." : "Faturado acima do vendido."}>
+          {c.diferenca < 0 ? "faltam " + fmtMoeda(Math.abs(c.diferenca)) : "+" + fmtMoeda(c.diferenca) + " acima"}
+        </div>
+      )}
+    </td>
+  )
+}
+
 const btnExcluir = {
   background: 'none', border: '1px solid transparent', borderRadius: 4,
   color: 'var(--text-mid)', fontSize: 18, lineHeight: 1, cursor: 'pointer',
