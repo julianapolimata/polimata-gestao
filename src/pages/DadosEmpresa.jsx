@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { msgErro } from '../lib/erros'
 import { maskDocumento, maskTelefone, maskCEP } from '../lib/mascaras'
+import { consultarCnpjNaReceita } from '../lib/receitaCnpj'
 
 // =============================================================================
 // DADOS DA EMPRESA (B6.1).
@@ -33,6 +34,8 @@ export default function DadosEmpresa() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
   const [salvando, setSalvando] = useState(false)
+  const [buscando, setBuscando] = useState(false)
+  const [avisoCnpj, setAvisoCnpj] = useState(null)
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -51,6 +54,71 @@ export default function DadosEmpresa() {
 
   const campo = (k) => d[k] ?? ''
   const mudar = (k, v) => setD(prev => ({ ...prev, [k]: v }))
+
+  // ── AS CONTAS DE RECEBIMENTO ──────────────────────────────────────────
+  //
+  // São uma lista, e não um conjunto de quatro campos: a empresa pode receber
+  // em mais de uma conta, e a conta que vai na proposta não é sempre a mesma
+  // que vai no boleto.
+  //
+  // O formato antigo — banco, agência, conta e pix soltos no registro — é lido
+  // como a primeira conta da lista. Nada do que já foi preenchido se perde.
+  const contas = Array.isArray(d.contas_recebimento)
+    ? d.contas_recebimento
+    : (d.banco || d.agencia || d.conta || d.pix
+      ? [{ banco: d.banco || '', agencia: d.agencia || '', conta: d.conta || '', pix: d.pix || '' }]
+      : [])
+
+  function mudarConta(i, chave, valor) {
+    const lista = contas.map((c, j) => (j === i ? { ...c, [chave]: valor } : c))
+    setD(prev => ({ ...prev, contas_recebimento: lista }))
+  }
+  function novaConta() {
+    setD(prev => ({
+      ...prev,
+      contas_recebimento: [...contas, { banco: '', agencia: '', conta: '', pix: '' }],
+    }))
+  }
+  function removerConta(i) {
+    setD(prev => ({ ...prev, contas_recebimento: contas.filter((_, j) => j !== i) }))
+  }
+
+  // ── A CONSULTA À RECEITA ──────────────────────────────────────────────
+  //
+  // A mesma do cadastro de pessoa. A tela pedia o CNPJ e não oferecia a busca:
+  // a mesma informação, digitada à mão aqui e buscada lá.
+  async function buscarNaReceita() {
+    setBuscando(true)
+    setAvisoCnpj(null)
+    try {
+      const r = await consultarCnpjNaReceita(d.cnpj)
+      if (r.estado !== 'confirmado') {
+        // "Não existe" e "não consegui perguntar" são coisas diferentes, e a
+        // tela diz qual das duas foi.
+        setAvisoCnpj({ tipo: r.estado, texto: r.detalhe })
+        return
+      }
+      setD(prev => ({
+        ...prev,
+        razao_social: r.dados.razao_social || prev.razao_social || '',
+        nome_fantasia: r.dados.nome_fantasia || prev.nome_fantasia || '',
+        logradouro: r.dados.logradouro || prev.logradouro || '',
+        bairro: r.dados.bairro || prev.bairro || '',
+        cidade: r.dados.cidade || prev.cidade || '',
+        uf: r.dados.uf || prev.uf || '',
+        cep: r.dados.cep || prev.cep || '',
+        telefone: r.dados.telefone || prev.telefone || '',
+        situacao_cadastral: r.dados.situacao || '',
+        validado_em: new Date().toISOString().slice(0, 10),
+      }))
+      setAvisoCnpj({
+        tipo: r.dados.ativa ? 'confirmado' : 'atencao',
+        texto: r.dados.ativa
+          ? 'Dados preenchidos. Situação na Receita: ATIVA.'
+          : `Dados preenchidos. Situação na Receita: ${r.dados.situacao || 'não informada'}.`,
+      })
+    } finally { setBuscando(false) }
+  }
 
   async function salvar() {
     if (!user) { showToast('Sessão expirada.', 'error'); return }
@@ -104,21 +172,53 @@ export default function DadosEmpresa() {
             </Linha>
             <Linha>
               <Campo rotulo="CNPJ">
-                <input
-                  value={maskDocumento(campo('cnpj'))}
-                  onChange={e => mudar('cnpj', e.target.value)}
-                  style={input}
-                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    value={maskDocumento(campo('cnpj'))}
+                    onChange={e => { mudar('cnpj', e.target.value); setAvisoCnpj(null) }}
+                    style={{ ...input, flex: 1 }}
+                  />
+                  <button
+                    type="button" onClick={buscarNaReceita}
+                    disabled={buscando || String(campo('cnpj')).replace(/\D/g, '').length !== 14}
+                    style={btnReceita}
+                  >
+                    {buscando ? 'Consultando…' : 'Buscar na Receita'}
+                  </button>
+                </div>
+                {avisoCnpj && (
+                  <div style={{
+                    ...dica,
+                    color: avisoCnpj.tipo === 'inexistente' ? 'var(--red)'
+                      : avisoCnpj.tipo === 'confirmado' ? 'var(--green)' : 'var(--gold-dark)',
+                    fontWeight: 600,
+                  }}>
+                    {avisoCnpj.texto}
+                  </div>
+                )}
                 <Dica>
                   É por ele que o portão de entrada decide se um documento é da empresa. Sem ele,
                   o portão não acusa documento nenhum.
                 </Dica>
+                {campo('validado_em') && (
+                  <Dica>
+                    Conferido na Receita em {String(campo('validado_em')).split('-').reverse().join('/')}
+                    {campo('situacao_cadastral') ? ` · situação ${campo('situacao_cadastral')}` : ''}.
+                  </Dica>
+                )}
               </Campo>
               <Campo rotulo="Razão social anterior" flex="2 1 320px">
                 <input value={campo('razao_social_anterior')} onChange={e => mudar('razao_social_anterior', e.target.value)} style={input} />
+                {/* ANOTAÇÃO, NÃO ENTRADA DO SISTEMA.
+                    Verificado em 10/11/2026: nenhuma rotina lê este campo, e
+                    não faria diferença se lesse — a mudança de razão social
+                    manteve o mesmo CNPJ, e é o CNPJ que decide titularidade.
+                    O valor dele é para quem olha um documento antigo e precisa
+                    saber que aquele nome é o mesmo. A dica diz isso, em vez de
+                    sugerir que o sistema faz algo com o dado. */}
                 <Dica>
-                  Aparece em documentos e guias antigos. Registrada aqui, explica por que um
-                  documento em outro nome é da mesma empresa.
+                  Registro para consulta: o nome que aparece em documentos e guias anteriores à
+                  mudança. O sistema identifica a empresa pelo CNPJ, que não mudou.
                 </Dica>
               </Campo>
             </Linha>
@@ -149,24 +249,36 @@ export default function DadosEmpresa() {
             </Linha>
           </Bloco>
 
-          <Bloco titulo="Dados bancários">
-            <Linha>
-              <Campo rotulo="Banco">
-                <input value={campo('banco')} onChange={e => mudar('banco', e.target.value)} style={input} />
-              </Campo>
-              <Campo rotulo="Agência" flex="0 1 140px">
-                <input value={campo('agencia')} onChange={e => mudar('agencia', e.target.value)} style={input} />
-              </Campo>
-              <Campo rotulo="Conta" flex="0 1 180px">
-                <input value={campo('conta')} onChange={e => mudar('conta', e.target.value)} style={input} />
-              </Campo>
-              <Campo rotulo="Chave Pix" flex="2 1 260px">
-                <input value={campo('pix')} onChange={e => mudar('pix', e.target.value)} style={input} />
-              </Campo>
-            </Linha>
+          <Bloco titulo="Contas de recebimento">
+            {contas.length === 0 ? (
+              <Dica>Nenhuma conta cadastrada.</Dica>
+            ) : contas.map((c, i) => (
+              <Linha key={i}>
+                <Campo rotulo={contas.length > 1 ? `Banco · conta ${i + 1}` : 'Banco'}>
+                  <input value={c.banco || ''} onChange={e => mudarConta(i, 'banco', e.target.value)} style={input} />
+                </Campo>
+                <Campo rotulo="Agência" flex="0 1 130px">
+                  <input value={c.agencia || ''} onChange={e => mudarConta(i, 'agencia', e.target.value)} style={input} />
+                </Campo>
+                <Campo rotulo="Conta" flex="0 1 170px">
+                  <input value={c.conta || ''} onChange={e => mudarConta(i, 'conta', e.target.value)} style={input} />
+                </Campo>
+                <Campo rotulo="Chave Pix" flex="2 1 240px">
+                  <input value={c.pix || ''} onChange={e => mudarConta(i, 'pix', e.target.value)} style={input} />
+                </Campo>
+                <div style={{ flex: '0 0 auto', paddingTop: 22 }}>
+                  <button
+                    type="button" onClick={() => removerConta(i)}
+                    title="Remover esta conta" aria-label="Remover esta conta"
+                    style={btnRemover}
+                  >×</button>
+                </div>
+              </Linha>
+            ))}
+            <button type="button" onClick={novaConta} style={btnAdicionar}>+ Adicionar conta</button>
             <Dica>
-              Usados em documentos que a empresa emite. Não têm efeito sobre conciliação: as contas
-              que o sistema concilia ficam em Contas bancárias.
+              Usadas em documentos que a empresa emite. Não têm efeito sobre conciliação: as contas
+              que o sistema concilia ficam em Contas e Cartões.
             </Dica>
           </Bloco>
 
@@ -174,7 +286,7 @@ export default function DadosEmpresa() {
             <Linha>
               <Campo rotulo="E-mail de entrada" flex="2 1 280px">
                 <input value={campo('email_entrada')} onChange={e => mudar('email_entrada', e.target.value)} style={input} />
-                <Dica>Caixa que o robô lê para trazer as notas.</Dica>
+                <Dica>Destinatário que o robô lê para importar os documentos.</Dica>
               </Campo>
               <Campo rotulo="Documentos a partir de">
                 <CampoData value={campo('documentos_desde')} onChange={v => mudar('documentos_desde', v)} />
@@ -184,24 +296,26 @@ export default function DadosEmpresa() {
                 </Dica>
               </Campo>
             </Linha>
-            {campo('documentos_desde_anterior') && (
-              <Dica>
-                Antes era {String(campo('documentos_desde_anterior')).split('-').reverse().join('/')}
-                {campo('documentos_desde_alterado_em')
-                  ? `, alterado em ${String(campo('documentos_desde_alterado_em')).split('-').reverse().join('/')}`
-                  : ''}.
-              </Dica>
-            )}
+            {/* O VALOR ANTERIOR DA DATA DE CORTE NÃO APARECE AQUI.
+                Ele continua gravado no registro, porque é histórico barato de
+                guardar. Mas na tela não respondia a pergunta de ninguém: saber
+                que a data era outra em maio não muda decisão nenhuma de quem
+                está configurando o sistema agora. Pergunta dela, 10/11/2026:
+                "pra que importa, no sistema, a informação de que era 01/05 e
+                foi alterado em 06/11? pq e pra quem?" — e eu não tinha
+                resposta. Onde a informação serve é na trilha do documento
+                descartado, que já diz contra qual data ele foi medido. */}
           </Bloco>
 
-          <Bloco titulo="Marca">
-            <Linha>
-              <Campo rotulo="Endereço do logo" flex="1 1 100%">
-                <input value={campo('logo_url')} onChange={e => mudar('logo_url', e.target.value)} placeholder="https://…" style={input} />
-                <Dica>Usado nos relatórios em PDF.</Dica>
-              </Campo>
-            </Linha>
-          </Bloco>
+          {/* O BLOCO "MARCA" FOI REMOVIDO EM 10/11/2026.
+              Ele tinha um campo de endereço do logo, com a dica "usado nos
+              relatórios em PDF". Verificado a pedido dela: NENHUM relatório lê
+              esse campo. Era campo escrito e nunca lido — o mesmo defeito que
+              a auditoria do dia anterior encontrou em três lugares — e com
+              uma promessa falsa escrita embaixo.
+              O logo volta quando houver quem o use: a emissão de NFS-e ou um
+              relatório com marca. Enquanto isso, pedir o dado é pedir trabalho
+              que não serve para nada. */}
 
           <div style={rodape}>
             Os dados fiscais de emissão — inscrição municipal, CNAE, item da lista de serviço e
@@ -268,6 +382,20 @@ const input = {
   background: 'var(--white)', outline: 'none', boxSizing: 'border-box',
 }
 const dica = { fontSize: 10.5, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.5 }
+const btnReceita = {
+  padding: '0 14px', borderRadius: 6, border: 'none', background: 'var(--navy)',
+  color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700,
+  cursor: 'pointer', whiteSpace: 'nowrap',
+}
+const btnAdicionar = {
+  padding: '6px 12px', borderRadius: 6, border: '1px solid var(--cream-dark)',
+  background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)',
+  fontSize: 11.5, fontWeight: 700, cursor: 'pointer', marginTop: 2,
+}
+const btnRemover = {
+  background: 'none', border: 'none', color: 'var(--text-mid)',
+  fontSize: 20, lineHeight: 1, cursor: 'pointer', padding: '0 4px',
+}
 const rodape = {
   fontSize: 11.5, color: 'var(--text-mid)', lineHeight: 1.7, padding: '4px 2px 20px',
 }
