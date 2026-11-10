@@ -42,6 +42,10 @@ export function linhasDeParcelas(emprestimo, hoje = new Date().toISOString().sli
     const jur = Number(p.juros) || 0
     const base = {
       supplier: credor || nome,
+      // O VÍNCULO, e não só o nome. Sem ele, a parcela aponta para um texto:
+      // a ficha do credor não mostra a dívida, o total por fornecedor não
+      // soma, e renomear o cadastro desliga a ligação sem avisar.
+      ...(d.pessoa_id ? { pessoa_id: d.pessoa_id } : {}),
       due: p.vencimento,
       data_competencia: p.vencimento,
       // O cronograma pode trazer parcelas já quitadas antes de o sistema

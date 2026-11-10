@@ -839,7 +839,9 @@ export default function Conciliacao() {
         .select('id,parent_id,extrato_id,data')
         .is('extrato_id', null).is('cartao_id', null).is('conciliado_em', null)
       if (e2) throw e2
-      const plano = planejarCompras({ conta, linhas, compras: todas || [], notas: notas || [] })
+      // As pessoas vao junto: e pelo apelido cadastrado que a compra do cartao
+      // descobre quem e o fornecedor -- a fatura nao traz CNPJ.
+      const plano = planejarCompras({ conta, linhas, compras: todas || [], notas: notas || [], pessoas })
       if (!plano.criar.length && !plano.casar.length) {
         showToast(plano.pagamentos.length ? 'Só sobraram pagamentos da fatura: concilie-os como ↔ Transferência.' : 'Nada a criar.', 'info')
         return

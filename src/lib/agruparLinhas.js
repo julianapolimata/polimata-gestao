@@ -93,7 +93,7 @@ export function validarDivisao({ linhas, partes }) {
  *
  * Devolve o formato que `conciliar_varias_linhas` espera em `p_ajustes`.
  */
-export function montarLancamentos({ linhas, partes, tabela = 'payable', parte: nomeDaParte, hoje }) {
+export function montarLancamentos({ linhas, partes, tabela = 'payable', parte: nomeDaParte, pessoaId = null, hoje }) {
   const ls = [...(linhas || [])].sort((a, b) => dataDaLinha(a).localeCompare(dataDaLinha(b)))
   const primeira = dataDaLinha(ls[0])
   const ultima = dataDaLinha(ls[ls.length - 1])
@@ -104,6 +104,9 @@ export function montarLancamentos({ linhas, partes, tabela = 'payable', parte: n
     tabela,
     data: {
       [tabela === 'receivable' ? 'client' : 'supplier']: nomeDaParte || 'Não identificado',
+      // O vínculo acompanha o nome quando a parte está no cadastro. Sem ele, o
+      // lançamento aponta para um texto, e a ficha da pessoa não o encontra.
+      ...(pessoaId ? { pessoa_id: pessoaId } : {}),
       desc: `${p.cat}${p.subcat ? ` · ${p.subcat}` : ''} — ${quantas} transferência(s) entre ${primeira.split('-').reverse().join('/')} e ${ultima.split('-').reverse().join('/')}`,
       value: Math.abs(Number(p.valor) || 0),
       cat: p.cat,

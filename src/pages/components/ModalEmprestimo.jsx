@@ -316,6 +316,7 @@ Importante:
         // Entrada (captação): o dinheiro que caiu na conta — recebido, financiamento (fora do DRE).
         const entradaData = registrarEntrada ? {
           client: credor || nome,
+          pessoa_id: credorId,
           desc: `Captação — ${nome || 'empréstimo'}`,
           value: Number(valorLiberado || valorOriginal) || 0,
           due: dataLiberacao || dataInicio || hoje,

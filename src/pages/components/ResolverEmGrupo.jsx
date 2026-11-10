@@ -34,6 +34,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { acharPessoa } from '../../lib/vinculoPessoa'
 import { fmtMoney } from '../../lib/finance'
 import { categoriasDe, subcategoriasDe } from '../../lib/planoContas'
 import PerguntarAris from '../../components/PerguntarAris'
@@ -58,6 +59,15 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
   const [subcat, setSubcat] = useState('')
   const [parte, setParte] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // O cadastro, para ligar a parte digitada a uma pessoa de verdade. Falhando
+  // a consulta, o lançamento nasce só com o nome -- que é como era antes.
+  const [pessoas, setPessoas] = useState([])
+
+  useEffect(() => {
+    supabase.from('pessoas').select('id, codigo, data').then(({ data, error }) => {
+      setPessoas(error ? [] : (data || []))
+    })
+  }, [])
   // A oferta de recorrência que aparece DEPOIS de o grupo ser resolvido — o
   // grupo já saiu da lista, então ela precisa viver fora dele.
   const [oferta, setOferta] = useState(null)   // {deteccao, frases}
@@ -178,8 +188,12 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
     const tabela = g.tipo === 'entrada' ? 'receivable' : 'payable'
     setSalvando(true)
     try {
+      // A parte digitada pode ser alguém do cadastro. Quando for, o vínculo
+      // vai junto com o nome — é o identificador que liga, não o texto.
+      const pessoaDaParte = acharPessoa(pessoas, parte)
       const lancs = montarLancamentos({
         linhas: g.linhas, partes: ps, tabela, parte: parte || g.descricao.substring(0, 80),
+        pessoaId: pessoaDaParte?.id || null,
       })
       // Códigos sequenciais, como no resto da tela.
       let base = null, n = 0

@@ -3,6 +3,7 @@ import { msgErro } from '../lib/erros'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { acharPessoa } from '../lib/vinculoPessoa'
 import AppLayout from '../components/AppLayout'
 
 import { fmtMoney, flatten, ehOperacional } from '../lib/finance'
@@ -429,8 +430,14 @@ export default function SimplesNacional() {
       if (errChk) throw errChk
       if (existentes?.length) { showToast(`O DAS de ${labelMes} já está lançado (código ${existentes[0].codigo}).`, 'warning'); carregar(); return }
       const codigo = await proximoCodigoPayable()
+      // O credor do DAS é a Receita Federal, e ela está no cadastro. Gravar
+      // só o texto faria este lançamento não aparecer na ficha dela — e o
+      // total devido ao mesmo órgão nunca somar.
+      const { data: orgaos } = await supabase.from('pessoas').select('id, data')
+      const receitaFederal = acharPessoa(orgaos || [], 'Receita Federal do Brasil')
       const data = {
-        supplier: 'Receita Federal — DAS Simples Nacional',
+        supplier: receitaFederal?.data?.nome || 'Receita Federal — DAS Simples Nacional',
+        ...(receitaFederal ? { pessoa_id: receitaFederal.id } : {}),
         desc: `DAS Simples Nacional · competência ${competenciaMMAAAA}`,
         value: valor,
         due: vencimento,

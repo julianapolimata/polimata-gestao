@@ -16,6 +16,7 @@
 //     para ser conciliado como transferência
 // =============================================================================
 
+import { pessoaPorApelido } from './vinculoPessoa'
 import { detectarParcelaLivre, removerSufixoParcela, gerarParcelas } from './parcelas'
 import { periodoFatura } from './fatura'
 
@@ -184,7 +185,7 @@ export function parearComprasJaLancadas({ linhas, compras }) {
  *   criar: [{extrato_id|null, id?, parent_id?, data}] — sem código (o chamador numera)
  *   casar: [{extrato_id, lanc_id, data}]
  */
-export function planejarCompras({ conta, linhas, compras, notas, hoje }) {
+export function planejarCompras({ conta, linhas, compras, notas, pessoas = [], hoje }) {
   const H = hoje || new Date().toISOString().slice(0, 10)
   const criar = [], casar = [], pagamentos = [], ambiguas = [], notasCasadas = [], comprasRecasadas = []
   const notaDaLinha = parearNotasJaLancadas({ linhas, notas })
@@ -209,15 +210,27 @@ export function planejarCompras({ conta, linhas, compras, notas, hoje }) {
     }
   }
 
-  const base = (t, venc) => ({
-    supplier: (t.descricao || '').substring(0, 80),
+  // QUEM É ESTE FORNECEDOR.
+  //
+  // A fatura não traz CNPJ, só um descritivo abreviado. O apelido cadastrado
+  // é a única via, e é por isso que ele existe -- até 10/11/2026 o campo era
+  // preenchido na ficha e ninguém o lia.
+  //
+  // Achando, o nome do cadastro substitui o descritivo e o vínculo vai junto.
+  // Não achando, fica o descritivo cru, como sempre foi.
+  const base = (t, venc) => {
+    const dono = pessoaPorApelido(pessoas, t.descricao)
+    return {
+    supplier: dono?.data?.nome || (t.descricao || '').substring(0, 80),
+    ...(dono ? { pessoa_id: dono.id } : {}),
     desc: t.descricao,
     data_competencia: t.data,
     due: venc,
     cat: '', subcat: '', forma_pagamento: 'Cartão Crédito',
     fit_id_ofx: t.fit_id || null,
     criado_via_import_fatura: true, created: H,
-  })
+  }
+  }
   const pago = t => ({ status: 'Pago', data_pagamento: t.data })
 
   for (const ln of linhas || []) {

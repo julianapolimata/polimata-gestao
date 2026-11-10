@@ -123,3 +123,37 @@ export const estiloVinculoOk = {
 export const estiloVinculoFalta = {
   marginTop: 5, fontSize: 11, color: 'var(--text-mid)',
 }
+
+/**
+ * Quem é este fornecedor, pelo apelido que ele usa na fatura do cartão.
+ *
+ * ── POR QUE O APELIDO EXISTE ────────────────────────────────────────────────
+ *
+ * A fatura do cartão não traz CNPJ. Traz um texto, abreviado e diferente a
+ * cada mês: "GOOGLE *CLOUD", "GOOGLE CLOUD BRASIL", "GOOGLE CLOU". Nome
+ * parecido não serve de prova em lugar nenhum deste sistema, e aqui não seria
+ * diferente — por isso o apelido é CADASTRADO por ela, uma vez, e depois vale
+ * como identificação.
+ *
+ * O campo foi construído em 05/11/2026 e, até a auditoria de 10/11, ninguém o
+ * lia: as compras do cartão continuavam nascendo com o descritivo cru no lugar
+ * do fornecedor. Campo escrito e nunca lido é promessa que a tela faz e o
+ * sistema não cumpre.
+ *
+ * A comparação é por conteúdo, não por igualdade: o descritivo da fatura
+ * CONTÉM o apelido, cercado de código de operadora e cidade. Apelido de menos
+ * de três letras é ignorado — casaria com qualquer coisa.
+ */
+export function pessoaPorApelido(pessoas, descricao) {
+  const texto = chaveNome(descricao)
+  if (!texto) return null
+  for (const p of pessoas || []) {
+    const apelidos = Array.isArray(p?.data?.apelidos) ? p.data.apelidos : []
+    for (const a of apelidos) {
+      const alvo = chaveNome(a)
+      if (alvo.length < 3) continue
+      if (texto.includes(alvo)) return p
+    }
+  }
+  return null
+}
