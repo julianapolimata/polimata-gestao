@@ -78,7 +78,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
   async function sugerirReferencia() {
     const ano = Number(String(dataProposta || '').slice(0, 4)) || new Date().getFullYear()
     const { data, error } = await supabase.from('oportunidades').select('codigo')
-    if (error) { showToast(msgErro(error, 'Não consegui ler as referências já usadas.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível ler as referências já usadas.'), 'error'); return }
     setCodigo(proximaReferencia((data || []).map(o => o.codigo), ano))
   }
 
@@ -129,7 +129,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
       onSaved?.()
       onClose()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui gerar o projeto.'), 'error')
+      showToast(msgErro(e, 'Não foi possível gerar o projeto.'), 'error')
     } finally { setGerandoProjeto(false) }
   }
 
@@ -167,7 +167,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
       onSaved?.()
       onClose()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui salvar a oportunidade.'), 'error')
+      showToast(msgErro(e, 'Não foi possível salvar a oportunidade.'), 'error')
     } finally { setSalvando(false) }
   }
 

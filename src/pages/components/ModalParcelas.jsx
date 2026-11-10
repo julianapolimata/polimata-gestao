@@ -70,7 +70,7 @@ export default function ModalParcelas({ open, onClose, contrato }) {
         <div style={aviso}>Carregando as parcelas…</div>
       ) : erro ? (
         <div style={{ ...aviso, color: 'var(--red)' }}>
-          {msgErro(erro, 'Não consegui ler as parcelas deste contrato.')}
+          {msgErro(erro, 'Não foi possível ler as parcelas deste contrato.')}
         </div>
       ) : !parcelas.length ? (
         <div style={aviso}>

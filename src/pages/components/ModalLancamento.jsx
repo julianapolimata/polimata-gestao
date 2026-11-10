@@ -447,7 +447,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       onSaved?.()
       onClose()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui mover o lançamento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível mover o lançamento.'), 'error')
     } finally {
       setSaving(false)
     }
@@ -459,7 +459,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       const url = await getAnexoSignedUrl(anexoPath)
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui abrir o anexo.'), 'error')
+      showToast(msgErro(e, 'Não foi possível abrir o anexo.'), 'error')
     }
   }
   function selecionarAnexo(e) {

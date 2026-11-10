@@ -20,8 +20,8 @@ ok(traduzErroConhecido({ message: 'Invalid login credentials' }) === 'E-mail ou 
 // Erro DESCONHECIDO: a frase de contexto aparece, e o detalhe técnico fica
 // visível entre parênteses — é o que ela manda pro suporte quando trava.
 const estranho = { code: 'XX999', message: 'something exploded' }
-const msg = msgErro(estranho, 'Não consegui fechar o período.')
-ok(msg.startsWith('Não consegui fechar o período.'), 'fallback de contexto aparece')
+const msg = msgErro(estranho, 'Não foi possível fechar o período.')
+ok(msg.startsWith('Não foi possível fechar o período.'), 'fallback de contexto aparece')
 ok(msg.includes('XX999') && msg.includes('something exploded'), 'detalhe técnico não é escondido')
 
 // Rede caída não é culpa do banco.

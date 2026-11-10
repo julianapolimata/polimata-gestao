@@ -437,7 +437,7 @@ export default function ImportarNFs() {
       console.error(e)
       // Em lote, quem conta as falhas é o laço — aqui só repassa.
       if (opcoes.emLote) throw e
-      showToast(msgErro(e, 'Não consegui aprovar o documento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível aprovar o documento.'), 'error')
     } finally {
       setConfirmando(null)
     }
@@ -461,7 +461,7 @@ export default function ImportarNFs() {
       setEditandoEmail(false)
       showToast('Endereço salvo.', 'success')
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui salvar o endereço.'), 'error')
+      showToast(msgErro(e, 'Não foi possível salvar o endereço.'), 'error')
     } finally { setSalvandoEmail(false) }
   }
 
@@ -513,7 +513,7 @@ export default function ImportarNFs() {
       baixarDaLista({ ...pending, data: { ...d, motivo_rejeicao: motivo } }, 'rejeitado')
     } catch (e) {
       if (opcoes.emLote) throw e
-      showToast(msgErro(e, 'Não consegui rejeitar o documento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível rejeitar o documento.'), 'error')
     }
   }
 

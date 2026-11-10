@@ -19,7 +19,7 @@ export default function EsqueciSenha() {
     const { error } = await sendPasswordReset(email)
     setEnviando(false)
     if (error) {
-      setErro(msgErro(error, 'Não consegui enviar o e-mail.'))
+      setErro(msgErro(error, 'Não foi possível enviar o e-mail.'))
       return
     }
     setSucesso(true)

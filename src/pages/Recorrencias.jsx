@@ -85,7 +85,7 @@ export default function Recorrencias() {
     })
     if (!ok) return
     const { error } = await supabase.from('recurring_masters').delete().eq('id', r.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir esta recorrencia.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir esta recorrencia.'), 'error'); return }
     showToast('Recorrência excluída.', 'info')
     carregar()
   }

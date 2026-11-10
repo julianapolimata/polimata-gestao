@@ -22,7 +22,7 @@ export default function Login() {
     const { error } = await signIn(email, password)
     setCarregando(false)
     if (error) {
-      setErro(msgErro(error, 'Não consegui entrar.'))
+      setErro(msgErro(error, 'Não foi possível entrar.'))
       return
     }
     // Após login → redireciona pro sistema legado na raiz

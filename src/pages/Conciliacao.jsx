@@ -468,7 +468,7 @@ export default function Conciliacao() {
       carregar()
     } catch (err) {
       console.error(err)
-      showToast(msgErro(err, 'Não consegui importar o extrato.'), 'error')
+      showToast(msgErro(err, 'Não foi possível importar o extrato.'), 'error')
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -521,7 +521,7 @@ export default function Conciliacao() {
       }
       if (ok) showToast(`${ok} transação(ões) conciliada(s) automaticamente${silencioso ? ' — confira' : ''}.`, silencioso ? 'info' : 'success')
       setSelecionado(null); carregar()
-    } catch (e) { if (!silencioso) showToast(msgErro(e, 'Não consegui conciliar automaticamente.'), 'error') }
+    } catch (e) { if (!silencioso) showToast(msgErro(e, 'Não foi possível conciliar automaticamente.'), 'error') }
     finally { setAutoConc(false) }
   }
 
@@ -614,7 +614,7 @@ export default function Conciliacao() {
       setSelecionado(null); carregar()
     } catch (e) {
       // Mês fechado é barrado pelo trigger do banco, com mensagem técnica.
-      showToast(msgErro(e, 'Não consegui registrar o pagamento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível registrar o pagamento.'), 'error')
     }
     finally { setConciliando(false) }
   }
@@ -730,7 +730,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`Conciliado: ${selecionados.length} nota(s)${p_ajustes.length ? ` + ${p_ajustes.length} ajuste(s)` : ''}.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui conciliar.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível conciliar.'), 'error') }
     finally { setConciliando(false) }
   }
 
@@ -764,7 +764,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast('Lançamento criado e conciliado.', 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui criar o lançamento a partir desta linha.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível criar o lançamento a partir desta linha.'), 'error') }
   }
 
   // ── Transferência entre contas próprias (pagar fatura = transferência) ──
@@ -808,7 +808,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(tLigar ? 'Ligado à transferência já registrada.' : 'Transferência registrada e conciliada.', 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui registrar a transferência.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível registrar a transferência.'), 'error') }
     finally { setConciliando(false) }
   }
 
@@ -861,7 +861,7 @@ export default function Conciliacao() {
       if (error) throw error
       showToast(`${n} linha(s) da fatura conciliada(s) (${p_criar.filter(c => c.extrato_id).length} compra(s) nova(s), ${plano.casar.length} conciliada(s)). Próximo passo: Escrituração.`, 'success')
       setSelecionado(null); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui criar as compras da fatura.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível criar as compras da fatura.'), 'error') }
     finally { setCriandoCompras(false) }
   }
 
@@ -918,7 +918,7 @@ export default function Conciliacao() {
       })
       if (!ok) return
       const { error } = await supabase.rpc('desconciliar_transferencia', { p_extrato_id: extrato.id })
-      if (error) { showToast(msgErro(error, 'Não consegui desfazer esta transferência.'), 'error'); return }
+      if (error) { showToast(msgErro(error, 'Não foi possível desfazer esta transferência.'), 'error'); return }
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar(); return
     }
     const nGrupo = Array.isArray(extrato.data?.extrato_grupo) ? extrato.data.extrato_grupo.length : 0
@@ -986,7 +986,7 @@ export default function Conciliacao() {
       }
       await supabase.from('transacoes_extrato').update({ status: 'pendente', lancamento_tipo: null, lancamento_id: null }).eq('id', extrato.id)
       showToast('Desconciliado.', 'info'); setSelecionado(null); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui desfazer a conciliação.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível desfazer a conciliação.'), 'error') }
   }
 
   function limparPeriodo() {
@@ -1007,7 +1007,7 @@ export default function Conciliacao() {
     })
     if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').insert({ conta_id: contaId, competencia: comp })
-    if (error) { showToast(msgErro(error, 'Não consegui fechar o período.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível fechar o período.'), 'error'); return }
     showToast(`Período ${comp} fechado. 🔒`, 'success'); setSelecionado(null); carregar()
   }
   async function reabrirPeriodo(comp) {
@@ -1018,7 +1018,7 @@ export default function Conciliacao() {
     })
     if (!ok) return
     const { error } = await supabase.from('conciliacao_periodos').delete().eq('conta_id', contaId).eq('competencia', comp)
-    if (error) { showToast(msgErro(error, 'Não consegui reabrir o período.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível reabrir o período.'), 'error'); return }
     showToast(`Período ${comp} reaberto. 🔓`, 'info'); carregar()
   }
 

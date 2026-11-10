@@ -152,7 +152,7 @@ export default function SimplesNacional() {
       }
       showToast('Configuração do Simples salva.', 'success')
       setEditando(false); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui salvar.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível salvar.'), 'error') }
     finally { setSalvando(false) }
   }
 
@@ -453,7 +453,7 @@ export default function SimplesNacional() {
       if (error) throw error
       showToast(`DAS de ${labelMes} lançado em Contas a Pagar (código ${codigo}).`, 'success')
       carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui gerar a conta a pagar do DAS.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível gerar a conta a pagar do DAS.'), 'error') }
     finally { setGerandoDAS(false) }
   }
 

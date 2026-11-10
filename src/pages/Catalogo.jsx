@@ -137,7 +137,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     })
     if (!ok) return
     const { error } = await supabase.from(tabela).delete().eq('id', row.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir este item do catálogo.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir este item do catálogo.'), 'error'); return }
     showToast(`${isContrato ? 'Contrato' : 'Projeto'} excluído.`, 'info')
     recarregar()
   }

@@ -81,7 +81,7 @@ export default function Oportunidades() {
     })
     if (!ok) return
     const { error } = await supabase.from('oportunidades').delete().eq('id', o.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir.'), 'error'); return }
     showToast('Oportunidade excluída.', 'success')
     recarregar()
   }

@@ -190,7 +190,7 @@ export default function Emprestimos() {
       showToast(`${comCodigo.length} linha(s) lançada(s). O saldo deste contrato passa a sair da conciliação.`, 'success')
       recarregar()
     } catch (err) {
-      showToast(msgErro(err, 'Não consegui lançar as parcelas.'), 'error')
+      showToast(msgErro(err, 'Não foi possível lançar as parcelas.'), 'error')
     } finally {
       setGerando(null)
     }
@@ -211,7 +211,7 @@ export default function Emprestimos() {
     })
     if (!ok) return
     const { error } = await supabase.from('emprestimos_financiamentos').delete().eq('id', row.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir este contrato.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir este contrato.'), 'error'); return }
     showToast('Excluído.', 'info')
     recarregar()
   }

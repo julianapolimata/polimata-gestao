@@ -289,7 +289,7 @@ export default function ClassificarLancamentos() {
         if (semNota.length) msg += ` ${semNota.length} sem nota — vincule ou mude a situação fiscal.`
         showToast(msg, 'success')
         carregar()
-      } catch (e) { showToast(msgErro(e, 'Não consegui escriturar.'), 'error') }
+      } catch (e) { showToast(msgErro(e, 'Não foi possível escriturar.'), 'error') }
       finally { setSalvando(null) }
       return
     }
@@ -310,7 +310,7 @@ export default function ClassificarLancamentos() {
       showToast(`${itensAlvo.length} lançamento(s) escriturado(s) — disponível(is) para conciliação.`, 'success')
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui escriturar.'), 'error')
+      showToast(msgErro(e, 'Não foi possível escriturar.'), 'error')
     } finally {
       setSalvando(null)
     }
@@ -411,7 +411,7 @@ export default function ClassificarLancamentos() {
       if (erros.length) showToast(`${erros.length} não deu(ram): ${erros[0]}`, 'error')
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui vincular os documentos em lote.'), 'error')
+      showToast(msgErro(e, 'Não foi possível vincular os documentos em lote.'), 'error')
     } finally {
       setVinculandoLote(null)
     }
@@ -466,7 +466,7 @@ export default function ClassificarLancamentos() {
       avisarPulados(pulados)
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui aplicar a escrituração automática.'), 'error')
+      showToast(msgErro(e, 'Não foi possível aplicar a escrituração automática.'), 'error')
     } finally {
       setAutoRodando(false)
     }
@@ -563,7 +563,7 @@ export default function ClassificarLancamentos() {
       showToast(`${n} lançamento(s) escriturado(s) — disponíveis para conciliação.`, 'success')
       avisarPulados(prontosEmMesFechado)
       setSel({}); carregar()
-    } catch (e) { showToast(msgErro(e, 'Não consegui escriturar.'), 'error') }
+    } catch (e) { showToast(msgErro(e, 'Não foi possível escriturar.'), 'error') }
     finally { setAutoRodando(false) }
   }
 
@@ -611,7 +611,7 @@ export default function ClassificarLancamentos() {
       else showToast(`${itens.length} movido(s) para ${nomeDest}.`, 'success')
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui mover o lançamento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível mover o lançamento.'), 'error')
     } finally {
       setSalvando(null)
     }

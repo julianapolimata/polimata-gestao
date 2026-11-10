@@ -130,7 +130,7 @@ export default function Importacoes() {
       setDetalhe(d => { const c = { ...d }; delete c[imp.id]; return c })
       recarregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui concluir a importação.'), 'error')
+      showToast(msgErro(e, 'Não foi possível concluir a importação.'), 'error')
     }
   }
 

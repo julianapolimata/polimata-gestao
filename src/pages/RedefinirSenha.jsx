@@ -24,7 +24,7 @@ export default function RedefinirSenha() {
     setSalvando(true)
     const { error } = await updatePassword(senha)
     setSalvando(false)
-    if (error) { setErro(msgErro(error, 'Não consegui redefinir a senha.')); return }
+    if (error) { setErro(msgErro(error, 'Não foi possível redefinir a senha.')); return }
     // Sucesso → vai pro dashboard (já logado pela sessão de reset)
     navigate('/dashboard', { replace: true })
   }

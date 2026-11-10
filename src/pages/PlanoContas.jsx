@@ -102,7 +102,7 @@ export default function PlanoContas() {
       if (msgOk) showToast(msgOk, 'success')
       return true
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui salvar a alteração no plano de contas.'), 'error')
+      showToast(msgErro(e, 'Não foi possível salvar a alteração no plano de contas.'), 'error')
       return false
     } finally { setSalvando(false) }
   }

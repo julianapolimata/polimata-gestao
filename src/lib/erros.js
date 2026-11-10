@@ -12,10 +12,10 @@ import { traduzErroFechamento } from './fechamento'
 // Uso típico:
 //   import { msgErro } from '../lib/erros'
 //   catch (e) { showToast(msgErro(e), 'error') }
-//   catch (e) { showToast(msgErro(e, 'Não consegui excluir o lançamento.'), 'error') }
+//   catch (e) { showToast(msgErro(e, 'Não foi possível excluir o lançamento.'), 'error') }
 // =============================================================================
 
-const FALLBACK = 'Não consegui concluir a operação.'
+const FALLBACK = 'Não foi possível concluir a operação.'
 
 // Códigos que o próprio sistema levanta (RPC/edge/trigger) sem texto em português.
 // Os prefixos COM texto em português (periodo_fechado: …) vêm de fechamento.js.
@@ -145,7 +145,7 @@ export function traduzErro(err) {
  * - Erro desconhecido → `fallback` (ou a frase padrão) + detalhe técnico.
  *
  * @param {*} err erro do Supabase, Error, string…
- * @param {string} [fallback] contexto da ação: 'Não consegui excluir o lançamento.'
+ * @param {string} [fallback] contexto da ação: 'Não foi possível excluir o lançamento.'
  */
 export function msgErro(err, fallback) {
   const conhecido = traduzErroConhecido(err)

@@ -127,7 +127,7 @@ export default function Lancamentos() {
       URL.revokeObjectURL(url)
       showToast(`${filtrados.length} lançamento(s) exportado(s).`, 'success')
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui gerar o arquivo.'), 'error')
+      showToast(msgErro(e, 'Não foi possível gerar o arquivo.'), 'error')
     }
   }
 

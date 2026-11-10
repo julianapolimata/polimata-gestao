@@ -166,7 +166,7 @@ export default function FechamentoMensal() {
       showToast(`${mesLabel(m.comp)} fechado. 🔒`, 'success')
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui fechar o mês.'), 'error')
+      showToast(msgErro(e, 'Não foi possível fechar o mês.'), 'error')
     } finally { setAgindo(null) }
   }
 
@@ -197,7 +197,7 @@ export default function FechamentoMensal() {
       showToast(`${mesLabel(m.comp)} reaberto. 🔓`, 'warning')
       carregar()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui reabrir o mês.'), 'error')
+      showToast(msgErro(e, 'Não foi possível reabrir o mês.'), 'error')
     } finally { setAgindo(null) }
   }
 

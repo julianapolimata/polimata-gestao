@@ -129,7 +129,7 @@ export default function NfseConfig() {
     })
     if (!ok) return
     const { error } = await supabase.from('nfse_modelos').delete().eq('id', m.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir este modelo.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir este modelo.'), 'error'); return }
     showToast('Modelo excluído.', 'info')
     carregar()
   }

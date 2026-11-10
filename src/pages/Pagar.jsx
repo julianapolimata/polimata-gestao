@@ -425,7 +425,7 @@ export default function Pagar() {
       setEdicao(await linhaCompleta(row.id))
       setModalOpen(true)
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui abrir o lançamento.'), 'error')
+      showToast(msgErro(e, 'Não foi possível abrir o lançamento.'), 'error')
     }
   }
 
@@ -475,12 +475,12 @@ export default function Pagar() {
       const updates = { data: merged }
       if (!row.codigo) updates.codigo = await proximoCodigoPayable() // previsto realizado direto ganha código
       const { error } = await supabase.from('payable').update(updates).eq('id', row.id)
-      if (error) { showToast(msgErro(error, 'Não consegui marcar como pago.'), 'error'); return }
+      if (error) { showToast(msgErro(error, 'Não foi possível marcar como pago.'), 'error'); return }
       setPopPagar(null)
       showToast(`Marcado como pago em ${fmtData(dataPag)}.`, 'success')
       recarregar()
     } catch (err) {
-      showToast(msgErro(err, 'Não consegui marcar como pago.'), 'error')
+      showToast(msgErro(err, 'Não foi possível marcar como pago.'), 'error')
     } finally {
       setSalvandoPag(false)
     }
@@ -493,13 +493,13 @@ export default function Pagar() {
       const codigo = await promoverProvisao(row, 'payable')
       showToast(`Previsto confirmado (${codigo}) — agora está Em aberto.`, 'success')
       recarregar()
-    } catch (err) { showToast(msgErro(err, 'Não consegui confirmar este lançamento previsto.'), 'error') }
+    } catch (err) { showToast(msgErro(err, 'Não foi possível confirmar este lançamento previsto.'), 'error') }
   }
 
   // ── Excluir: UM diálogo com todas as consequências + "Desfazer" no aviso ──
   async function desfazerExclusao(registro, filhos) {
     const { error } = await supabase.from('payable').insert(registro)
-    if (error) { showToast(msgErro(error, 'Não consegui trazer o lançamento de volta.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível trazer o lançamento de volta.'), 'error'); return }
     if (filhos?.length) {
       const { error: erroFilhos } = await supabase.from('payable').insert(filhos)
       if (erroFilhos) {
@@ -518,7 +518,7 @@ export default function Pagar() {
     const desc = row.data?.desc || row.codigo || 'este lançamento'
     // Lemos a linha INTEIRA antes de apagar: é o que permite o "Desfazer".
     const { data: atual, error: erroLeitura } = await supabase.from('payable').select('*').eq('id', row.id).single()
-    if (erroLeitura) { showToast(msgErro(erroLeitura, 'Não consegui ler o lançamento antes de excluir.'), 'error'); return }
+    if (erroLeitura) { showToast(msgErro(erroLeitura, 'Não foi possível ler o lançamento antes de excluir.'), 'error'); return }
     if (atual?.conciliado_em) {
       showToast('Este lançamento está conciliado com o extrato. Desconcilie na Conciliação antes de excluir.', 'warning')
       return
@@ -547,7 +547,7 @@ export default function Pagar() {
     if (!ok) return
 
     const { error } = await supabase.from('payable').delete().eq('id', row.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir o lançamento.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir o lançamento.'), 'error'); return }
     showToast('Lançamento excluído.', 'info', {
       acao: { label: 'Desfazer', onClick: () => desfazerExclusao(atual, filhos) },
     })

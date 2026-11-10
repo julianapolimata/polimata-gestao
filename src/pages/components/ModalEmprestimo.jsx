@@ -254,7 +254,7 @@ Importante:
       showToast(`✓ ${extraido.parcelas?.length || 0} parcelas extraídas.`, 'success')
     } catch (err) {
       console.error(err)
-      showToast(msgErro(err, 'Não consegui ler as parcelas deste contrato.'), 'error')
+      showToast(msgErro(err, 'Não foi possível ler as parcelas deste contrato.'), 'error')
     } finally {
       setExtraindo(false)
     }
@@ -354,7 +354,7 @@ Importante:
       onClose()
     } catch (e) {
       console.error(e)
-      showToast(msgErro(e, 'Não consegui salvar o empréstimo.'), 'error')
+      showToast(msgErro(e, 'Não foi possível salvar o empréstimo.'), 'error')
     } finally {
       setSalvando(false)
     }

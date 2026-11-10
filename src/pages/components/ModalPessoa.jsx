@@ -727,7 +727,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
             </Field>
           </Row>
           <div style={dica}>
-            Não consegui alcançar o leiaute S-2200 oficial no gov.br — o que encontrei
+            Não foi possível alcançar o leiaute S-2200 oficial no gov.br — o que encontrei
             foram manuais de fornecedores de folha. Estes são os campos que qualquer ficha
             de admissão pede. <strong>Confirme com a contadora</strong> antes de tratar a
             lista como completa.

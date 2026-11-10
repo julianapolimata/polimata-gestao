@@ -56,7 +56,7 @@ export default function ArisPainel() {
     setCarregandoBase(true)
     carregarBase()
       .then(setBase)
-      .catch(e => setConversa(c => [...c, { papel: 'aris', texto: msgErro(e, 'Não consegui carregar os seus números.') }]))
+      .catch(e => setConversa(c => [...c, { papel: 'aris', texto: msgErro(e, 'Não foi possível carregar os seus números.') }]))
       .finally(() => setCarregandoBase(false))
   }, [aberto, base, carregandoBase])
 
@@ -76,7 +76,7 @@ export default function ArisPainel() {
       })
       setConversa(c => [...c, { papel: 'aris', texto: r.texto, apoio: r.usouHistorico, resumo: base.resumo }])
     } catch (e) {
-      setConversa(c => [...c, { papel: 'aris', texto: msgErro(e, 'Não consegui falar com a Aris agora.'), erro: true }])
+      setConversa(c => [...c, { papel: 'aris', texto: msgErro(e, 'Não foi possível falar com a Aris agora.'), erro: true }])
     } finally {
       setPensando(false)
     }

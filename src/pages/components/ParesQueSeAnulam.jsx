@@ -78,7 +78,7 @@ export default function ParesQueSeAnulam({ linhas, onPronto }) {
       showToast(n === 1 ? 'Par anulado.' : `${n} pares anulados — ${n * 2} linhas fora da fila.`, 'success')
       onPronto?.()
     } catch (e) {
-      showToast(msgErro(e, 'Não consegui anular os pares.'), 'error')
+      showToast(msgErro(e, 'Não foi possível anular os pares.'), 'error')
     } finally {
       setAnulando(false)
     }

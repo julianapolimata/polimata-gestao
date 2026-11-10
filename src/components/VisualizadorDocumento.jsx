@@ -64,7 +64,7 @@ export default function VisualizadorDocumento({ pendingId, nome, tipoDeclarado, 
         urlCriada = URL.createObjectURL(new Blob([bytes], { type: mime }))
         if (vivo) setEstado({ fase: 'arquivo', url: urlCriada, mime, tamanho: bytes.length })
       } catch (e) {
-        if (vivo) setEstado({ fase: 'erro', erro: msgErro(e, 'Não consegui abrir este arquivo.') })
+        if (vivo) setEstado({ fase: 'erro', erro: msgErro(e, 'Não foi possível abrir este arquivo.') })
       }
     })()
 
@@ -88,7 +88,7 @@ export default function VisualizadorDocumento({ pendingId, nome, tipoDeclarado, 
         )}
 
         {estado.fase === 'erro' && (
-          <div style={{ ...aviso, color: 'var(--red)' }}>Não consegui abrir o arquivo: {estado.erro}</div>
+          <div style={{ ...aviso, color: 'var(--red)' }}>Não foi possível abrir o arquivo: {estado.erro}</div>
         )}
 
         {estado.fase === 'texto' && (

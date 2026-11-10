@@ -39,7 +39,7 @@ export default function PerguntarAris({ descricao, parte, valor, tipo, plano, hi
     try {
       setR(await perguntar({ descricao, parte, valor, tipo, plano, historico }))
     } catch (e) {
-      setErro(msgErro(e, 'Não consegui falar com a Aris agora.'))
+      setErro(msgErro(e, 'Não foi possível falar com a Aris agora.'))
     } finally {
       setCarregando(false)
     }

@@ -93,7 +93,7 @@ export async function conversar({ pergunta, conversa = [], plano, historico, res
   if (!resposta.ok) throw new Error(json?.error || `A Aris não respondeu (${resposta.status}).`)
 
   const txt = (json?.content || []).map(b => b?.text || '').join('').trim()
-  return { texto: txt || 'Não consegui formular uma resposta.', usouHistorico }
+  return { texto: txt || 'Não foi possível formular uma resposta.', usouHistorico }
 }
 
 export { situacaoDe }

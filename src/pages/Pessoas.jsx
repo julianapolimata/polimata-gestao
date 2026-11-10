@@ -89,7 +89,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
     })
     if (!ok) return
     const { error } = await supabase.from('pessoas').delete().eq('id', row.id)
-    if (error) { showToast(msgErro(error, 'Não consegui excluir este cadastro.'), 'error'); return }
+    if (error) { showToast(msgErro(error, 'Não foi possível excluir este cadastro.'), 'error'); return }
     showToast('Cadastro excluído.', 'info')
     recarregar()
   }
