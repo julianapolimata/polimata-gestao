@@ -1,3 +1,5 @@
+import { receitaDosContratos } from './receitaRecorrente'
+
 // =============================================================================
 // Helpers financeiros compartilhados (Painel, Fluxo, DRE, Conciliação, etc)
 // Replica o comportamento das funções globais do legado (public/index.html).
@@ -194,7 +196,7 @@ const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set'
  *
  * Considera 3 fontes:
  *  1. receivable/payable com `data.recorrente === true`
- *  2. Contratos com `data.rec_ativa === true` e status Ativo (apenas entradas, mensal)
+ *  2. Contratos com valor mensal e status Ativo, dentro da vigência (ver receitaRecorrente.js)
  *  3. Lançamentos NÃO recorrentes com data futura (já cadastrados)
  *
  * Inputs já vêm passados por flatten(). Quando Recorrências for construído (#11),
@@ -232,12 +234,22 @@ export function calcularProjecaoFutura(numMeses, { receivable = [], payable = []
   receivable.filter(r => r.data?.recorrente).forEach(r => avancarRecorrencia(r, entradas))
   payable.filter(r => r.data?.recorrente).forEach(r => avancarRecorrencia(r, saidas))
 
-  contracts
-    .filter(c => c.data?.rec_ativa && (c.data?.status === 'Ativo'))
-    .forEach(c => {
-      const valor = Number(c.data?.rec_valor_mensal || c.value || 0)
-      for (let i = 0; i < numMeses; i++) entradas[i] += valor
-    })
+  // A receita recorrente dos contratos, mês a mês.
+  //
+  // Antes isto filtrava por `rec_ativa` — um campo que havia sido RETIRADO do
+  // formulário de contrato, porque configurava emissão recorrente de NFS-e,
+  // que não existe no sistema. A projeção lia um campo que nenhuma tela
+  // preenchia, e cadastrar contrato não a fazia enxergar nada.
+  //
+  // E somava o valor em TODOS os meses, sem olhar início nem fim: contrato
+  // encerrado em março prometia receita em dezembro.
+  const mesesDaProjecao = []
+  for (let i = 0; i < numMeses; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + 1 + i, 1)
+    mesesDaProjecao.push({ ano: d.getFullYear(), mes: d.getMonth() })
+  }
+  receitaDosContratos(contracts, mesesDaProjecao)
+    .forEach((valor, i) => { entradas[i] += valor })
 
   receivable.filter(r => !r.data?.recorrente && r.due).forEach(r => {
     const d = new Date(r.due + 'T12:00:00')

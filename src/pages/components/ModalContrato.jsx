@@ -11,10 +11,15 @@ import { acharPessoa, pessoasDosTipos, rotuloDoVinculo, estiloVinculoOk, estiloV
 // MODAL CONTRATO — replica saveContract() do legado (linha 3760).
 // Suporta principal e aditivo (vincula a contrato pai).
 //
-// O bloco de "emissão recorrente mensal de NF" (rec_ativa, rec_dia, rec_valor_mensal,
-// rec_lc116, rec_descricao, rec_modo) foi retirado do formulário: configurava algo
-// que não existe (a emissão de NFS-e não foi construída). Os valores já gravados
-// em data são preservados no merge da edição — só não se editam nem se gravam mais.
+// O bloco de "emissão recorrente mensal de NF" (rec_ativa, rec_dia, rec_lc116,
+// rec_descricao, rec_modo) foi retirado do formulário: configurava algo que não
+// existe (a emissão de NFS-e não foi construída). Os valores já gravados em data
+// são preservados no merge da edição — só não se editam nem se gravam mais.
+//
+// O VALOR MENSAL VOLTOU, com outro nome e outro sentido (09/11/2026). Aquele
+// campo misturava duas coisas: EMITIR NOTA todo mês, que não existe, e QUANTO
+// ENTRA por mês, que é o que a projeção de fluxo precisa saber. Retirado o
+// bloco inteiro, a projeção ficou lendo um campo que nenhuma tela preenchia.
 // =============================================================================
 
 const TIPOS = ['Prestação de Serviços', 'Consultoria', 'Fornecimento', 'Parceria', 'Outro']
@@ -31,6 +36,9 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
   const [parteId, setParteId] = useState(null)
   const [objeto, setObjeto] = useState('')
   const [valor, setValor] = useState('')
+  // Quanto este contrato faz entrar por mês. É daqui que a projeção de fluxo
+  // tira a receita recorrente dos meses à frente.
+  const [valorMensal, setValorMensal] = useState('')
   const [inicio, setInicio] = useState('')
   const [fim, setFim] = useState('')
   const [tipoC, setTipoC] = useState('Prestação de Serviços')
@@ -66,6 +74,10 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
       setParteId(d.pessoa_id || null)
       setObjeto(d.object || '')
       setValor(String(d.value ?? ''))
+      // O campo antigo é lido na falta do novo: contrato cadastrado antes de
+      // 09/11/2026 guarda o valor em `rec_valor_mensal`, e perdê-lo aqui
+      // apagaria o que já havia sido informado.
+      setValorMensal(String(d.valor_mensal ?? (d.rec_ativa ? d.rec_valor_mensal : '') ?? ''))
       setInicio(d.start || '')
       setFim(d.end || '')
       setTipoC(d.type || 'Prestação de Serviços')
@@ -73,7 +85,7 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
       setNotes(d.notes || '')
     } else {
       setNatureza('principal'); setPaiId(''); setNumero('')
-      setParte(''); setObjeto(''); setValor('')
+      setParte(''); setObjeto(''); setValor(''); setValorMensal('')
       setInicio(''); setFim(''); setTipoC('Prestação de Serviços'); setStatusV('Ativo'); setNotes('')
     }
   }, [open, isEdit, registro])
@@ -123,6 +135,8 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
         pessoa_id: parteId,
         object: objeto.trim(),
         value: Number(valor),
+        // Vazio é legítimo: contrato pontual não promete receita recorrente.
+        valor_mensal: valorMensal === '' ? null : Number(String(valorMensal).replace(',', '.')),
         start: inicio || null,
         end: fim || null,
         type: tipoC,
@@ -223,6 +237,18 @@ export default function ModalContrato({ open, onClose, registro, onSaved }) {
       <Row cols={3}>
         <Field label="Valor Total (R$) *">
           <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={input} />
+        </Field>
+        <Field label="Valor mensal (R$)">
+          <input
+            type="number" step="0.01" value={valorMensal}
+            onChange={e => setValorMensal(e.target.value)}
+            placeholder="0,00" style={input}
+          />
+          <div style={{ fontSize: 10.5, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.45 }}>
+            Quanto este contrato faz entrar por mês. É daqui que a projeção de fluxo tira a receita
+            recorrente, enquanto o contrato estiver Ativo e dentro da vigência. Vazio em contrato
+            pontual.
+          </div>
         </Field>
         <Field label="Data de Início">
           <CampoData value={inicio} onChange={e => setInicio(e.target.value)} style={input} />
