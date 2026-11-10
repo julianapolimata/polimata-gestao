@@ -516,7 +516,14 @@ export default function Conciliacao() {
       for (const p of pares) {
         const statusNovo = p.target === 'receivable' ? 'Recebido' : 'Pago'
         const merged = { ...(p.lanc.data || {}), status: statusNovo, data_pagamento: p.lanc.data?.data_pagamento || p.ext.data?.data }
-        const { error } = await supabase.rpc('conciliar_vincular', { p_extrato_id: p.ext.id, p_target: p.target, p_lanc_id: p.lanc.id, p_merged: merged })
+        // A ORIGEM VAI JUNTO, e e por ela que o aprendizado distingue o que
+        // ela decidiu do que o sistema propos. Sem isto, a regra aprendida se
+        // alimentaria dos proprios palpites -- e passaria a confirmar sozinha
+        // o que nunca foi conferido.
+        const { error } = await supabase.rpc('conciliar_vincular', {
+          p_extrato_id: p.ext.id, p_target: p.target, p_lanc_id: p.lanc.id,
+          p_merged: merged, p_origem: 'automatico',
+        })
         if (!error) ok++
       }
       if (ok) showToast(`${ok} transação(ões) conciliada(s) automaticamente${silencioso ? ' — confira' : ''}.`, silencioso ? 'info' : 'success')

@@ -1,0 +1,4 @@
+-- Aplicada em 10/11/2026. Ver Laudo_Auditoria_Sistema_Gestao_10nov2026.md, item 4.1.
+-- conciliar_vincular passa a receber a ORIGEM (manual | automatico) e grava-la
+-- no extrato. E por esse campo que o aprendizado das regras distingue o que ela
+-- decidiu do que o sistema propos -- a guarda existia e nunca disparava.
