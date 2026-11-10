@@ -307,6 +307,31 @@ Importante:
           data: merged, anexo_path: anexoPath,
         }).eq('id', registro.id)
         if (error) throw error
+
+        // ── O VÍNCULO DESCE PARA AS PARCELAS ──────────────────────────
+        //
+        // Ligar o credor no contrato e deixar as parcelas apontando para um
+        // texto resolveria metade do problema — e a metade que não resolve é
+        // justamente a que aparece na ficha da pessoa e no total por
+        // fornecedor. As parcelas já lançadas são dele, então recebem o
+        // vínculo dele.
+        //
+        // Só o vínculo desce. Valor, data e situação de cada parcela são da
+        // parcela, e algumas já foram conciliadas: reescrevê-las aqui apagaria
+        // o que o extrato provou.
+        if (credorId) {
+          const { data: parcelasDoContrato } = await supabase.from('payable')
+            .select('id, data').eq('emprestimo_id', registro.id)
+          const aLigar = (parcelasDoContrato || []).filter(p => p.data?.pessoa_id !== credorId)
+          for (const p of aLigar) {
+            await supabase.from('payable')
+              .update({ data: { ...(p.data || {}), pessoa_id: credorId } })
+              .eq('id', p.id)
+          }
+          if (aLigar.length) {
+            showToast(`${aLigar.length} parcela(s) ligadas ao cadastro do credor.`, 'success')
+          }
+        }
       } else {
         // No cadastro novo o saldo e as parcelas pagas digitados são o ponto de
         // partida (viram as parcelas em Contas a Pagar). Depois, a tela calcula.
