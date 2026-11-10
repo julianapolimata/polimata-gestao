@@ -45,6 +45,14 @@ const itemBase = {
   whiteSpace: 'nowrap', overflow: 'hidden',
 }
 
+// Subtítulo dentro de Configurações. Fino de propósito: ele organiza a leitura
+// sem virar mais um nível de clique — a lista continua inteira à vista, e a
+// ordem é a das fases do primeiro uso.
+function SubGrupo({ children, collapsed }) {
+  if (collapsed) return null
+  return <div style={subGrupo}>{children}</div>
+}
+
 const Section = ({ children, collapsed }) => {
   if (collapsed) {
     // Em modo colapsado, vira só um divider sutil
@@ -165,19 +173,24 @@ export default function Sidebar() {
           )}
         {(collapsed || cadAberto) && (
           <>
+            <SubGrupo collapsed={collapsed}>A empresa</SubGrupo>
+            <NavItem to="/dados-empresa" collapsed={collapsed} label="Dados da empresa" icon={ico(<><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></>)} />
             <NavItem to="/contas-bancarias" collapsed={collapsed} label="Contas e Cartões" icon={ico(<><path d="M3 21h18"/><polyline points="5 21 5 10 12 4 19 10 19 21"/></>)} />
             <NavItem to="/plano-contas" collapsed={collapsed} label="Plano de Contas" icon={ico(<><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h6"/></>)} />
+            <SubGrupo collapsed={collapsed}>Cadastro de pessoas</SubGrupo>
             <NavItem to="/clientes" collapsed={collapsed} label="Clientes" icon={ico(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>)} />
             <NavItem to="/fornecedores" collapsed={collapsed} label="Fornecedores" icon={ico(<><path d="M16 11V7a4 4 0 0 0-8 0v4"/><rect x="3" y="11" width="18" height="11" rx="2"/></>)} />
             <NavItem to="/funcionarios" collapsed={collapsed} label="Funcionários" icon={ico(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>)} />
             <NavItem to="/instituicoes-financeiras" collapsed={collapsed} label="Instituições Financeiras" icon={ico(<><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M12 3L2 7h20L12 3z"/><path d="M7 11v5"/><path d="M12 11v5"/><path d="M17 11v5"/></>)} />
             <NavItem to="/orgaos-publicos" collapsed={collapsed} label="Órgãos Públicos" icon={ico(<><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 21V10l7-7 7 7v11"/></>)} />
+            <SubGrupo collapsed={collapsed}>Comercial</SubGrupo>
             <NavItem to="/funil" collapsed={collapsed} label="Funil" icon={ico(<><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></>)} />
             <NavItem to="/projetos" collapsed={collapsed} label="Projetos" icon={ico(<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></>)} />
             <NavItem to="/contratos" collapsed={collapsed} label="Contratos" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
+            <SubGrupo collapsed={collapsed}>Dívidas</SubGrupo>
             <NavItem to="/emprestimos" collapsed={collapsed} label="Empréstimos" icon={ico(<><path d="M12 2v6"/><path d="M9 19l3 3 3-3"/><path d="M5 12h14"/><circle cx="12" cy="12" r="10"/></>)} />
+            <SubGrupo collapsed={collapsed}>Registros</SubGrupo>
             <NavItem to="/importacoes" collapsed={collapsed} label="Histórico de Importações" icon={ico(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>)} />
-            <NavItem to="/dados-empresa" collapsed={collapsed} label="Dados da empresa" icon={ico(<><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></>)} />
             <NavItem to="/nfse-config" collapsed={collapsed} label="NFS-e (em preparação)" icon={ico(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>)} />
           </>
         )}
@@ -193,6 +206,10 @@ export default function Sidebar() {
   )
 }
 
+const subGrupo = {
+  fontSize: 8.5, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase',
+  color: 'rgba(255,255,255,0.38)', padding: '11px 0 4px 14px',
+}
 const cadHeader = {
   display: 'flex', alignItems: 'center', width: '100%',
   background: 'none', border: 'none', cursor: 'pointer',
