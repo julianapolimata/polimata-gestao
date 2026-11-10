@@ -26,6 +26,14 @@ function fmtDataCurta(v) {
   return `${dd}/${m}/${a}`
 }
 
+// O rótulo no singular, para os textos da tela. Sem isto, "Instituição
+// Financeira" apareceria como "Novo instituição financeira".
+const SINGULAR = {
+  'Órgão Público': 'órgão',
+  'Instituição Financeira': 'banco ou cooperativa',
+}
+const singularDe = tipo => SINGULAR[tipo] || String(tipo || '').toLowerCase()
+
 export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
@@ -134,7 +142,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
                 <span style={{ color: 'var(--text-mid)' }}>{filtrados.length} {filtrados.length === 1 ? 'cadastro' : 'cadastros'}</span>
               </div>
               <button onClick={abrirNovo} style={btnNovo}>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {tipo === 'Órgão Público' ? 'órgão' : tipo.toLowerCase()}
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {singularDe(tipo)}
               </button>
             </div>
           </div>
@@ -167,7 +175,7 @@ export default function Pessoas({ tipo, titulo, labelDoc = 'CNPJ/CPF' }) {
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? `Nenhum ${tipo.toLowerCase()} cadastrado. Clique em "Novo" pra começar.` : 'Nenhum resultado para a busca.'}
+            {rows.length === 0 ? `Nenhum ${singularDe(tipo)} cadastrado. Clique em "Novo" para começar.` : 'Nenhum resultado para a busca.'}
           </div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>

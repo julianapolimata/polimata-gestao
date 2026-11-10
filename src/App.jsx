@@ -59,6 +59,7 @@ export default function App() {
           <Route path="/fornecedores" element={<ProtectedRoute><Pessoas tipo="Fornecedor" titulo="Fornecedores" /></ProtectedRoute>} />
           <Route path="/clientes" element={<ProtectedRoute><Pessoas tipo="Cliente" titulo="Clientes" /></ProtectedRoute>} />
           <Route path="/funcionarios" element={<ProtectedRoute><Pessoas tipo="Funcionário" titulo="Funcionários" labelDoc="CPF" /></ProtectedRoute>} />
+          <Route path="/instituicoes-financeiras" element={<ProtectedRoute><Pessoas tipo="Instituição Financeira" titulo="Instituições Financeiras" /></ProtectedRoute>} />
           <Route path="/orgaos-publicos" element={<ProtectedRoute><Pessoas tipo="Órgão Público" titulo="Órgãos Públicos" /></ProtectedRoute>} />
           <Route path="/funil" element={<ProtectedRoute><Oportunidades /></ProtectedRoute>} />
           <Route path="/projetos" element={<ProtectedRoute><Catalogo tabela="projects" titulo="Projetos" /></ProtectedRoute>} />

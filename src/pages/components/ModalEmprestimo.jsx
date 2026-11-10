@@ -93,8 +93,14 @@ export default function ModalEmprestimo({ open, onClose, registro, reais = null,
     return () => { cancelado = true }
   }, [open])
 
+  // QUEM PODE SER CREDOR.
+  //
+  // Instituição financeira (o banco que empresta) e órgão público (a Receita,
+  // nos parcelamentos de tributo). Fornecedor continua na lista porque há
+  // contratos antigos cadastrados assim — tirá-lo desligaria o vínculo deles
+  // sem aviso.
   const credoresAceitos = useMemo(
-    () => pessoasDosTipos(pessoas, ['Fornecedor', 'Órgão Público']),
+    () => pessoasDosTipos(pessoas, ['instituicao_financeira', 'Órgão Público', 'Fornecedor']),
     [pessoas],
   )
   const credoresSugeridos = useMemo(() => credoresAceitos.map(p => p.data.nome), [credoresAceitos])

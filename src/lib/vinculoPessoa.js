@@ -36,6 +36,19 @@ export const PAPEIS = [
   { v: 'orgao_publico', label: 'Órgão Público', antigo: 'Órgão Público' },
   { v: 'funcionario', label: 'Funcionário', antigo: 'Funcionário' },
   { v: 'socio', label: 'Sócio', antigo: 'Sócio' },
+  // INSTITUIÇÃO FINANCEIRA — decisão dela, 10/11/2026.
+  //
+  // O banco não fornece nada: ele empresta. É contraparte de DÍVIDA, não de
+  // despesa operacional — a mesma distinção que separa amortização de juros.
+  //
+  // E não é só o empréstimo: tarifa bancária, IOF e multa já estão em
+  // "Despesas Financeiras" no plano de contas, nunca em despesa com
+  // fornecedor. Tudo que vem do banco é da relação financeira, então ele não
+  // precisa do papel de fornecedor ao lado.
+  //
+  // Não tem `antigo` porque não existia no cadastro anterior: nenhum registro
+  // de antes de 10/11/2026 pode ser traduzido para este papel.
+  { v: 'instituicao_financeira', label: 'Instituição Financeira', antigo: '' },
 ]
 
 /** Os papéis de um cadastro. Lê o formato novo; na falta, traduz o antigo. */
@@ -66,8 +79,14 @@ export function tipoDerivado(papeis) {
 /** Rótulo antigo (ex.: 'Órgão Público') → valor de papel. 'Prospect' é status. */
 export function papelDoRotuloAntigo(rotulo) {
   const t = String(rotulo || '').trim().toLowerCase()
+  if (!t) return null
   if (t === 'prospect') return 'cliente'
-  const achou = PAPEIS.find((p) => p.antigo.toLowerCase() === t)
+  // O papel novo é aceito pelo próprio valor: quem filtra por
+  // 'instituicao_financeira' não precisa conhecer um rótulo antigo que nunca
+  // existiu. Sem isto, `pessoasDosTipos` descartaria o filtro em silêncio.
+  const direto = PAPEIS.find((p) => p.v === t)
+  if (direto) return direto.v
+  const achou = PAPEIS.find((p) => p.antigo && p.antigo.toLowerCase() === t)
   return achou ? achou.v : null
 }
 
