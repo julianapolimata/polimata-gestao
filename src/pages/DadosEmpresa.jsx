@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { msgErro } from '../lib/erros'
 import { maskDocumento, maskTelefone, maskCEP } from '../lib/mascaras'
 import { consultarCnpjNaReceita } from '../lib/receitaCnpj'
+import { listarBancos, rotuloBanco, bancoDoRotulo } from '../lib/bancosBacen'
 
 // =============================================================================
 // DADOS DA EMPRESA (B6.1).
@@ -17,9 +18,27 @@ import { consultarCnpjNaReceita } from '../lib/receitaCnpj'
 // Caixa de entrada, e a data de corte só por consulta ao banco. Não havia
 // lugar para olhar e dizer "é isto que o sistema sabe sobre a empresa".
 //
-// O QUE NÃO ESTÁ AQUI, de propósito: os dados fiscais de emissão — inscrição
-// municipal, CNAE, item da lista de serviço, alíquota de ISS. Eles já têm
-// tela própria (Configuração de NFS-e) e duplicar o campo é duplicar a fonte.
+// ── POR QUE OS DADOS FISCAIS VOLTARAM PARA CÁ ─────────────────────────────
+//
+// Até 10/11/2026 a inscrição municipal, o CNAE, o município do ISS e o regime
+// tributário ficavam só na Configuração de NFS-e, e esta tela trazia um aviso
+// no rodapé mandando procurar lá. Pergunta dela, no primeiro uso: "n deveria
+// ficar td na mesma página, e dps o sistema só buscar na tela do cadastro?".
+//
+// Deveria. Quem está cadastrando a empresa está cadastrando a empresa inteira,
+// e não tem como saber que metade da ficha mora numa tela chamada NFS-e. A
+// divisão fazia sentido para quem escreveu o sistema (duas tabelas), nunca
+// para quem o usa.
+//
+// O corte agora é por natureza do dado, não por tabela:
+//   • o que DESCREVE a empresa  → aqui (inscrição municipal, CNAE, município
+//     do ISS, regime tributário, optante do Simples);
+//   • o que PARAMETRIZA a nota  → Configuração de NFS-e (ambiente, item da
+//     lista de serviço, alíquota de ISS, ISS retido, modelos de texto).
+//
+// O dado NÃO foi copiado: ele continua morando em nfse_config, que é de onde
+// o Simples Nacional já lê. Esta tela passou a ser o lugar de digitá-lo. Um
+// campo, uma fonte — que é exatamente o contrário de duplicar.
 //
 // O NOME ANTERIOR tem função, não é nostalgia: a razão social antiga aparece
 // em documentos de 2023 a 2025 e em guias antigas. Registrada aqui, ela
@@ -27,6 +46,10 @@ import { consultarCnpjNaReceita } from '../lib/receitaCnpj'
 // Adm" é da mesma empresa — e evita abrir uma ressalva de titularidade que
 // não existe.
 // =============================================================================
+// Os mesmos regimes da Configuração de NFS-e: a lista é da empresa, e não
+// do formulário que por acaso a mostrava primeiro.
+const REGIMES = ["Simples Nacional - ME/EPP", "MEI", "Regime Normal"]
+
 export default function DadosEmpresa() {
   const { user } = useAuth()
   const [linhaId, setLinhaId] = useState(null)
@@ -36,24 +59,40 @@ export default function DadosEmpresa() {
   const [salvando, setSalvando] = useState(false)
   const [buscando, setBuscando] = useState(false)
   const [avisoCnpj, setAvisoCnpj] = useState(null)
+  // A ficha fiscal mora em nfse_config. Esta tela edita; não copia.
+  const [fiscal, setFiscal] = useState({})
+  const [fiscalId, setFiscalId] = useState(null)
+  const [bancos, setBancos] = useState([])
 
   const carregar = useCallback(() => {
     if (!user) return
     setLoading(true)
-    supabase.from('config_empresa').select('id, data').limit(1)
-      .then(({ data, error }) => {
-        if (error) { setErro(error); setLoading(false); return }
-        setErro(null)
-        setLinhaId(data?.[0]?.id || null)
-        setD(data?.[0]?.data || {})
-        setLoading(false)
-      })
+    Promise.all([
+      supabase.from('config_empresa').select('id, data').limit(1),
+      supabase.from('nfse_config').select('id, data').limit(1),
+    ]).then(([rEmp, rFis]) => {
+      // A ficha fiscal pode não existir ainda, e isso não é erro: só erro da
+      // tabela da empresa impede a tela de abrir.
+      if (rEmp.error) { setErro(rEmp.error); setLoading(false); return }
+      setErro(null)
+      setLinhaId(rEmp.data?.[0]?.id || null)
+      setD(rEmp.data?.[0]?.data || {})
+      setFiscalId(rFis.data?.[0]?.id || null)
+      setFiscal(rFis.data?.[0]?.data || {})
+      setLoading(false)
+    })
   }, [user])
 
   useEffect(() => { carregar() }, [carregar])
 
+  // A lista do Banco Central, uma vez por tela aberta. Se a consulta não sair,
+  // a função devolve a lista curta de reserva e o campo segue aceitando texto.
+  useEffect(() => { listarBancos().then(setBancos) }, [])
+
   const campo = (k) => d[k] ?? ''
   const mudar = (k, v) => setD(prev => ({ ...prev, [k]: v }))
+  const fis = (k) => fiscal[k] ?? ''
+  const mudarFiscal = (k, v) => setFiscal(prev => ({ ...prev, [k]: v }))
 
   // ── AS CONTAS DE RECEBIMENTO ──────────────────────────────────────────
   //
@@ -81,6 +120,15 @@ export default function DadosEmpresa() {
   }
   function removerConta(i) {
     setD(prev => ({ ...prev, contas_recebimento: contas.filter((_, j) => j !== i) }))
+  }
+
+  // O banco é escolhido na lista do Banco Central e guardado em dois campos —
+  // nome e código COMPE. Quem digita um banco fora da lista continua sendo
+  // atendido: fica o nome que escreveu, sem código inventado.
+  function mudarBanco(i, texto) {
+    const { banco, banco_codigo } = bancoDoRotulo(texto, bancos)
+    const lista = contas.map((c, j) => (j === i ? { ...c, banco, banco_codigo } : c))
+    setD(prev => ({ ...prev, contas_recebimento: lista }))
   }
 
   // ── A CONSULTA À RECEITA ──────────────────────────────────────────────
@@ -111,6 +159,14 @@ export default function DadosEmpresa() {
         situacao_cadastral: r.dados.situacao || '',
         validado_em: new Date().toISOString().slice(0, 10),
       }))
+      // A ficha fiscal também se beneficia da consulta: o CNAE vem da Receita
+      // e o município do ISS é o da sede, enquanto ela não disser outro. O que
+      // já estiver preenchido não é sobrescrito.
+      setFiscal(prev => ({
+        ...prev,
+        cnae: prev.cnae || r.dados.cnae || '',
+        municipio_incidencia: prev.municipio_incidencia || r.dados.cidade || '',
+      }))
       setAvisoCnpj({
         tipo: r.dados.ativa ? 'confirmado' : 'atencao',
         texto: r.dados.ativa
@@ -133,6 +189,30 @@ export default function DadosEmpresa() {
         ? await supabase.from('config_empresa').update({ data: limpo }).eq('id', linhaId)
         : await supabase.from('config_empresa').insert({ user_id: user.id, data: limpo })
       if (error) throw error
+
+      // A ficha fiscal vai para a tabela onde ela já mora. O registro é
+      // preservado inteiro: esta tela edita cinco campos dele e não tem
+      // opinião sobre o resto (ambiente, modelos de texto, reforma IBS/CBS),
+      // que continua sendo da Configuração de NFS-e.
+      const fiscalLimpo = {
+        ...fiscal,
+        inscricao_municipal: String(fiscal.inscricao_municipal || '').trim(),
+        cnae: String(fiscal.cnae || '').trim(),
+        municipio_incidencia: String(fiscal.municipio_incidencia || '').trim(),
+        codigo_municipio_ibge: String(fiscal.codigo_municipio_ibge || '').trim(),
+      }
+      const { error: erroFiscal } = fiscalId
+        ? await supabase.from('nfse_config').update({ data: fiscalLimpo }).eq('id', fiscalId)
+        : await supabase.from('nfse_config').insert({ user_id: user.id, data: fiscalLimpo })
+      // A ficha fiscal falhou depois de a identificação ter sido gravada: a
+      // mensagem diz qual das duas partes ficou para trás, senão ela salva de
+      // novo sem saber o que conferir.
+      if (erroFiscal) {
+        showToast(msgErro(erroFiscal, "A identificação foi salva, mas a ficha fiscal não. Tente salvar de novo."), "error")
+        carregar()
+        return
+      }
+
       showToast('Dados da empresa salvos.', 'success')
       carregar()
     } catch (e) {
@@ -241,13 +321,61 @@ export default function DadosEmpresa() {
             </Linha>
           </Bloco>
 
+          <Bloco titulo="Identificação fiscal">
+            <Linha>
+              <Campo rotulo="Inscrição municipal">
+                <input value={fis('inscricao_municipal')} onChange={e => mudarFiscal('inscricao_municipal', e.target.value)} style={input} />
+                <Dica>Número da inscrição na prefeitura onde a empresa presta serviço.</Dica>
+              </Campo>
+              <Campo rotulo="CNAE">
+                <input value={fis('cnae')} onChange={e => mudarFiscal('cnae', e.target.value)} placeholder="Ex: 7020400" style={input} />
+                <Dica>Atividade principal registrada na Receita. Vem preenchido pela busca do CNPJ.</Dica>
+              </Campo>
+              <Campo rotulo="Regime tributário" flex="2 1 260px">
+                <select value={fis('regime_tributario') || REGIMES[0]} onChange={e => mudarFiscal('regime_tributario', e.target.value)} style={input}>
+                  {REGIMES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Campo>
+            </Linha>
+            <Linha>
+              <Campo rotulo="Município do ISS" flex="2 1 240px">
+                <input value={fis('municipio_incidencia')} onChange={e => mudarFiscal('municipio_incidencia', e.target.value)} style={input} />
+                <Dica>Onde o ISS é devido. É o que o Simples Nacional usa para separar o imposto municipal.</Dica>
+              </Campo>
+              <Campo rotulo="Código IBGE do município">
+                <input value={fis('codigo_municipio_ibge')} onChange={e => mudarFiscal('codigo_municipio_ibge', e.target.value)} placeholder="Ex: 3556206" style={input} />
+              </Campo>
+              <Campo rotulo="Simples Nacional" flex="1 1 200px">
+                <label style={caixaCheck}>
+                  <input
+                    type="checkbox"
+                    checked={fiscal.optante_simples !== false}
+                    onChange={e => mudarFiscal('optante_simples', e.target.checked)}
+                  />
+                  Empresa optante
+                </label>
+              </Campo>
+            </Linha>
+            <Dica>
+              Esta é a ficha fiscal da empresa, e ela se digita aqui. O que configura a emissão da
+              nota — ambiente, item da lista de serviço, alíquota de ISS e modelos de texto — fica
+              em Configuração de NFS-e, que lê estes campos daqui.
+            </Dica>
+          </Bloco>
+
           <Bloco titulo="Contas de recebimento">
             {contas.length === 0 ? (
               <Dica>Nenhuma conta cadastrada.</Dica>
             ) : contas.map((c, i) => (
               <Linha key={i}>
-                <Campo rotulo={contas.length > 1 ? `Banco · conta ${i + 1}` : 'Banco'}>
-                  <input value={c.banco || ''} onChange={e => mudarConta(i, 'banco', e.target.value)} style={input} />
+                <Campo rotulo={contas.length > 1 ? `Banco · conta ${i + 1}` : 'Banco'} flex="2 1 260px">
+                  <input
+                    value={rotuloBanco(c.banco_codigo, c.banco)}
+                    onChange={e => mudarBanco(i, e.target.value)}
+                    list="bancos-bacen"
+                    placeholder="Digite o nome ou o código"
+                    style={input}
+                  />
                 </Campo>
                 <Campo rotulo="Agência" flex="0 1 130px">
                   <input value={c.agencia || ''} onChange={e => mudarConta(i, 'agencia', e.target.value)} style={input} />
@@ -268,6 +396,17 @@ export default function DadosEmpresa() {
               </Linha>
             ))}
             <button type="button" onClick={novaConta} style={btnAdicionar}>+ Adicionar conta</button>
+            {/* A lista é a do Banco Central, consultada na abertura da tela.
+                São cerca de 460 instituições: num <select> isso seria uma
+                rolagem sem fim, e por isso o campo é de digitar com lista —
+                escrever "sicoob" basta. */}
+            <datalist id="bancos-bacen">
+              {bancos.map(b => <option key={b.codigo + b.nome} value={rotuloBanco(b.codigo, b.nome)} />)}
+            </datalist>
+            <Dica>
+              O código antes do nome é o do Banco Central, o mesmo que aparece em boleto e TED.
+              Banco fora da lista pode ser digitado à mão.
+            </Dica>
             <Dica>
               Usadas em documentos que a empresa emite. Não têm efeito sobre conciliação: as contas
               que o sistema concilia ficam em Contas e Cartões.
@@ -310,8 +449,8 @@ export default function DadosEmpresa() {
               que não serve para nada. */}
 
           <div style={rodape}>
-            Os dados fiscais de emissão — inscrição municipal, CNAE, item da lista de serviço e
-            alíquota de ISS — ficam em <strong>Configuração de NFS-e</strong>, e não são repetidos aqui.
+            Esta tela é a ficha da empresa. Nada do que está aqui precisa ser digitado de novo em
+            outro lugar.
             {campo('atualizado_em') && (
               <> Última alteração em {String(campo('atualizado_em')).split('-').reverse().join('/')}.</>
             )}
@@ -363,6 +502,10 @@ const bloco = {
 const blocoTitulo = {
   fontFamily: 'var(--body)', fontSize: 9.5, fontWeight: 700, letterSpacing: 1.6,
   textTransform: 'uppercase', color: 'var(--navy)', margin: '0 0 14px',
+}
+const caixaCheck = {
+  display: "flex", alignItems: "center", gap: 8, height: 36,
+  fontSize: 13, color: "var(--text)", cursor: "pointer",
 }
 const rotuloEstilo = {
   fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',

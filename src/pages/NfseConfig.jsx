@@ -20,7 +20,8 @@ import { preencherModelo, EXEMPLO_MODELO } from '../lib/nfseModelos'
 // O banner no topo diz isso ao usuário (configuração morta é sinalizada).
 // =====================================================================
 
-const REGIMES = ['Simples Nacional - ME/EPP', 'MEI', 'Regime Normal']
+// A lista de regimes mudou de casa junto com o campo: ela agora vive em
+// Dados da empresa. O valor continua gravado aqui, no mesmo registro.
 const REGIMES_ESPECIAIS = ['Nenhum', 'Microempresa Municipal', 'Estimativa', 'Sociedade de Profissionais', 'Cooperativa', 'MEI', 'ME/EPP']
 
 export default function NfseConfig() {
@@ -187,24 +188,26 @@ export default function NfseConfig() {
 
         <div style={divider} />
         <SecTitle>Dados do emitente</SecTitle>
-        <Row cols={2}>
-          <Field label="Inscrição Municipal">
-            <input value={f.inscricao_municipal} onChange={e => set('inscricao_municipal', e.target.value)} placeholder="Nº da inscrição em Valinhos" style={input} />
-          </Field>
-          <Field label="Regime tributário">
-            <select value={f.regime_tributario} onChange={e => set('regime_tributario', e.target.value)} style={input}>
-              {REGIMES.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
-        </Row>
-        <Row cols={2}>
-          <Field label="Município de incidência">
-            <input value={f.municipio_incidencia} onChange={e => set('municipio_incidencia', e.target.value)} style={input} />
-          </Field>
-          <Field label="Código IBGE do município">
-            <input value={f.codigo_municipio_ibge} onChange={e => set('codigo_municipio_ibge', e.target.value)} placeholder="Ex: 3556206 (Valinhos)" style={input} />
-          </Field>
-        </Row>
+        {/* A inscrição municipal, o CNAE, o município do ISS, o regime
+            tributário e a opção pelo Simples saíram daqui em 10/11/2026 e
+            passaram a ser digitados em Dados da empresa, que é a ficha da
+            empresa. O dado não foi copiado nem movido de tabela: continua em
+            nfse_config e esta tela continua lendo e gravando o registro
+            inteiro. O que mudou é onde se digita — num lugar só.
+            Pergunta dela: "n deveria ficar td na mesma página, e dps o
+            sistema só buscar na tela do cadastro?". */}
+        <div style={noteBox}>
+          A identificação fiscal da empresa — inscrição municipal, CNAE, município do ISS, regime
+          tributário e opção pelo Simples — fica em <strong>Configurações › Dados da empresa</strong>.
+          Esta tela usa o que estiver lá.
+          {f.inscricao_municipal || f.municipio_incidencia ? (
+            <div style={{ marginTop: 6, opacity: 0.85 }}>
+              Hoje: {f.municipio_incidencia || 'município não informado'}
+              {f.inscricao_municipal ? ` · inscrição ${f.inscricao_municipal}` : ''}
+              {f.cnae ? ` · CNAE ${f.cnae}` : ''}
+            </div>
+          ) : null}
+        </div>
         <Row cols={2}>
           <Field label="Regime especial de tributação">
             <select value={f.regime_especial} onChange={e => set('regime_especial', e.target.value)} style={input}>
@@ -212,7 +215,6 @@ export default function NfseConfig() {
             </select>
           </Field>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'flex-end', paddingBottom: 4 }}>
-            <Check label="Optante pelo Simples Nacional" checked={f.optante_simples} onChange={v => set('optante_simples', v)} />
             <Check label="Incentivador cultural" checked={f.incentivador_cultural} onChange={v => set('incentivador_cultural', v)} />
           </div>
         </Row>
@@ -226,9 +228,7 @@ export default function NfseConfig() {
           <Field label="Cód. tributação nacional">
             <input value={f.codigo_tributacao_nacional} onChange={e => set('codigo_tributacao_nacional', e.target.value)} placeholder="Código nacional" style={input} />
           </Field>
-          <Field label="CNAE">
-            <input value={f.cnae} onChange={e => set('cnae', e.target.value)} placeholder="Ex: 7020400" style={input} />
-          </Field>
+          <div />
         </Row>
         <Row cols={3}>
           <Field label="Alíquota ISS (%)">

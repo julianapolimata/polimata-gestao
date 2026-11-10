@@ -69,6 +69,9 @@ export function camposDaReceita(d) {
     cep: d?.cep ? String(d.cep).replace(/^(\d{5})(\d{3})$/, '$1-$2') : '',
     telefone: telefone.length > 2 ? `(${telefone.slice(0, 2)}) ${telefone.slice(2)}` : '',
     segmento: String(d?.cnae_fiscal_descricao || '').substring(0, 60),
+    // O código da atividade principal, e não só a descrição: é ele que a
+    // ficha fiscal da empresa guarda, e que vai na nota.
+    cnae: String(d?.cnae_fiscal || '').replace(/\D/g, ''),
     porte: porteDe(d?.porte),
   }
 }
