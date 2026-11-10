@@ -207,20 +207,12 @@ export default function DadosEmpresa() {
                   </Dica>
                 )}
               </Campo>
-              <Campo rotulo="Razão social anterior" flex="2 1 320px">
-                <input value={campo('razao_social_anterior')} onChange={e => mudar('razao_social_anterior', e.target.value)} style={input} />
-                {/* ANOTAÇÃO, NÃO ENTRADA DO SISTEMA.
-                    Verificado em 10/11/2026: nenhuma rotina lê este campo, e
-                    não faria diferença se lesse — a mudança de razão social
-                    manteve o mesmo CNPJ, e é o CNPJ que decide titularidade.
-                    O valor dele é para quem olha um documento antigo e precisa
-                    saber que aquele nome é o mesmo. A dica diz isso, em vez de
-                    sugerir que o sistema faz algo com o dado. */}
-                <Dica>
-                  Registro para consulta: o nome que aparece em documentos e guias anteriores à
-                  mudança. O sistema identifica a empresa pelo CNPJ, que não mudou.
-                </Dica>
-              </Campo>
+              {/* O campo "Razão social anterior" foi removido em 10/11/2026.
+                  Pergunta dela: "pra que serve, se busca sempre pelo CNPJ?".
+                  Não serve. Nenhuma rotina lê, e não faria diferença se lesse:
+                  a mudança de razão social manteve o CNPJ, e é por ele que a
+                  empresa é identificada em todo lugar. Como anotação também não
+                  se sustentava — ela sabe o nome anterior da própria empresa. */}
             </Linha>
           </Bloco>
 
