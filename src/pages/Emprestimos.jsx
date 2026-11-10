@@ -154,9 +154,9 @@ export default function Emprestimos() {
       titulo: `Lançar ${linhas.length} linha(s) em Contas a Pagar?`,
       texto: `${row.nome || row.credor || ''} — ${row.parcelas_total || linhas.length} parcela(s)`,
       consequencias: [
-        'Cada parcela vira lançamento: amortização e juros em linhas separadas, quando o cronograma separa.',
+        'Cada parcela gera um lançamento: amortização e juros em linhas separadas, quando o cronograma separa.',
         'As parcelas que o cronograma marca como pagas entram como pagas — é história anterior ao sistema.',
-        'As demais nascem pendentes, e passam a ser baixadas pela conciliação do extrato.',
+        'As demais ficam pendentes, e são baixadas pela conciliação do extrato.',
         'A partir daí o saldo deste contrato sai da conciliação, e não mais do número digitado.',
       ],
       confirmarLabel: `Lançar ${linhas.length}`,

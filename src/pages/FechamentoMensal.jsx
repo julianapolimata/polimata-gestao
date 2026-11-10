@@ -225,7 +225,7 @@ export default function FechamentoMensal() {
         reabra com justificativa — fica no log.
         <span style={{ marginLeft: 6 }}>
           <span style={{ color: 'var(--red)' }}>✕ trava o mês</span> ·{' '}
-          <span style={{ color: 'var(--gold-dark)' }}>! aviso (vira exceção registrada)</span> ·{' '}
+          <span style={{ color: 'var(--gold-dark)' }}>! aviso (registrado como exceção)</span> ·{' '}
           <span style={{ color: 'var(--green)' }}>✓ feito</span> ·{' '}
           <span style={{ color: 'var(--text-mid)' }}>– não havia nada a fazer</span>.
           Os selos vêm na ordem da urgência: o que trava primeiro.

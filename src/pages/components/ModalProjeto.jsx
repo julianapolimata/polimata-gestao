@@ -201,7 +201,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
             precisa ser comparado. */}
         {venda && (
           <div style={blocoVenda}>
-            <div style={blocoVendaTitulo}>Veio da venda</div>
+            <div style={blocoVendaTitulo}>Proposta de origem</div>
             <div>
               <strong>{venda.codigo || 'sem referência'}</strong>
               {venda.data?.data_proposta ? ` · proposta de ${dataBR(venda.data.data_proposta)}` : ''}
@@ -211,7 +211,7 @@ export default function ModalProjeto({ open, onClose, registro, onSaved }) {
             </div>
             {Number(cicloDoProjeto) > 1 && (
               <div style={blocoVendaNota}>
-                Ciclo {cicloDoProjeto} deste cliente: é a renovação do projeto anterior.
+                Ciclo {cicloDoProjeto} — renovação do projeto anterior deste cliente.
               </div>
             )}
           </div>

@@ -598,8 +598,8 @@ export default function ImportarNFs() {
           + `(${suspeitas.map(p => p.data?.parte || p.data?.fileName || 'sem nome').join(' · ')}). `
           + 'Aprovar cria a despesa em dobro — o certo nesses é anexar a nota à compra.',
         ] : []),
-        'Cada um vira um lançamento novo nas suas contas.',
-        'A categoria vem só como sugestão — a Escrituração continua sendo sua.',
+        'Cada um gera um lançamento novo nas suas contas.',
+        'A categoria é apenas sugestão — a Escrituração continua sendo sua.',
         'Documento que falhar continua na caixa de entrada, com aviso.',
       ],
       confirmarLabel: `Aprovar ${marcadas.length}`,
@@ -1023,9 +1023,9 @@ const PARA_QUE_SERVE = {
   'Pró-labore': 'Entra como despesa de pessoal e conta no Fator R, que decide o anexo do seu Simples.',
   'Pro-labore': 'Entra como despesa de pessoal e conta no Fator R, que decide o anexo do seu Simples.',
   'GPS': 'Contribuição previdenciária: entra como despesa e conta no Fator R.',
-  'DAS': 'Guia do Simples: vira conta a pagar e carrega a apuração do mês.',
-  'DARF': 'Guia federal: vira conta a pagar na competência informada.',
-  'GNRE': 'Guia estadual: vira conta a pagar na competência informada.',
+  'DAS': 'Guia do Simples: lançada como conta a pagar, com a apuração do mês.',
+  'DARF': 'Guia federal: lançada como conta a pagar na competência informada.',
+  'GNRE': 'Guia estadual: lançada como conta a pagar na competência informada.',
 }
 
 function paraQueServe(d) {
@@ -1043,7 +1043,7 @@ function paraQueServe(d) {
 const TEXTO_STATUS = {
   ok: 'Lido e colocado na caixa de entrada',
   sem_anexo: 'E-mail sem documento anexado',
-  sem_lancamento: 'Lido, mas não virou lançamento',
+  sem_lancamento: 'Lido, sem lançamento gerado',
   descartado: 'Descartado: não era documento fiscal',
   duplicado: 'Já existia no sistema',
   error: 'Erro ao ler',

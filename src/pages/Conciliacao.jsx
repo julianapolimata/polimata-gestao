@@ -850,11 +850,11 @@ export default function Conciliacao() {
         titulo: 'Transformar as linhas da fatura em compras do cartão?',
         texto: resumoPlano(plano),
         consequencias: [
-          'As compras nascem já conciliadas com a fatura.',
+          'As compras entram já conciliadas com a fatura.',
           'Elas vão para a Escrituração, onde a classificação e a situação fiscal são definidas.',
-          'Parcela futura de compra parcelada nasce pendente — o cartão ainda não cobrou.',
+          'Parcela futura de compra parcelada fica pendente — o cartão ainda não cobrou.',
           ...(plano.notasCasadas?.length
-            ? [`Reconhecidas como nota já lançada (não viram compra nova): ${plano.notasCasadas.map(n => `${n.fornecedor} · NF ${n.numero_nf}`).join('; ')}.`]
+            ? [`Reconhecidas como nota já lançada (não geram compra nova): ${plano.notasCasadas.map(n => `${n.fornecedor} · NF ${n.numero_nf}`).join('; ')}.`]
             : []),
           ...(plano.comprasRecasadas?.length
             ? [`${plano.comprasRecasadas.length} linha(s) já existiam como compra no sistema e foram ligadas à fatura em vez de duplicadas.`]
@@ -891,7 +891,7 @@ export default function Conciliacao() {
       titulo: 'Arquivar esta linha?',
       texto: `${extrato.data?.descricao || ''} · ${fmtMoney(extrato.data?.valor)}`,
       consequencias: [
-        'Ela não vira lançamento nenhum — não entra na DRE nem no fluxo de caixa.',
+        'Ela não gera lançamento — não entra na DRE nem no fluxo de caixa.',
         'Sai da lista de pendentes, mas continua guardada: dá para restaurar depois.',
         'O motivo abaixo fica registrado junto com a decisão.',
       ],
@@ -1314,7 +1314,7 @@ export default function Conciliacao() {
                       <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 8, lineHeight: 1.5 }}>
                         {selecionadoExt.data?.tipo === 'saida'
                           ? <>Este débito de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> é dinheiro que <strong>saiu desta conta para outra conta sua</strong> (ex.: pagamento da fatura do cartão). Não é despesa: é transferência.</>
-                          : <>Este crédito de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> é dinheiro que <strong>veio de outra conta sua</strong>{ehCartao ? ' (o pagamento da fatura, saído da conta corrente)' : ''}. Não é receita: é transferência.</>}
+                          : <>Este crédito de <strong>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong> é dinheiro <strong>transferido de outra conta sua</strong>{ehCartao ? ' (o pagamento da fatura, saído da conta corrente)' : ''}. Não é receita: é transferência.</>}
                       </div>
                       {transfCompativeis.length > 0 && (
                         <div style={{ marginBottom: 8 }}>
@@ -1333,7 +1333,7 @@ export default function Conciliacao() {
                       )}
                       {!tLigar && (
                         <select value={tOutraConta} onChange={e => setTOutraConta(e.target.value)} style={ajSelect}>
-                          <option value="">— {selecionadoExt.data?.tipo === 'saida' ? 'para qual conta foi?' : 'de qual conta veio?'} —</option>
+                          <option value="">— {selecionadoExt.data?.tipo === 'saida' ? 'para qual conta foi?' : 'conta de origem'} —</option>
                           {outrasContas.map(c => (
                   <option key={c.id} value={c.id}>
                     {c.data?.tipo === 'cartao' ? '💳 ' : '🏦 '}{c.data?.nome}
@@ -1369,7 +1369,7 @@ export default function Conciliacao() {
                           quem está no meio do trabalho em vez de ajudar. Texto
                           de produto oferece a saída; não corrige a pessoa. */}
                       <div style={{ fontSize: 11, color: 'var(--navy)', background: 'rgba(204,145,94,0.10)', border: '1px solid rgba(204,145,94,0.35)', borderRadius: 6, padding: '8px 10px', marginBottom: 8, lineHeight: 1.5 }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>Esse dinheiro veio de outra conta sua?</div>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>Este valor é transferência de outra conta sua?</div>
                         Então é transferência, não receita. Qual usar depende de UMA coisa:
                         {' '}<strong>a outra conta tem extrato importado aqui?</strong>
                         <div style={{ marginTop: 5 }}>• <strong>Tem</strong> → use <strong>↔ Transferência</strong>: ele liga as duas pontas e baixa as duas de uma vez.</div>
@@ -1515,7 +1515,7 @@ export default function Conciliacao() {
                   <div style={{ fontSize: 11, color: 'var(--text-mid)', padding: '2px 4px 8px', lineHeight: 1.5 }}>
                     {ehCartao
                       ? <>Se esta compra <strong>já está registrada</strong> (ex.: parcela de série ou lançamento manual), marque-a abaixo e concilie. Senão, <strong>＋ Criar compra</strong>.</>
-                      : <>Marque as notas que <strong>somam</strong> este valor. Se veio líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.</>}
+                      : <>Marque as notas que <strong>somam</strong> este valor. Se o valor for líquido (retenção, tarifa, juros), explique a diferença nos <strong>ajustes</strong> — só concilia quando fecha.</>}
                   </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '0 4px 8px', flexWrap: 'wrap' }}>
@@ -1527,7 +1527,7 @@ export default function Conciliacao() {
                   {propostaDaLinha && (
                     <div style={avisoProposta}>
                       <strong>Já vi esta cobrança antes.</strong> {explicarRegra(propostaDaLinha)}{' '}
-                      A classificação abaixo vem do histórico. Confira antes de conciliar.
+                      A classificação abaixo é a do histórico. Confira antes de conciliar.
                     </div>
                   )}
                   {naturezaDaLinha.tipo !== 'comum' && (
@@ -1605,7 +1605,7 @@ export default function Conciliacao() {
                     {!mesa.ok && mesa.nSel > 0 && (
                       <>
                         <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 6, textAlign: 'center' }}>Falta explicar {fmtMoney(Math.abs(mesa.diff))} — some outra nota ou adicione um ajuste.</div>
-                        {!ehCartao && <button onClick={jogarSuspense} style={btnSuspense} title="A diferença vira despesa (ou receita) do mês — aparece na DRE até alguém explicar">⚠️ Não sei agora — lançar {fmtMoney(Math.abs(mesa.diff))} como diferença</button>}
+                        {!ehCartao && <button onClick={jogarSuspense} style={btnSuspense} title="A diferença é lançada como despesa (ou receita) do mês — aparece na DRE até alguém explicar">⚠️ Não sei agora — lançar {fmtMoney(Math.abs(mesa.diff))} como diferença</button>}
                       </>
                     )}
                   </div>

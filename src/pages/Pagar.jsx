@@ -532,7 +532,7 @@ export default function Pagar() {
     const consequencias = []
     if (atual?.parent_id) consequencias.push('É uma parcela de uma série — as outras parcelas continuam como estão.')
     if (filhos.length) consequencias.push(`É a 1ª parcela de uma série: as outras ${filhos.length} parcela(s) também serão excluídas.`)
-    if (atual?.recurring_id) consequencias.push('Veio de uma recorrência — o sistema pode gerar este lançamento de novo no mês.')
+    if (atual?.recurring_id) consequencias.push('Gerado por uma recorrência — o sistema pode gerar este lançamento de novo no mês.')
     if (ehPrevisto(atual?.data)) consequencias.push('Está como Previsto: nada de caixa é afetado.')
     else if (ehPago(atual?.data)) consequencias.push('Já está pago: sai dos relatórios e do DRE da competência.')
     consequencias.push('Logo depois de excluir, o aviso na tela oferece "Desfazer".')

@@ -611,7 +611,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
             value={segmento}
             onChange={e => setSegmento(e.target.value)}
             placeholder={papeisSel.includes('funcionario') && !papeisSel.includes('fornecedor') && !papeisSel.includes('cliente')
-              ? 'Ex.: Analista de Controles Internos' : 'Vem do CNAE da Receita'}
+              ? 'Ex.: Analista de Controles Internos' : 'Do CNAE da Receita'}
             style={input}
           />
         </Field>
@@ -689,7 +689,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
                 </div>
               ) : (
                 <div style={dica}>
-                  Este cliente ainda não tem projeto. Todo projeto nasce de uma proposta.
+                  Este cliente não tem projeto. Todo projeto tem uma proposta de origem.
                 </div>
               )}
               {projetos.length > 0 && (
@@ -811,7 +811,7 @@ export default function ModalPessoa({ open, onClose, tipo, registro, onSaved }) 
             style={input}
           />
           <div style={dica}>
-            Usado para reconhecer a nota que não vem pelo Emissor Nacional.
+            Usado para reconhecer a nota que não chega pelo Emissor Nacional.
           </div>
         </Field>
       </Row>

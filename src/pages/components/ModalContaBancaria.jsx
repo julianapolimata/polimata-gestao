@@ -189,7 +189,7 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
 
           <div style={infoBox}>
             💡 Exemplo: fechamento dia {diaFechamento}, vencimento dia {diaVencimento}. Uma compra feita dia 15 deste mês entra na fatura
-            que fecha dia {diaFechamento} {diaFechamento >= 15 ? 'deste mês' : 'do mês que vem'} e vence dia {diaVencimento} {diaFechamento >= 15 ? 'deste mês' : 'do mês que vem'}.
+            que fecha dia {diaFechamento} {diaFechamento >= 15 ? 'deste mês' : 'do mês seguinte'} e vence dia {diaVencimento} {diaFechamento >= 15 ? 'deste mês' : 'do mês seguinte'}.
           </div>
         </>
       ) : (

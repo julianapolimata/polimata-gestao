@@ -107,5 +107,5 @@ export function resumoDosPares(pares) {
 /** O motivo que fica gravado na linha arquivada — auditável, com o par citado. */
 export function motivoDoPar(par) {
   const dia = String(par?.data || '').split('-').reverse().join('/')
-  return `Débito e estorno no mesmo dia (${dia}), mesmo valor e mesma descricao: as duas linhas se anulam e não viram lançamento.`
+  return `Débito e estorno no mesmo dia (${dia}), mesmo valor e mesma descricao: as duas linhas se anulam e não geram lançamento.`
 }

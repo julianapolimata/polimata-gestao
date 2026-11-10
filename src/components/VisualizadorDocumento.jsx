@@ -83,7 +83,7 @@ export default function VisualizadorDocumento({ pendingId, nome, tipoDeclarado, 
         {estado.fase === 'sem-arquivo' && (
           <div style={aviso}>
             Este documento não tem arquivo guardado. Acontece com o que foi lançado à mão
-            ou veio de uma leitura antiga, antes de o sistema guardar o original.
+            ou é de uma leitura antiga, anterior à guarda do original.
           </div>
         )}
 

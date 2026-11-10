@@ -109,7 +109,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
       titulo: "Projeto sem venda vinculada",
       texto: "O projeto gerado a partir de uma oportunidade herda o valor vendido e o vínculo com o cliente e a proposta.",
       consequencias: [
-        "Criado nesta tela, o projeto nasce sem valor vendido.",
+        "Criado nesta tela, o projeto fica sem valor vendido.",
         "Sem valor vendido, a coluna Faturado fica sem base de comparação.",
         "Trabalho que não teve proposta é cadastrado aqui.",
       ],
@@ -178,7 +178,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
                 <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
                 <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
               </div>
-              <button onClick={abrirNovo} style={btnNovo} title={isContrato ? undefined : 'O projeto nasce da venda, no Funil'}>
+              <button onClick={abrirNovo} style={btnNovo} title={isContrato ? undefined : 'O projeto é gerado da venda, no Funil'}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {novoLabel}
               </button>
             </div>

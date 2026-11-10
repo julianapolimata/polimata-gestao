@@ -35,6 +35,11 @@ const PADROES = [
   { re: borda('ensina|aprende|entende|pensa|sabe|quer'), nome: 'antropomorfismo' },
   { re: /[a-zà-ú]!\s*(<|'|"|`|\))/, nome: 'exclamação' },
   { re: borda('merda|droga|zona|bagunça'), nome: 'desabafo' },
+  // VOZ NARRATIVA. Acrescentado em 10/11/2026, depois de ela ler "Veio da
+  // venda" num rótulo que eu havia escrito HORAS depois de duas correções
+  // dela sobre exatamente isto. O sistema não conta a história do dado: ele
+  // nomeia o que o campo é. "Proposta de origem", não "veio da venda".
+  { re: borda('veio|vem|vieram|nasce|nasceu|nascem|virou|vira|viram'), nome: 'voz narrativa' },
 ];
 
 // Textos candidatos de uma linha: strings literais e texto solto de JSX.

@@ -233,7 +233,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
         .from('recurring_masters')
         .insert({ user_id: user.id, data: oferta.deteccao.mestre })
       if (error) throw error
-      showToast('Recorrência criada — as próximas já nascem prontas.', 'success')
+      showToast('Recorrência criada — as próximas são geradas no mês de cada vencimento.', 'success')
       setOferta(null)
     } catch (e) {
       showToast(msgErro(e), 'error')
@@ -389,7 +389,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                       <div>
                         <div style={rotulo}>
                           As {quantasVao} linha(s) somam <strong>{fmtMoney(totalEfetivo)}</strong>.
-                          Diga quanto é de cada natureza — nasce um lançamento por natureza, não um por linha.
+                          Diga quanto é de cada natureza — é gerado um lançamento por natureza, não um por linha.
                         </div>
 
                         {partes.map((pt, i) => {
@@ -450,7 +450,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                           {!impedimento && resto === 0 ? '' : ''}
                         </div>
                         <div style={aviso}>
-                          Cada natureza vira um lançamento só, na data da última transferência, com o documento
+                          Cada natureza gera um lançamento, na data da última transferência, com o documento
                           dispensado (o extrato e o recibo são a evidência). A classificação define o Fator R:
                           Pró-labore conta, Antecipação de Lucro não.
                         </div>
@@ -493,7 +493,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                     </button>
                   </div>
                   <div style={aviso}>
-                    Cada lançamento nasce <strong>já escriturado</strong> com esta categoria — não volta
+                    Cada lançamento é criado <strong>já escriturado</strong> com esta categoria — não volta
                     a aparecer na Escrituração — e <strong>sem documento fiscal</strong>: a linha do banco
                     é a evidência dele. Se a nota chegar depois, anexe a este lançamento.
                   </div>

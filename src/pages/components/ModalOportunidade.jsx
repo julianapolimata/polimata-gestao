@@ -104,11 +104,11 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
       texto: novo.name,
       consequencias: [
         anterior
-          ? `Nasce como renovação do projeto anterior (ciclo ${novo.ciclo - 1}), encadeado a ele.`
-          : 'É o primeiro projeto desta pessoa.',
+          ? `Registrado como renovação do projeto do ciclo ${novo.ciclo - 1}, encadeado a ele.`
+          : 'Primeiro projeto deste cliente.',
         `Valor vendido: ${fmtMoney(novo.value)}. O faturamento é apurado pelos lançamentos de receita vinculados ao projeto.`,
         'O vínculo com o cliente e com esta oportunidade é por identificador.',
-        'Prazo e etapas nascem em branco, e são preenchidos na tela de Projetos.',
+        'Prazo e etapas ficam em branco, e são preenchidos na tela de Projetos.',
       ],
       confirmarLabel: 'Gerar projeto',
     })
@@ -273,14 +273,14 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
       {isEdit && situacao === 'ganha' && (
         <div style={blocoProjeto}>
           {registro?.data?.projeto_id ? (
-            <>Esta venda já gerou projeto. O faturamento dele se liga pelos lançamentos de receita.</>
+            <>Projeto gerado. O faturamento é apurado pelos lançamentos de receita vinculados a ele.</>
           ) : (
             <>
               <div style={{ marginBottom: 8 }}>
-                Esta venda foi ganha e ainda não gerou projeto.
+                Venda ganha, sem projeto correspondente.
                 {ultimoProjetoDaPessoa(projetos, pessoaId)
-                  ? ' A pessoa já tem projeto, então este nasce como renovação, encadeado ao anterior.'
-                  : ' Será o primeiro projeto desta pessoa.'}
+                  ? ' O cliente tem projeto anterior: o novo é registrado como renovação, encadeado a ele.'
+                  : ' Será o primeiro projeto deste cliente.'}
               </div>
               <button type="button" onClick={gerarProjeto} disabled={gerandoProjeto} style={btnMini}>
                 {gerandoProjeto ? 'Gerando…' : 'Gerar projeto desta venda'}

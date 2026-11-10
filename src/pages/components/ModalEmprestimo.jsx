@@ -591,7 +591,7 @@ Importante:
               </table>
             </div>
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-mid)' }}>
-              {isEdit ? 'Tabela snapshot da dívida. Editar aqui NÃO altera os payable já criados.' : 'Ao salvar: a entrada vira um recebido, e cada parcela vira 2 lançamentos (amortização + juros) em Contas a Pagar.'}
+              {isEdit ? 'Tabela snapshot da dívida. Editar aqui NÃO altera os payable já criados.' : 'Ao salvar: a entrada é lançada como recebido, e cada parcela gera 2 lançamentos (amortização + juros) em Contas a Pagar.'}
             </div>
           </div>
         )}

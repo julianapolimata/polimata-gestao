@@ -114,12 +114,12 @@ export function lerResposta(texto, plano, tipo) {
   const inicio = semCerca.indexOf('{')
   const fim = semCerca.lastIndexOf('}')
   if (inicio < 0 || fim <= inicio) {
-    return { ok: false, motivo: 'A resposta da Aris não veio no formato esperado.', cru: bruto.slice(0, 300) }
+    return { ok: false, motivo: 'A resposta da Aris não está no formato esperado.', cru: bruto.slice(0, 300) }
   }
 
   let obj
   try { obj = JSON.parse(semCerca.slice(inicio, fim + 1)) } catch {
-    return { ok: false, motivo: 'A resposta da Aris não veio no formato esperado.', cru: bruto.slice(0, 300) }
+    return { ok: false, motivo: 'A resposta da Aris não está no formato esperado.', cru: bruto.slice(0, 300) }
   }
 
   const confianca = ['alta', 'media', 'baixa'].includes(obj?.confianca) ? obj.confianca : 'baixa'

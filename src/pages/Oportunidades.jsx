@@ -136,7 +136,7 @@ export default function Oportunidades() {
                 </div>
                 <div style={colunaNota}>{c.itens.length} negociação(ões)</div>
                 {c.itens.length === 0 ? (
-                  <div style={colunaVazia}>nada aqui</div>
+                  <div style={colunaVazia}>sem negociação nesta etapa</div>
                 ) : c.itens.map(o => (
                   <button key={o.id} type="button" onClick={() => abrirEdicao(o)} style={cartao}>
                     <div style={cartaoNome}>{nomeDaPessoa(o.data?.pessoa_id)}</div>

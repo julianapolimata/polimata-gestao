@@ -386,7 +386,7 @@ export default function ClassificarLancamentos() {
           </>
         ),
         consequencias: [
-          'Cada nota vira a prova fiscal do seu lançamento.',
+          'Cada nota passa a ser a prova fiscal do lançamento.',
           'Onde a nota já é um lançamento, os dois são unidos: a nota fica e a compra duplicada sai.',
           'Lançamento em mês fechado fica de fora.',
         ],
@@ -742,13 +742,13 @@ export default function ClassificarLancamentos() {
                       }
                       if (o.tipo === "memoria") {
                         return <>
-                          Veio da <strong>regra guardada</strong>
+                          Da <strong>regra guardada</strong>
                           {o.guardadoEm ? <> em {br(o.guardadoEm)}</> : null} — você decidiu isto antes,
                           e os lançamentos que provavam não estão mais na base. <strong>Confira.</strong>
                         </>
                       }
                       return <>
-                        Veio do <strong>histórico deste fornecedor</strong>
+                        Do <strong>histórico deste fornecedor</strong>
                         {o.quantos > 1 ? <>: {o.quantos} lançamentos, todos classificados assim</> : null}.
                         Confirme ou corrija.
                       </>
