@@ -248,7 +248,7 @@ export default function Dashboard() {
     }
     const fixaMensal = despUltimos3 / mesesCobertos
     if (caixaAtual < 0) return { texto: 'Negativo', cor: 'var(--red)', sub: `caixa em déficit · ${fmtMoney(caixaAtual)}` }
-    if (fixaMensal <= 0) return { texto: '—', cor: 'var(--text-mid)', sub: 'sem despesas pagas pra calcular' }
+    if (fixaMensal <= 0) return { texto: '—', cor: 'var(--text-mid)', sub: 'sem despesas pagas para calcular' }
     const meses = caixaAtual / fixaMensal
     if (meses > 24) return { texto: '24+ meses', cor: 'var(--green)', sub: `caixa ${fmtMoney(caixaAtual)} ÷ ${fmtMoney(fixaMensal)}/mês` }
     const cor = meses >= 6 ? 'var(--green)' : (meses >= 3 ? 'var(--orange)' : 'var(--red)')
@@ -509,7 +509,7 @@ export default function Dashboard() {
               um fato que ele nao tem — o aviso de estimativa existia, mas num
               outro card, e esta frase e a primeira que se le. */}
           {saldoConta.porExtrato
-            ? <>Você tem <strong>{fmtMoney(caixaAtual)}</strong> em conta,{' '}</>
+            ? <>Há <strong>{fmtMoney(caixaAtual)}</strong> em conta,{' '}</>
             : <>Ainda não há extrato importado. O saldo inicial das contas é <strong>{fmtMoney(caixaAtual)}</strong>,{' '}</>}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aReceber)}</strong> a receber e{' '}
           <strong style={{ color: 'var(--gold-light)' }}>{fmtMoney(resumoCaixa.aPagar)}</strong> a pagar.{' '}
@@ -614,7 +614,7 @@ export default function Dashboard() {
         <div style={{ ...indCard, ...(necessidadeReceita > 0 ? { borderTop: '3px solid var(--gold-dark)' } : {}) }}>
           <div style={indLabel}>Necessidade de receita</div>
           <div style={{ ...indValor, color: necessidadeReceita > 0 ? 'var(--gold-dark)' : 'var(--green)' }}>{fmtMoney(necessidadeReceita)}</div>
-          <div style={indSub}>{necessidadeReceita > 0 ? 'falta faturar pra cobrir o mês' : 'mês coberto ✓'}</div>
+          <div style={indSub}>{necessidadeReceita > 0 ? 'falta faturar para cobrir o mês' : 'mês coberto ✓'}</div>
           {despesaMes > 0 && <div style={barBox}><i style={{ ...barFill, width: `${Math.min(100, (faturamento.valAtual / despesaMes) * 100)}%` }} /></div>}
         </div>
       </div>
@@ -639,7 +639,7 @@ export default function Dashboard() {
             <input type="number" min="0" value={metaMeses} onChange={e => salvarMeta(e.target.value)} style={metaInput} aria-label="Meta de meses de caixa" />
             <span style={{ fontSize: 11, color: 'var(--text-mid)' }}>meses</span>
           </div>
-          <div style={{ ...indSub, color: metaICC.gap > 0 ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 700 }}>{metaICC.gap > 0 ? `faltam ${fmtMoney(metaICC.gap)} pra meta` : 'meta atingida! ✓'}</div>
+          <div style={{ ...indSub, color: metaICC.gap > 0 ? 'var(--gold-dark)' : 'var(--green)', fontWeight: 700 }}>{metaICC.gap > 0 ? `faltam ${fmtMoney(metaICC.gap)} para meta` : 'meta atingida! ✓'}</div>
         </div>
 
         <IndCard label="Custo fixo / mês" valor={fmtMoney(despRec)} sub="recorrentes · assinaturas, salários…" />

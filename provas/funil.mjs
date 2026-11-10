@@ -78,8 +78,8 @@ ok('código estranho não derruba a contagem',
 // ── O que impede de salvar ──────────────────────────────────────────────
 ok('oportunidade sem pessoa não salva',
   problemaNaOportunidade({ situacao: 'aberta', etapa: 'Sondagem' }) !== null, '')
-ok('perdida sem motivo não salva — o funil aprende do motivo',
-  /por que/i.test(problemaNaOportunidade({ pessoa_id: 'p1', situacao: 'perdida' }) || ''), '')
+ok('perdida sem motivo não salva: é do motivo que a causa se apura',
+  /motivo da perda/i.test(problemaNaOportunidade({ pessoa_id: 'p1', situacao: 'perdida' }) || ''), '')
 ok('aberta sem etapa não salva',
   /etapa/i.test(problemaNaOportunidade({ pessoa_id: 'p1', situacao: 'aberta' }) || ''), '')
 ok('ganha não exige etapa: ela saiu do funil',

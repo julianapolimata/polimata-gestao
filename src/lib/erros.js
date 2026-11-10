@@ -62,7 +62,7 @@ const PADROES = [
   { codigos: [], testes: [/password should be at least/i, /password is too short/i], msg: 'A senha é curta demais — use pelo menos 6 caracteres.' },
   { codigos: [], testes: [/should be different from the old password/i], msg: 'A nova senha precisa ser diferente da atual.' },
   { codigos: [], testes: [/token has expired or is invalid/i, /otp_expired/i], msg: 'Esse link expirou. Peça um novo e-mail de redefinição.' },
-  { codigos: [], testes: [/for security purposes, you can only request/i, /rate limit/i, /too many requests/i], msg: 'Você tentou várias vezes seguidas. Espere um minuto e tente de novo.' },
+  { codigos: [], testes: [/for security purposes, you can only request/i, /rate limit/i, /too many requests/i], msg: 'Tentativas seguidas demais. Espere um minuto e tente de novo.' },
   { codigos: [], testes: [/auth session missing/i, /invalid refresh token/i], msg: 'Sua sessão expirou. Entre de novo.' },
   { codigos: ['23505'], testes: [/duplicate key/i, /already exists/i, /unique constraint/i], msg: 'Esse registro já existe.' },
   { codigos: ['23503'], testes: [/foreign key/i, /violates foreign key constraint/i], msg: 'Esse item está ligado a outro registro e não pode ser removido.' },
@@ -70,10 +70,10 @@ const PADROES = [
   { codigos: ['23502'], testes: [/not-null/i, /not null constraint/i, /null value in column/i], msg: 'Falta preencher um campo obrigatório.' },
   { codigos: ['22P02'], testes: [/invalid input syntax/i], msg: 'Algum campo está com formato inválido.' },
   { codigos: ['PGRST301'], testes: [/jwt expired/i, /invalid token/i, /invalid jwt/i, /refresh token/i, /session (from session id )?not found/i], msg: 'Sua sessão expirou. Entre de novo.' },
-  { codigos: ['42501'], testes: [/row-level security/i, /row level security/i, /permission denied/i, /not authorized/i], msg: 'Você não tem permissão para isso.' },
+  { codigos: ['42501'], testes: [/row-level security/i, /row level security/i, /permission denied/i, /not authorized/i], msg: 'Sem permissão para esta ação.' },
   { codigos: [], testes: [/failed to fetch/i, /networkerror/i, /network request failed/i, /err_internet_disconnected/i, /load failed/i], msg: 'Sem conexão com o servidor. Verifique a internet e tente de novo.' },
   { codigos: [], testes: [/timeout/i, /timed out/i, /canceling statement due to statement timeout/i], msg: 'O servidor demorou demais para responder. Tente de novo.' },
-  { codigos: ['PGRST116'], testes: [/results contain 0 rows/i, /no rows returned/i], msg: 'Esse registro não foi encontrado — alguém pode tê-lo apagado enquanto você estava na tela.' },
+  { codigos: ['PGRST116'], testes: [/results contain 0 rows/i, /no rows returned/i], msg: 'Registro não encontrado: ele pode ter sido apagado enquanto a tela estava aberta.' },
   { codigos: ['413'], testes: [/payload too large/i, /file size/i, /maximum allowed size/i], msg: 'O arquivo é grande demais para o limite do sistema.' },
 ]
 

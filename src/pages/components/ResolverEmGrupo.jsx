@@ -280,7 +280,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
           que é. */}
       <div style={explicacao}>
         Estas linhas <strong>não têm lançamento correspondente</strong> no sistema — são Pix, tarifa,
-        imposto: coisas que nunca tiveram nota. Aqui você <strong>cria e escritura</strong> o lançamento
+        imposto: coisas que nunca tiveram nota. Aqui o lançamento é <strong>criado e escriturado</strong>
         a partir da linha do banco, que passa a ser a evidência dele. Não é conferência de duas fontes;
         é registro. Conferência é o que a lista abaixo faz, com as linhas que já têm contrapartida.
       </div>
@@ -342,7 +342,7 @@ export default function ResolverEmGrupo({ linhas, plano, onPronto }) {
                         })}
                       {fora.size > 0 && (
                         <div style={notaFora}>
-                          As desmarcadas continuam na lista do extrato, para você decidir uma a uma.
+                          As desmarcadas continuam na lista do extrato, para decisão uma a uma.
                         </div>
                       )}
                     </div>

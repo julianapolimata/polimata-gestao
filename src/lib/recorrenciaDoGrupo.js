@@ -134,7 +134,7 @@ export function frasesDaOferta(deteccao) {
     detalhe: `Foram ${deteccao.quantas} vezes seguidas, sempre no mesmo valor, de `
            + `${soData(deteccao.primeira).split('-').reverse().join('/')} a `
            + `${soData(deteccao.ultima).split('-').reverse().join('/')}.`,
-    acao: `Quer que o sistema já deixe as próximas prontas, a partir de `
+    acao: `Gerar as próximas ocorrências a partir de `
         + `${soData(deteccao.mestre.data_inicio).split('-').reverse().join('/')}?`,
   };
 }

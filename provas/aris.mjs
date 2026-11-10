@@ -113,7 +113,7 @@ ok(respostaDoHistorico(ambiguo) === null,
 const porParte = procurar({ descricao: 'COISA NOVA', parte: 'Vivo', tipo: 'Saída', historico })
 ok(porParte.length === 1 && porParte[0].forca === 'parte', 'acha pelo fornecedor, marcado como evidência fraca')
 ok(respostaDoHistorico(porParte) === null, 'evidência de fornecedor não resolve sozinha')
-ok(/outros lançamentos desta mesma parte/.test(fraseDaEvidencia(porParte[0])),
+ok(/outros lançamentos desta mesma parte/i.test(fraseDaEvidencia(porParte[0])),
   'e a frase deixa claro que é por fornecedor, não pela mesma despesa')
 
 // ── NORMALIZAÇÃO: O LIMITE APRENDIDO DO JEITO CARO ───────────────────────

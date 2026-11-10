@@ -111,7 +111,7 @@ export default function ImportarNFs() {
         // O teto existe para o robô não gastar sem limite. Avisar é obrigatório:
         // senão a usuária acha que acabou quando na verdade foi interrompido.
         if (j?.teto_atingido) {
-          msg += ` Parei aqui: a leitura automática já custou ${(Number(j.gasto_mes_brl)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} neste mês, que é o limite combinado. Ela recomeça no mês que vem, ou você pode aumentar o limite.`
+          msg += ` A leitura automática parou: o custo do mês já é ${(Number(j.gasto_mes_brl)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}, que é o limite definido. A leitura recomeça no mês seguinte, ou com o limite ajustado.`
         }
       }
       setUltimoResultado({ ok: errs === 0, msg, data: j })
@@ -582,7 +582,7 @@ export default function ImportarNFs() {
         ] : []),
         'Cada um vira um lançamento novo nas suas contas.',
         'A categoria vem só como sugestão — a Escrituração continua sendo sua.',
-        'Se algum falhar, ele fica na caixa de entrada e você é avisada.',
+        'Documento que falhar continua na caixa de entrada, com aviso.',
       ],
       confirmarLabel: `Aprovar ${marcadas.length}`,
     })
@@ -697,7 +697,7 @@ export default function ImportarNFs() {
         )}
         {pendentes.length === 0 ? (
           <div style={emptyState}>
-            ✨ Nenhuma nota esperando. As notas que chegam por e-mail aparecem aqui para você decidir — aprovar, anexar a um lançamento que já existe, ou rejeitar. Nada entra nas suas contas antes dessa decisão.
+            ✨ Nenhuma nota esperando. As notas que chegam por e-mail aparecem aqui para decisão — aprovar, anexar a um lançamento que já existe, ou rejeitar. Nada entra nas contas antes dessa decisão.
           </div>
         ) : (
           <>
@@ -848,7 +848,7 @@ function PendingTable({ pendentes, selecionados, processando, emLote, onAlternar
                     </div>
                   )}
                   {d.cnpj_conferido === 'nao_respondeu' && (
-                    <div style={marcaSemConfirmacao} title="A consulta à Receita não aconteceu. Isso não acusa o documento — só quer dizer que o CNPJ segue sem confirmação.">
+                    <div style={marcaSemConfirmacao} title="A consulta à Receita não aconteceu. O CNPJ segue sem confirmação, e isso não é indício contra o documento.">
                       CNPJ sem confirmação na Receita
                     </div>
                   )}
@@ -1029,8 +1029,8 @@ const TEXTO_STATUS = {
   descartado: 'Descartado: não era documento fiscal',
   duplicado: 'Já existia no sistema',
   error: 'Erro ao ler',
-  rejeitado: 'Rejeitado por você',
-  arquivado_regra: 'Arquivado pela sua regra',
+  rejeitado: 'Rejeitado manualmente',
+  arquivado_regra: 'Arquivado por regra',
   aprovado: 'Aprovado e lançado',
 }
 

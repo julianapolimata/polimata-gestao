@@ -113,7 +113,7 @@ export function problemaNaOportunidade(d) {
   const situacao = String(d.situacao || 'aberta')
   if (!SITUACOES.some(s => s.v === situacao)) return 'Situação inválida.'
   if (situacao === 'perdida' && !String(d.motivo_perda || '').trim()) {
-    return 'Escreva por que esta oportunidade foi perdida — é disso que o funil aprende.'
+    return 'Informe o motivo da perda: é por ele que as causas são apuradas.'
   }
   if (situacao === 'aberta' && !String(d.etapa || '').trim()) {
     return 'Escolha a etapa: toda negociação em aberto está em algum lugar.'

@@ -111,5 +111,5 @@ export function explicarRegra(regra) {
   const partes = [regra.parte]
   if (regra.cat) partes.push(regra.cat)
   if (regra.subcat) partes.push(regra.subcat)
-  return `Da última vez que esta cobrança apareceu, você lançou como ${partes.filter(Boolean).join(' · ')}.`
+  return `Da última vez que esta cobrança apareceu, foi lançada como ${partes.filter(Boolean).join(' · ')}.`
 }

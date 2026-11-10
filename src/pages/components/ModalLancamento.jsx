@@ -420,7 +420,7 @@ export default function ModalLancamento({ open, onClose, tipo, registro, onSaved
       consequencias: [
         'O valor, as datas e o anexo são preservados.',
         'A categoria é limpa: as categorias de receita e de despesa são listas diferentes.',
-        'Ele volta para a fila da Escrituração, para você classificar do lado novo.',
+        'Ele volta para a fila da Escrituração, para ser classificado do lado novo.',
       ],
       confirmarLabel: `Mover para ${nomeDestino}`,
       variante: 'perigo',

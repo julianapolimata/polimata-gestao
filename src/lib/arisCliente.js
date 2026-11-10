@@ -50,7 +50,7 @@ export async function perguntar({ descricao, parte, valor, tipo, plano, historic
       cat: doHistorico.cat,
       subcat: doHistorico.subcat,
       confianca: 'alta',
-      porque: 'Esta mesma descrição já foi classificada por você antes, e eu repeti a sua decisão.',
+      porque: 'Esta mesma descrição já foi classificada antes, e a classificação anterior foi repetida.',
       faltaSaber: '',
       evidencias: [fraseDaEvidencia(doHistorico)],
       candidatos,

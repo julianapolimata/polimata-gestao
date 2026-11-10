@@ -286,7 +286,7 @@ export default function Emprestimos() {
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? 'Nenhum empréstimo ou financiamento cadastrado. Clique em "+ Novo" pra começar.' : 'Nenhum resultado.'}
+            {rows.length === 0 ? 'Nenhum empréstimo ou financiamento cadastrado. Clique em "+ Novo" para começar.' : 'Nenhum resultado.'}
           </div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
@@ -333,7 +333,7 @@ export default function Emprestimos() {
                             </div>
                           </div>
                           <div style={caixa} title={v.juros.previsto === null
-                            ? 'Juros: este contrato não abre juros no cronograma — a parcela veio cheia. O valor realizado é o que foi medido na conciliação, pagamento a pagamento, e por isso cresce conforme você lança.'
+                            ? 'Juros: o cronograma deste contrato não separa juros do principal. O valor realizado é o apurado na conciliação, pagamento a pagamento.'
                             : 'Juros: despesa financeira. Previsto é o que o contrato prevê; realizado é o que foi efetivamente pago, incluindo mora e multa medidas na conciliação.'}>
                             <div style={caixaTitulo}>Juros</div>
                             <div style={{ ...caixaValor, color: 'var(--navy-mid)' }}>

@@ -152,8 +152,8 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
             type="text" inputMode="decimal" value={saldoInicial} onChange={e => setSaldoInicial(e.target.value)}
             placeholder="0,00" style={input}
             title={isCartao
-              ? 'Fatura em aberto quando você começou a usar o sistema, com sinal negativo (ex.: -1500). Normalmente 0.'
-              : 'Saldo da conta na data em que você começou a usar o sistema'}
+              ? 'Fatura em aberto na data de início do uso do sistema, com sinal negativo (ex.: -1500). Normalmente 0.'
+              : 'Saldo da conta na data de início do uso do sistema'}
           />
           {/* O que o sistema entendeu, na hora. Um saldo errado só aparece
               semanas depois, num total que não bate — e aí ninguém lembra. */}

@@ -371,7 +371,7 @@ export default function PlanoContas() {
                         <td style={{ ...td, whiteSpace: 'nowrap' }}>
                           {!renSub && <button onClick={() => setRenomeandoSub({ id: p.id, valor: p.subcategoria || '' })} style={btnLink} title="Renomear subcategoria">✎</button>}
                           <button onClick={() => excluirSub(p)} disabled={n > 0 || salvando} style={{ ...btnLink, color: n > 0 ? 'var(--cream-dark)' : 'var(--red)', cursor: n > 0 ? 'not-allowed' : 'pointer' }}
-                            title={n > 0 ? `Não dá pra excluir: ${n} lançamento${n === 1 ? '' : 's'} usa${n === 1 ? '' : 'm'} esta subcategoria. Reclassifique-os na Escrituração primeiro.` : 'Excluir subcategoria (sem uso)'}>
+                            title={n > 0 ? `Não dá para excluir: ${n} lançamento${n === 1 ? '' : 's'} usa${n === 1 ? '' : 'm'} esta subcategoria. Reclassifique-os na Escrituração primeiro.` : 'Excluir subcategoria (sem uso)'}>
                             ✕
                           </button>
                         </td>
@@ -404,13 +404,13 @@ export default function PlanoContas() {
         <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid var(--cream-dark)' }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy)' }}>Regras aprendidas</div>
           <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 4, lineHeight: 1.6, maxWidth: 820 }}>
-            Uma regra nasce quando você escritura o mesmo fornecedor sempre do mesmo jeito. Ela <strong>nunca</strong> escritura sozinha:
+            A regra se forma quando o mesmo fornecedor é escriturado sempre do mesmo modo. Ela <strong>nunca</strong> escritura sozinha:
             aparece pré-carregada na Escrituração e só é aplicada quando você clica em Escriturar (padrão "sugerir", não "automático").
             Se o histórico de um fornecedor diverge (classificações diferentes), não há regra para ele. {regras.length} regra{regras.length === 1 ? '' : 's'}.
           </div>
         </div>
         {regras.length === 0 ? (
-          <div style={emptyState}>Nenhuma regra ainda. Elas aparecem conforme você escritura manualmente na Conciliação/Escrituração.</div>
+          <div style={emptyState}>Nenhuma regra ainda. As regras se formam conforme a escrituração manual na Conciliação e na Escrituração.</div>
         ) : (
           <table style={tbl}>
             <thead>

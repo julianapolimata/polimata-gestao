@@ -380,7 +380,7 @@ export default function Conciliacao() {
       if (ehCartao && tipoOFX === 'corrente') {
         const segueExtrato = await confirmar({
           titulo: 'Este arquivo parece um extrato de conta corrente',
-          texto: 'Ele tem Pix, boletos e débitos — não compras de cartão. E você está importando na conta do cartão.',
+          texto: 'O arquivo tem Pix, boletos e débitos — não compras de cartão. A importação está apontada para a conta do cartão.',
           consequencias: [
             'Esses movimentos entrariam na fatura do cartão, onde não é o lugar deles.',
             'A conciliação do cartão para de fechar, porque a fatura passa a ter o que não é dela.',
@@ -394,7 +394,7 @@ export default function Conciliacao() {
       if (!ehCartao && tipoOFX === 'cartao') {
         const segueFatura = await confirmar({
           titulo: 'Este arquivo parece uma fatura de cartão',
-          texto: 'Você está importando como extrato desta conta.',
+          texto: 'A importação está apontada para o extrato desta conta.',
           consequencias: [
             'As compras do cartão entrariam como movimento de conta corrente.',
             'O saldo da conta fica errado, e as compras não aparecem na fatura.',
@@ -503,7 +503,7 @@ export default function Conciliacao() {
         titulo: `Conciliar ${pares.length} transação(ões) automaticamente?`,
         texto: 'São as que batem exato: mesmo valor e data próxima.',
         consequencias: [
-          'As que têm mais de um candidato ficam para você decidir uma a uma.',
+          'As que têm mais de um candidato ficam para decisão, uma a uma.',
           'Cada uma pode ser desfeita depois, individualmente.',
         ],
         confirmarLabel: 'Conciliar',
@@ -842,7 +842,7 @@ export default function Conciliacao() {
         texto: resumoPlano(plano),
         consequencias: [
           'As compras nascem já conciliadas com a fatura.',
-          'Elas vão para a Escrituração, onde você classifica e define a situação fiscal.',
+          'Elas vão para a Escrituração, onde a classificação e a situação fiscal são definidas.',
           'Parcela futura de compra parcelada nasce pendente — o cartão ainda não cobrou.',
           ...(plano.notasCasadas?.length
             ? [`Reconhecidas como nota já lançada (não viram compra nova): ${plano.notasCasadas.map(n => `${n.fornecedor} · NF ${n.numero_nf}`).join('; ')}.`]
@@ -928,7 +928,7 @@ export default function Conciliacao() {
         ? [
           `As ${nGrupo} transferências do grupo voltam para a fila — não só esta.`,
           'Os lançamentos criados pelo agrupamento são apagados (eles nasceram aqui).',
-          'A divisão entre as naturezas se perde: você refaz na próxima vez.',
+          'A divisão entre as naturezas se perde, e é refeita na próxima conciliação.',
         ]
         : [
           'Os lançamentos vinculados voltam para pendente.',
@@ -1001,7 +1001,7 @@ export default function Conciliacao() {
       consequencias: [
         'As linhas do extrato desse mês ficam travadas.',
         'Não dá para conciliar nem desconciliar nada dele enquanto estiver fechado.',
-        'Você pode reabrir quando precisar.',
+        'Pode ser reaberto a qualquer momento.',
       ],
       confirmarLabel: 'Fechar período',
     })
@@ -1215,7 +1215,7 @@ export default function Conciliacao() {
       {extratosFiltrados.length === 0 ? (
         <div style={emptyState}>
           {extratos.filter(e => e.conta_id === contaId).length === 0
-            ? 'Importe um OFX pra começar.'
+            ? 'Importe um OFX para começar.'
             : 'Nenhuma transação com os filtros aplicados.'}
         </div>
       ) : (
@@ -1263,7 +1263,7 @@ export default function Conciliacao() {
               {!selecionadoExt ? (
                 <div style={dicaVazia}>{ehCartao
                   ? <>Selecione uma linha da fatura. Compra → concilia com uma já registrada ou <strong>＋ Criar compra</strong>. Pagamento da fatura → <strong>↔ Transferência</strong> da conta corrente.</>
-                  : <>👈 Clique numa linha do extrato à esquerda. Aí você marca as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha. Pagamento de fatura de cartão → <strong>↔ Transferência</strong>.</>}</div>
+                  : <>👈 Clique numa linha do extrato à esquerda. Em seguida, marque as notas que <strong>somam</strong> aquele valor (e explica retenções/tarifas nos ajustes) — só concilia quando fecha. Pagamento de fatura de cartão → <strong>↔ Transferência</strong>.</>}</div>
               ) : periodoFechadoSelec ? (
                 <div style={dicaVazia}>🔒 O período <strong>{compSelec}</strong> está <strong>fechado</strong> — a conciliação deste mês está travada. <button onClick={() => reabrirPeriodo(compSelec)} style={btnLink}>↻ Reabrir período</button></div>
               ) : selecionadoExt.status !== 'pendente' ? (
@@ -1381,14 +1381,14 @@ export default function Conciliacao() {
                             e não achou saída. Agora a tela diz o que é e qual
                             é a saída. */}
                         <label style={{ ...linhaJuntar, opacity: 0.7, cursor: 'default' }}
-                               title="Esta é a linha que você selecionou na lista — é ela que começa o grupo. Para trocar, feche este painel e clique em outra linha.">
+                               title="Linha selecionada na lista: é ela que começa o grupo. Para trocar, feche este painel e clique em outra linha.">
                           <input type="checkbox" checked readOnly style={{ cursor: 'default' }} />
                           <span style={{ width: 82, flexShrink: 0 }}>{fmtDataBR(selecionadoExt.data?.data)}</span>
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selecionadoExt.data?.descricao}</span>
                           <strong style={{ width: 96, textAlign: 'right' }}>{fmtMoney(Math.abs(Number(selecionadoExt.data?.valor || 0)))}</strong>
                         </label>
                         <div style={{ fontSize: 10.5, color: 'var(--text-mid)', padding: '2px 4px 6px 26px' }}>
-                          ↑ é a linha que você selecionou — ela começa o grupo e não sai daqui.
+                          ↑ linha selecionada: ela começa o grupo e não sai daqui.
                           Para trocar, clique em <strong>Cancelar</strong> e selecione outra linha na lista do extrato.
                         </div>
                         {candidatasAJuntar.map(e => (
@@ -1518,7 +1518,7 @@ export default function Conciliacao() {
                   {propostaDaLinha && (
                     <div style={avisoProposta}>
                       <strong>Já vi esta cobrança antes.</strong> {explicarRegra(propostaDaLinha)}{' '}
-                      Deixei a classificação preenchida abaixo — confira e mude se for o caso.
+                      A classificação abaixo vem do histórico. Confira antes de conciliar.
                     </div>
                   )}
                   {naturezaDaLinha.tipo !== 'comum' && (
@@ -1577,7 +1577,7 @@ export default function Conciliacao() {
                         "Diferenca R$ 1.000,00" em vermelho e perguntou o que
                         aquilo comparava. O placar agora se apresenta. */}
                     <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-mid)', marginBottom: 6 }}>
-                      Esta linha do extrato × os lançamentos que você marcar
+                      Esta linha do extrato × os lançamentos marcados
                     </div>
                     <div style={diffRow}><span>No extrato (o que o banco mostra)</span><strong>{fmtMoney(mesa.B)}</strong></div>
                     <div style={diffRow}><span>Lançamentos marcados ({mesa.nSel})</span><strong>{fmtMoney(mesa.S)}</strong></div>

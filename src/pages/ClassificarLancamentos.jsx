@@ -424,7 +424,7 @@ export default function ClassificarLancamentos() {
       titulo: `Escriturar ${alvo.length} grupo(s) reconhecido(s)?`,
       texto: (
         <>
-          <div>São despesas e receitas que se repetem e que você já classificou antes. Isto é o que vai ser aplicado:</div>
+          <div>Despesas e receitas que se repetem e que já foram classificadas antes. Isto é o que será aplicado:</div>
           <ul style={listaGrupos}>
             {alvo.map(g => (
               <li key={g.key} style={itemGrupo}>
@@ -441,9 +441,9 @@ export default function ClassificarLancamentos() {
         </>
       ),
       consequencias: [
-        'A classificação copiada é exatamente a que você aprovou da última vez — nada é inventado.',
+        'A classificação copiada é a mesma aprovada da última vez — nada é inventado.',
         'Cada lançamento fica marcado como escriturado automaticamente.',
-        'Lançamento em mês fechado fica de fora, e você é avisada.',
+        'Lançamento em mês fechado fica de fora, com aviso.',
         'Dá para reverter depois, um a um.',
       ],
       confirmarLabel: 'Escriturar automaticamente',
@@ -622,7 +622,7 @@ export default function ClassificarLancamentos() {
   return (
     <AppLayout title="Escrituração">
       <div style={{ fontSize: 12, color: 'var(--text-mid)', marginBottom: 16, lineHeight: 1.6 }}>
-        Estes lançamentos estão <strong>aguardando escrituração</strong> — não sobem pra conciliação até você revisar
+        Estes lançamentos estão <strong>aguardando escrituração</strong> — não sobem para conciliação antes da revisão
         categoria e <strong>situação fiscal</strong> e clicar <strong>Escriturar</strong>.
         {totalPend === 0 && <span style={{ color: 'var(--green)' }}> Tudo escriturado.</span>}
       </div>
@@ -632,7 +632,7 @@ export default function ClassificarLancamentos() {
           <div style={{ fontSize: 12, color: 'var(--navy)' }}>
             <strong>{gruposComRegra.length}</strong> grupo(s) recorrente(s) reconhecido(s) pelo histórico — a classificação já aprovada por você é aplicada fielmente.
             {' '}<span style={{ color: 'var(--text-mid)' }}>
-              Isto é o sistema repetindo o que você ensinou: não conta como decisão nova e não vira regra.
+              Classificação repetida de uma decisão anterior: não conta como decisão nova e não forma regra.
             </span>
           </div>
           <button onClick={escriturarAutomaticas} disabled={autoRodando} style={btnAuto}>
@@ -646,7 +646,7 @@ export default function ClassificarLancamentos() {
           <div style={{ fontSize: 12, color: 'var(--navy)' }}>
             <strong>{totalProntos}</strong> lançamento(s) em <strong>{gruposProntos.length}</strong> grupo(s) já vêm com categoria e situação fiscal pré-carregadas — confira e escriture de uma vez.
             {' '}<span style={{ color: 'var(--text-mid)' }}>
-              Estes contam como decisão sua: é deles que o sistema aprende para as próximas vezes.
+              Estes contam como decisão sua: são eles que formam a regra das próximas vezes.
             </span>
           </div>
           <button onClick={escriturarProntos} disabled={autoRodando} style={btnAplicar}>
@@ -758,7 +758,7 @@ export default function ClassificarLancamentos() {
                 {descartada && (
                   <div style={avisoForaDoPlano}>
                     Este grupo estava gravado como <strong>{descartada}</strong>, que não existe no seu plano de contas
-                    {s.cat ? <> — deixei a sugestão <strong>{s.cat}</strong>{s.subcat ? <> · <strong>{s.subcat}</strong></> : null} vinda do histórico. Confira antes de escriturar.</>
+                    {s.cat ? <> — a sugestão <strong>{s.cat}</strong>{s.subcat ? <> · <strong>{s.subcat}</strong></> : null} vem do histórico. Confira antes de escriturar.</>
                       : <>. Escolha a categoria certa acima.</>}
                     {' '}Lançamento com categoria fora do plano <strong>não aparece na DRE</strong>.
                   </div>

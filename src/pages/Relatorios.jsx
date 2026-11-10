@@ -173,7 +173,7 @@ export default function Relatorios() {
       </div>
 
       <div style={notaBox}>
-        Os arquivos saem com a <strong>identidade Polímata</strong> (navy + gold), prontos pra enviar ao contador ou ao banco.
+        Os arquivos saem com a <strong>identidade Polímata</strong> (navy + gold), prontos para enviar ao contador ou ao banco.
         As bibliotecas de exportação só carregam quando você clica — o app segue leve.
       </div>
     </AppLayout>

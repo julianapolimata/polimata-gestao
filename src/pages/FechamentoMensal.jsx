@@ -221,7 +221,7 @@ export default function FechamentoMensal() {
         O fechamento é o <strong>portão do mês</strong>: o checklist é <strong>detectado dos dados</strong> (nada marcado à mão) e o mês
         só fecha em <strong>ordem cronológica</strong> — o mais antigo primeiro. Mês fechado fica <strong>travado</strong>: não entra, não sai
         e não muda lançamento, extrato nem transferência daquela competência. O que ainda pode mudar num mês fechado: <em>baixa de
-        pagamento/recebimento</em> (status e data) e <em>prova fiscal</em> (NF, anexo, situação do documento). Pra mexer em outra coisa,
+        pagamento/recebimento</em> (status e data) e <em>prova fiscal</em> (NF, anexo, situação do documento). Para mexer em outra coisa,
         reabra com justificativa — fica no log.
         <span style={{ marginLeft: 6 }}>
           <span style={{ color: 'var(--red)' }}>✕ trava o mês</span> ·{' '}
@@ -247,7 +247,7 @@ export default function FechamentoMensal() {
             </div>
           ) : resumoAno.trava.length === 0 ? (
             <div style={{ marginTop: 8, fontSize: 13, color: 'var(--green)', fontWeight: 600 }}>
-              ✅ <strong>{mesLabel(resumoAno.proximo.comp)}</strong> está pronto pra fechar — é o próximo da fila.
+              ✅ <strong>{mesLabel(resumoAno.proximo.comp)}</strong> está pronto para fechar — é o próximo da fila.
             </div>
           ) : (
             <>
@@ -370,7 +370,7 @@ export default function FechamentoMensal() {
 
                             {m.estado === 'pendente' && (
                               <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-mid)' }}>
-                                Falta resolver <strong style={{ color: 'var(--red)' }}>{m.obrigFalta.map(i => i.label).join(', ')}</strong> pra liberar o fechamento.
+                                Falta resolver <strong style={{ color: 'var(--red)' }}>{m.obrigFalta.map(i => i.label).join(', ')}</strong> para liberar o fechamento.
                                 {m.avisosFalta.length > 0 && <> Os avisos não travam — ficam registrados como exceção.</>}
                               </div>
                             )}

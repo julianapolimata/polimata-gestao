@@ -389,7 +389,7 @@ export default function Receber() {
       consequencias: [
         'Todas recebem a mesma data — use quando a baixa foi no mesmo dia.',
         'Lançamento previsto que ainda não tem código ganha um ao ser recebida.',
-        'Se alguma falhar, ela continua em aberto e você é avisada.',
+        'Conta que falhar continua em aberto, com aviso.',
         'Esta baixa é uma afirmação sua, não uma conferência: elas ficam como "a conferir" até aparecerem no extrato conciliado.',
       ],
       exigeData: { label: 'Data do recebimento (vale para todas)' },
@@ -723,7 +723,7 @@ export default function Receber() {
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? 'Nenhuma conta a receber cadastrada. Clique em "Nova conta" pra começar.' : 'Nenhum resultado para os filtros.'}
+            {rows.length === 0 ? 'Nenhuma conta a receber cadastrada. Clique em "Nova conta" para começar.' : 'Nenhum resultado para os filtros.'}
           </div>
         ) : (
           <>

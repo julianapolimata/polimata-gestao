@@ -121,7 +121,7 @@ export function fraseDaEvidencia(c) {
   const quando = c.ultima ? `, a última em ${String(c.ultima).split('-').reverse().join('/')}` : ''
   const quantas = c.vezes === 1 ? 'uma vez' : `${c.vezes} vezes`
   const origem = c.forca === 'exata'
-    ? 'Você já classificou esta mesma descrição'
-    : 'Você já classificou outros lançamentos desta mesma parte'
+    ? 'Esta mesma descrição já foi classificada'
+    : 'Outros lançamentos desta mesma parte já foram classificados'
   return `${origem} em ${onde} — ${quantas}${quando}.`
 }

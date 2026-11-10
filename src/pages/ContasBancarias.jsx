@@ -147,7 +147,7 @@ export default function ContasBancarias() {
         ) : erro ? (
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
-          <div style={emptyState}>{rows.length === 0 ? 'Nenhuma conta ou cartão cadastrado. Clique em "+ Nova conta" ou "+ Novo cartão" pra começar.' : 'Nenhum resultado.'}</div>
+          <div style={emptyState}>{rows.length === 0 ? 'Nenhuma conta ou cartão cadastrado. Clique em "+ Nova conta" ou "+ Novo cartão" para começar.' : 'Nenhum resultado.'}</div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
             {colgroup}

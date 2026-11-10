@@ -716,7 +716,7 @@ export default function SimplesNacional() {
               <div style={{ marginTop: 8 }}>
                 Na prática: isso costuma ser <strong>erro do tomador</strong>. O valor retido <strong>não é despesa</strong> e <strong>não compensa no DAS</strong> —
                 some do caixa sem virar crédito. O caminho é falar com o cliente para corrigir a nota e devolver o valor, ou pedir restituição do que foi recolhido a mais.
-                Não mexi em nenhum lançamento: isto é só um aviso.
+                Nenhum lançamento foi alterado: este quadro é informativo.
               </div>
             </Aviso>
           </div>

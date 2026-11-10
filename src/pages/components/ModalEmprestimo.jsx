@@ -378,7 +378,7 @@ Importante:
               {extraindo ? '⏳ Extraindo dados via IA…' : '📄 Importar PDF (sistema extrai os dados)'}
             </button>
             <div style={{ fontSize: 11, color: 'var(--text-mid)', marginTop: 8 }}>
-              Empréstimo Sicoob, parcelamento RFB, financiamento — IA lê o PDF e preenche os campos abaixo. Você revisa antes de salvar.
+              Empréstimo Sicoob, parcelamento RFB, financiamento — A IA lê o PDF e preenche os campos abaixo, para revisão antes de salvar.
             </div>
           </div>
         )}
@@ -476,7 +476,7 @@ Importante:
 
         {isEdit && (
           <div style={{ fontSize: 11, color: 'var(--text-mid)', marginBottom: 12, lineHeight: 1.5 }}>
-            Saldo devedor e parcelas pagas são <strong>calculados pelas parcelas em Contas a Pagar</strong> — pra mudar, pague/edite as parcelas lá.
+            Saldo devedor e parcelas pagas são <strong>calculados pelas parcelas em Contas a Pagar</strong> — para mudar, pague/edite as parcelas lá.
             {!(reais && reais.linhas > 0) && ' Este registro não tem parcelas geradas, então os números acima são os digitados no cadastro.'}
           </div>
         )}

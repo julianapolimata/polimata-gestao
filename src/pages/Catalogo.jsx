@@ -229,7 +229,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
             {rows.length > 0 ? 'Nenhum resultado para a busca.' : isContrato ? (
-              'Nenhum contrato cadastrado. Clique em "Novo contrato" pra começar.'
+              'Nenhum contrato cadastrado. Clique em "Novo contrato" para começar.'
             ) : (
               <>
                 {/* O PROJETO NASCE DA VENDA.
