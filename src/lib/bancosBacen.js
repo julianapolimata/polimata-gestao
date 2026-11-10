@@ -98,7 +98,10 @@ export function listarBancos() {
       const lista = (Array.isArray(j) ? j : [])
         // Sem código COMPE não há o que escolher: são entradas do próprio
         // Banco Central (Selic, câmaras de liquidação), não bancos de conta.
-        .filter(b => b && b.code != null)
+        // O código zero é da mesma família — Sistema do Balcão B3, Câmara B3,
+        // Câmara de Câmbio B3 — e apareceu em cima da lista na primeira vez
+        // que ela abriu, antes do Banco do Brasil. Ninguém recebe nessas.
+        .filter(b => b && b.code != null && Number(b.code) > 0)
         .map(b => ({
           codigo: codigoCompe(b.code),
           nome: String(b.fullName || b.name || '').trim(),

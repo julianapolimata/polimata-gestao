@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Modal from '../../components/Modal'
 import { showToast } from '../../components/Toast'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { maskAgencia, maskConta, validarAgencia, validarConta } from '../../lib/mascaras'
+import SelectBusca from '../../components/SelectBusca'
+import { listarBancos, rotuloBanco } from '../../lib/bancosBacen'
 import { numeroBR, fmtMoney } from '../../lib/finance'
 
 // =============================================================================
@@ -14,7 +16,11 @@ import { numeroBR, fmtMoney } from '../../lib/finance'
 // leem em cartao.data.
 // =============================================================================
 
-const BANCOS_BR = ['Itaú', 'Bradesco', 'Banco do Brasil', 'Santander', 'Caixa', 'Nubank', 'Inter', 'BTG Pactual', 'C6 Bank', 'Sicredi', 'Sicoob', 'XP Investimentos', 'Outro']
+// A lista de treze bancos escrita à mão saiu em 10/11/2026. A do Banco
+// Central tem cerca de 460 e traz o código COMPE — o número que identifica a
+// instituição em boleto e TED, e que uma lista de nomes nunca carregou.
+// "Outro" era a prova de que a lista curta não servia: quem tinha conta fora
+// dela ficava sem banco nenhum registrado.
 const TIPOS = [
   { v: 'corrente', l: 'Corrente' },
   { v: 'poupanca', l: 'Poupança' },
@@ -30,7 +36,16 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
   const isEdit = !!registro
 
   const [nome, setNome] = useState('')
-  const [banco, setBanco] = useState('Itaú')
+  const [banco, setBanco] = useState('')
+  const [bancoCodigo, setBancoCodigo] = useState('')
+  const [bancos, setBancos] = useState([])
+  // A chave Pix e a marca de uso em documentos vieram de Dados da empresa, que
+  // cadastrava banco, agência e conta outra vez. Era a MESMA conta digitada
+  // duas vezes, e quem viu foi ela: "achei duplicidade... o cadastro da conta
+  // acontece tanto nos dados da empresa, qto na aba contas e cartões".
+  // O dado bancário é da conta, e o lugar da conta é aqui.
+  const [pix, setPix] = useState('')
+  const [usarEmDocumentos, setUsarEmDocumentos] = useState(false)
   const [agencia, setAgencia] = useState('')
   const [conta, setConta] = useState('')
   const [tipo, setTipo] = useState('corrente')
@@ -49,7 +64,10 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
     if (isEdit && registro) {
       const d = registro.data || {}
       setNome(d.nome || '')
-      setBanco(d.banco || 'Itaú')
+      setBanco(d.banco || '')
+      setBancoCodigo(d.banco_codigo || '')
+      setPix(d.pix || '')
+      setUsarEmDocumentos(d.usar_em_documentos === true)
       setAgencia(d.agencia || '')
       setConta(d.conta || '')
       setTipo(d.tipo || 'corrente')
@@ -60,20 +78,33 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
       setDiaFechamento(d.dia_fechamento || 1)
       setDiaVencimento(d.dia_vencimento || 10)
     } else {
-      setNome(''); setBanco('Itaú'); setAgencia(''); setConta('')
+      setNome(''); setBanco(''); setBancoCodigo(''); setAgencia(''); setConta('')
+      setPix(''); setUsarEmDocumentos(false)
       setTipo(tipoInicial || 'corrente'); setSaldoInicial(''); setAtivo(true); setObservacoes('')
       setBandeira('Visa'); setDiaFechamento(1); setDiaVencimento(10)
     }
   }, [open, isEdit, registro, tipoInicial])
+
+  // A lista do Banco Central, uma vez por abertura do modal.
+  useEffect(() => { if (open) listarBancos().then(setBancos) }, [open])
+
+  const opcoesBanco = useMemo(
+    () => bancos.map(b => ({ v: b.codigo, nome: b.nome, label: rotuloBanco(b.codigo, b.nome) })),
+    [bancos],
+  )
 
   async function handleSave() {
     if (!nome.trim()) { showToast(isCartao ? 'Informe o nome do cartão.' : 'Informe o nome da conta.', 'warning'); return }
     setSaving(true)
     try {
       const data = {
-        nome: nome.trim(), banco,
+        nome: nome.trim(), banco, banco_codigo: bancoCodigo,
         agencia: isCartao ? null : agencia.trim(),
         conta: isCartao ? null : conta.trim(),
+        // Cartão não recebe: não tem chave Pix e não entra em documento de
+        // cobrança.
+        pix: isCartao ? null : pix.trim(),
+        usar_em_documentos: isCartao ? false : usarEmDocumentos,
         // numeroBR, não Number(): o campo promete "0,00" e Number('3.215,81')
         // devolve NaN — ou, pior, o navegador já deformou o texto antes e
         // Number() aceita um número plausível e errado. Foi assim que um saldo
@@ -130,9 +161,15 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
           <input value={nome} onChange={e => setNome(e.target.value)} placeholder={isCartao ? 'Ex: Nubank Empresarial' : 'Ex: Itaú Empresarial'} style={input} />
         </Field>
         <Field label="Banco">
-          <select value={banco} onChange={e => setBanco(e.target.value)} style={input}>
-            {BANCOS_BR.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
+          <SelectBusca
+            opcoes={opcoesBanco}
+            selecionado={bancoCodigo}
+            rotuloAtual={rotuloBanco(bancoCodigo, banco)}
+            onEscolher={o => { setBanco(o.nome); setBancoCodigo(o.v) }}
+            onLivre={t => { setBanco(t); setBancoCodigo('') }}
+            permitirLivre
+            vazio="Escolha o banco"
+          />
         </Field>
       </Row>
 
@@ -203,21 +240,38 @@ export default function ModalContaBancaria({ open, onClose, registro, onSaved, t
         </Row>
       )}
 
+      {!isCartao && (
+        <Row>
+          <Field label="Chave Pix">
+            <input value={pix} onChange={e => setPix(e.target.value)} placeholder="CNPJ, e-mail, telefone ou chave aleatória" style={input} />
+          </Field>
+        </Row>
+      )}
+
       <Row>
         <Field label="Observações">
           <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder={isCartao ? 'Anuidade, limite, etc.' : 'Tarifa mensal, gerente, etc.'} style={{ ...input, minHeight: 60, resize: 'vertical' }} />
         </Field>
       </Row>
 
-      <div style={{ marginTop: 12 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600 }}>
-          <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={{ width: 15, height: 15, accentColor: 'var(--gold)' }} />
+      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <label style={marca}>
+          <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={caixa} />
           {isCartao ? 'Cartão ativo' : 'Conta ativa'}
         </label>
+        {!isCartao && (
+          <label style={marca}>
+            <input type="checkbox" checked={usarEmDocumentos} onChange={e => setUsarEmDocumentos(e.target.checked)} style={caixa} />
+            Usar em documentos que a empresa emite
+          </label>
+        )}
       </div>
     </Modal>
   )
 }
+
+const marca = { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--navy)', fontWeight: 600 }
+const caixa = { width: 15, height: 15, accentColor: 'var(--gold)' }
 
 function Field({ label, children }) {
   return (<div style={{ display: 'flex', flexDirection: 'column' }}>

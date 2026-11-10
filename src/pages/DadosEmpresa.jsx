@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { msgErro } from '../lib/erros'
 import { maskDocumento, maskTelefone, maskCEP } from '../lib/mascaras'
 import { consultarCnpjNaReceita } from '../lib/receitaCnpj'
-import { listarBancos, rotuloBanco, bancoDoRotulo } from '../lib/bancosBacen'
+import { rotuloBanco } from '../lib/bancosBacen'
 
 // =============================================================================
 // DADOS DA EMPRESA (B6.1).
@@ -62,7 +62,10 @@ export default function DadosEmpresa() {
   // A ficha fiscal mora em nfse_config. Esta tela edita; não copia.
   const [fiscal, setFiscal] = useState({})
   const [fiscalId, setFiscalId] = useState(null)
-  const [bancos, setBancos] = useState([])
+  // As contas moram em contas_bancarias. Esta tela mostra e marca quais são
+  // usadas em documentos; cadastrar e corrigir é em Contas e Cartões.
+  const [contasBanco, setContasBanco] = useState([])
+  const [usoOriginal, setUsoOriginal] = useState({})
 
   const carregar = useCallback(() => {
     if (!user) return
@@ -70,7 +73,8 @@ export default function DadosEmpresa() {
     Promise.all([
       supabase.from('config_empresa').select('id, data').limit(1),
       supabase.from('nfse_config').select('id, data').limit(1),
-    ]).then(([rEmp, rFis]) => {
+      supabase.from('contas_bancarias').select('id, data').order('created_at', { ascending: true }),
+    ]).then(([rEmp, rFis, rCtas]) => {
       // A ficha fiscal pode não existir ainda, e isso não é erro: só erro da
       // tabela da empresa impede a tela de abrir.
       if (rEmp.error) { setErro(rEmp.error); setLoading(false); return }
@@ -79,15 +83,16 @@ export default function DadosEmpresa() {
       setD(rEmp.data?.[0]?.data || {})
       setFiscalId(rFis.data?.[0]?.id || null)
       setFiscal(rFis.data?.[0]?.data || {})
+      // Cartão de crédito não recebe: a lista aqui é só de contas.
+      const ctas = (rCtas.data || []).filter(c => c.data?.tipo !== 'cartao')
+      setContasBanco(ctas)
+      setUsoOriginal(Object.fromEntries(ctas.map(c => [c.id, c.data?.usar_em_documentos === true])))
       setLoading(false)
     })
   }, [user])
 
   useEffect(() => { carregar() }, [carregar])
 
-  // A lista do Banco Central, uma vez por tela aberta. Se a consulta não sair,
-  // a função devolve a lista curta de reserva e o campo segue aceitando texto.
-  useEffect(() => { listarBancos().then(setBancos) }, [])
 
   const campo = (k) => d[k] ?? ''
   const mudar = (k, v) => setD(prev => ({ ...prev, [k]: v }))
@@ -96,39 +101,25 @@ export default function DadosEmpresa() {
 
   // ── AS CONTAS DE RECEBIMENTO ──────────────────────────────────────────
   //
-  // São uma lista, e não um conjunto de quatro campos: a empresa pode receber
-  // em mais de uma conta, e a conta que vai na proposta não é sempre a mesma
-  // que vai no boleto.
+  // Esta tela chegou a cadastrar banco, agência, conta e chave Pix. Era um
+  // segundo cadastro da mesma conta: a corrente do Sicoob já estava em Contas
+  // e Cartões, com a mesma agência e o mesmo número, e foi digitada duas
+  // vezes. Quem viu foi ela, 10/11/2026: "achei duplicidade... o cadastro da
+  // conta acontece tanto nos dados da empresa, qto na aba contas e cartões".
   //
-  // O formato antigo — banco, agência, conta e pix soltos no registro — é lido
-  // como a primeira conta da lista. Nada do que já foi preenchido se perde.
-  const contas = Array.isArray(d.contas_recebimento)
-    ? d.contas_recebimento
-    : (d.banco || d.agencia || d.conta || d.pix
-      ? [{ banco: d.banco || '', agencia: d.agencia || '', conta: d.conta || '', pix: d.pix || '' }]
-      : [])
-
-  function mudarConta(i, chave, valor) {
-    const lista = contas.map((c, j) => (j === i ? { ...c, [chave]: valor } : c))
-    setD(prev => ({ ...prev, contas_recebimento: lista }))
-  }
-  function novaConta() {
-    setD(prev => ({
-      ...prev,
-      contas_recebimento: [...contas, { banco: '', agencia: '', conta: '', pix: '' }],
-    }))
-  }
-  function removerConta(i) {
-    setD(prev => ({ ...prev, contas_recebimento: contas.filter((_, j) => j !== i) }))
-  }
-
-  // O banco é escolhido na lista do Banco Central e guardado em dois campos —
-  // nome e código COMPE. Quem digita um banco fora da lista continua sendo
-  // atendido: fica o nome que escreveu, sem código inventado.
-  function mudarBanco(i, texto) {
-    const { banco, banco_codigo } = bancoDoRotulo(texto, bancos)
-    const lista = contas.map((c, j) => (j === i ? { ...c, banco, banco_codigo } : c))
-    setD(prev => ({ ...prev, contas_recebimento: lista }))
+  // Estava certa, e o agravante é meu: eu tinha visto as duas telas e escrito
+  // aqui uma dica explicando a separação, em vez de tratá-la como o que era.
+  //
+  // Agora a conta tem um lugar só, que é Contas e Cartões — inclusive a chave
+  // Pix, que é dado bancário. O que esta tela faz é MARCAR quais dessas
+  // contas aparecem em documentos que a empresa emite, porque isso é uso, e
+  // uso é assunto da ficha da empresa.
+  function alternarUso(id) {
+    setContasBanco(prev => prev.map(c => (
+      c.id === id
+        ? { ...c, data: { ...c.data, usar_em_documentos: !(c.data?.usar_em_documentos === true) } }
+        : c
+    )))
   }
 
   // ── A CONSULTA À RECEITA ──────────────────────────────────────────────
@@ -204,6 +195,19 @@ export default function DadosEmpresa() {
       const { error: erroFiscal } = fiscalId
         ? await supabase.from('nfse_config').update({ data: fiscalLimpo }).eq('id', fiscalId)
         : await supabase.from('nfse_config').insert({ user_id: user.id, data: fiscalLimpo })
+      // A marca de uso vai para a própria conta, e só para as que mudaram.
+      for (const c of contasBanco) {
+        const agora = c.data?.usar_em_documentos === true
+        if (agora === (usoOriginal[c.id] === true)) continue
+        const { error: erroConta } = await supabase.from('contas_bancarias')
+          .update({ data: { ...c.data, usar_em_documentos: agora } }).eq('id', c.id)
+        if (erroConta) {
+          showToast(msgErro(erroConta, 'Não foi possível gravar quais contas aparecem em documentos.'), 'error')
+          carregar()
+          return
+        }
+      }
+
       // A ficha fiscal falhou depois de a identificação ter sido gravada: a
       // mensagem diz qual das duas partes ficou para trás, senão ela salva de
       // novo sem saber o que conferir.
@@ -230,8 +234,8 @@ export default function DadosEmpresa() {
       stickyTop={(
         <div style={barra}>
           <div style={aviso}>
-            O que o sistema sabe sobre a empresa. O CNPJ daqui é o que decide
-            a <strong>titularidade</strong> dos documentos que chegam por e-mail.
+            Ficha cadastral da empresa. O CNPJ registrado aqui define a
+            <strong> titularidade</strong> dos documentos que chegam por e-mail.
           </div>
           <button onClick={salvar} disabled={salvando || loading} style={btnSalvar}>
             {salvando ? 'Salvando…' : 'Salvar'}
@@ -329,7 +333,7 @@ export default function DadosEmpresa() {
               </Campo>
               <Campo rotulo="CNAE">
                 <input value={fis('cnae')} onChange={e => mudarFiscal('cnae', e.target.value)} placeholder="Ex: 7020400" style={input} />
-                <Dica>Atividade principal registrada na Receita. Vem preenchido pela busca do CNPJ.</Dica>
+                <Dica>Atividade principal registrada na Receita. Preenchido pela busca do CNPJ.</Dica>
               </Campo>
               <Campo rotulo="Regime tributário" flex="2 1 260px">
                 <select value={fis('regime_tributario') || REGIMES[0]} onChange={e => mudarFiscal('regime_tributario', e.target.value)} style={input}>
@@ -364,52 +368,37 @@ export default function DadosEmpresa() {
           </Bloco>
 
           <Bloco titulo="Contas de recebimento">
-            {contas.length === 0 ? (
-              <Dica>Nenhuma conta cadastrada.</Dica>
-            ) : contas.map((c, i) => (
-              <Linha key={i}>
-                <Campo rotulo={contas.length > 1 ? `Banco · conta ${i + 1}` : 'Banco'} flex="2 1 260px">
+            {contasBanco.length === 0 ? (
+              <Dica>Nenhuma conta cadastrada. As contas ficam em Configurações › Contas e Cartões.</Dica>
+            ) : contasBanco.map(c => {
+              const b = c.data || {}
+              const usada = b.usar_em_documentos === true
+              return (
+                <label key={c.id} style={{ ...contaLinha, ...(usada ? contaLinhaUsada : null) }}>
                   <input
-                    value={rotuloBanco(c.banco_codigo, c.banco)}
-                    onChange={e => mudarBanco(i, e.target.value)}
-                    list="bancos-bacen"
-                    placeholder="Digite o nome ou o código"
-                    style={input}
+                    type="checkbox"
+                    checked={usada}
+                    onChange={() => alternarUso(c.id)}
+                    style={{ accentColor: 'var(--navy)', marginTop: 2 }}
                   />
-                </Campo>
-                <Campo rotulo="Agência" flex="0 1 130px">
-                  <input value={c.agencia || ''} onChange={e => mudarConta(i, 'agencia', e.target.value)} style={input} />
-                </Campo>
-                <Campo rotulo="Conta" flex="0 1 170px">
-                  <input value={c.conta || ''} onChange={e => mudarConta(i, 'conta', e.target.value)} style={input} />
-                </Campo>
-                <Campo rotulo="Chave Pix" flex="2 1 240px">
-                  <input value={c.pix || ''} onChange={e => mudarConta(i, 'pix', e.target.value)} style={input} />
-                </Campo>
-                <div style={{ flex: '0 0 auto', paddingTop: 22 }}>
-                  <button
-                    type="button" onClick={() => removerConta(i)}
-                    title="Remover esta conta" aria-label="Remover esta conta"
-                    style={btnRemover}
-                  >×</button>
-                </div>
-              </Linha>
-            ))}
-            <button type="button" onClick={novaConta} style={btnAdicionar}>+ Adicionar conta</button>
-            {/* A lista é a do Banco Central, consultada na abertura da tela.
-                São cerca de 460 instituições: num <select> isso seria uma
-                rolagem sem fim, e por isso o campo é de digitar com lista —
-                escrever "sicoob" basta. */}
-            <datalist id="bancos-bacen">
-              {bancos.map(b => <option key={b.codigo + b.nome} value={rotuloBanco(b.codigo, b.nome)} />)}
-            </datalist>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={contaNome}>{b.nome || 'Conta sem nome'}</div>
+                    <div style={contaDetalhe}>
+                      {rotuloBanco(b.banco_codigo, b.banco) || 'Banco não informado'}
+                      {b.agencia ? ` · ag. ${b.agencia}` : ''}
+                      {b.conta ? ` · c/c ${b.conta}` : ''}
+                    </div>
+                    <div style={contaDetalhe}>
+                      {b.pix ? `Pix: ${b.pix}` : 'Sem chave Pix cadastrada'}
+                    </div>
+                  </div>
+                </label>
+              )
+            })}
             <Dica>
-              O código antes do nome é o do Banco Central, o mesmo que aparece em boleto e TED.
-              Banco fora da lista pode ser digitado à mão.
-            </Dica>
-            <Dica>
-              Usadas em documentos que a empresa emite. Não têm efeito sobre conciliação: as contas
-              que o sistema concilia ficam em Contas e Cartões.
+              Marque as contas que aparecem em proposta, contrato e cobrança. O cadastro da conta —
+              banco, agência, número e chave Pix — fica em Contas e Cartões, que é a mesma conta que
+              o sistema concilia. Aqui não se cadastra conta de novo.
             </Dica>
           </Bloco>
 
@@ -507,6 +496,14 @@ const caixaCheck = {
   display: "flex", alignItems: "center", gap: 8, height: 36,
   fontSize: 13, color: "var(--text)", cursor: "pointer",
 }
+const contaLinha = {
+  display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+  padding: '10px 12px', border: '1.5px solid var(--cream-dark)', borderRadius: 6,
+  marginBottom: 8, background: 'var(--white)',
+}
+const contaLinhaUsada = { borderColor: 'var(--navy)', background: 'var(--cream)' }
+const contaNome = { fontSize: 13, fontWeight: 600, color: 'var(--navy)', fontFamily: 'var(--body)' }
+const contaDetalhe = { fontSize: 12, color: 'var(--text-mid)', fontFamily: 'var(--body)', marginTop: 2 }
 const rotuloEstilo = {
   fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase',
   color: 'var(--text-mid)', marginBottom: 6, fontFamily: 'var(--body)',
@@ -521,15 +518,6 @@ const btnReceita = {
   padding: '0 14px', borderRadius: 6, border: 'none', background: 'var(--navy)',
   color: '#fff', fontFamily: 'var(--body)', fontSize: 12, fontWeight: 700,
   cursor: 'pointer', whiteSpace: 'nowrap',
-}
-const btnAdicionar = {
-  padding: '6px 12px', borderRadius: 6, border: '1px solid var(--cream-dark)',
-  background: 'var(--white)', color: 'var(--navy)', fontFamily: 'var(--body)',
-  fontSize: 11.5, fontWeight: 700, cursor: 'pointer', marginTop: 2,
-}
-const btnRemover = {
-  background: 'none', border: 'none', color: 'var(--text-mid)',
-  fontSize: 20, lineHeight: 1, cursor: 'pointer', padding: '0 4px',
 }
 const rodape = {
   fontSize: 11.5, color: 'var(--text-mid)', lineHeight: 1.7, padding: '4px 2px 20px',
