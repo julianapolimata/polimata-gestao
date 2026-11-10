@@ -10,6 +10,7 @@ import ModalProjeto from './components/ModalProjeto'
 import { showToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { faturamentoPorProjeto, confrontoDoProjeto } from '../lib/projetoDaVenda'
+import { useNavigate } from 'react-router-dom'
 
 function fmtMoeda(v) {
   const n = parseFloat(v) || 0
@@ -25,6 +26,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [receitas, setReceitas] = useState([])
+  const navegar = useNavigate()
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
@@ -91,7 +93,32 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
     [filtrados],
   )
 
-  function abrirNovo() { setEdicao(null); setModalOpen(true) }
+  // ── O PROJETO NASCE DA VENDA ──────────────────────────────────────────
+  //
+  // Todo projeto veio de uma proposta (decisão dela, 05/11). Criado solto,
+  // ele não tem de onde ler o valor vendido -- e sem valor vendido não há
+  // contra o que comparar o faturado. Foi assim que as duas cascas de R$ 0
+  // existiram, ligadas ao cliente por texto.
+  //
+  // A tela ORIENTA, não bloqueia: pode haver projeto que não veio de venda
+  // (um trabalho interno), e quem sabe disso é ela. O caminho certo é o que
+  // aparece primeiro; o outro continua ali.
+  async function abrirNovo() {
+    if (isContrato) { setEdicao(null); setModalOpen(true); return }
+    const criarAssimMesmo = await confirmar({
+      titulo: "Este projeto veio de uma venda?",
+      texto: "Registrando a oportunidade no Funil e marcando como ganha, o projeto é gerado a partir dela.",
+      consequencias: [
+        "Nascendo da venda, ele já vem com o valor vendido e ligado ao cliente e à proposta.",
+        "Criado aqui, ele nasce sem valor vendido — e o faturamento não tem contra o que ser comparado.",
+        "Se for um trabalho que não veio de proposta, criar aqui é o certo.",
+      ],
+      confirmarLabel: "Criar sem venda",
+      cancelarLabel: "Ir para o Funil",
+    })
+    if (criarAssimMesmo) { setEdicao(null); setModalOpen(true); return }
+    navegar("/funil")
+  }
   function abrirEdicao(row) { setEdicao(row); setModalOpen(true) }
 
   const [confirmar, dialogoConfirmacao] = useConfirm()
@@ -151,7 +178,7 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
                 <span style={{ width: 1, height: 14, background: 'var(--cream-dark)' }} />
                 <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmtMoeda(total)}</span>
               </div>
-              <button onClick={abrirNovo} style={btnNovo}>
+              <button onClick={abrirNovo} style={btnNovo} title={isContrato ? undefined : 'O projeto nasce da venda, no Funil'}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Novo {novoLabel}
               </button>
             </div>
@@ -201,7 +228,29 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
           <EstadoErro onRetry={recarregar} />
         ) : filtrados.length === 0 ? (
           <div style={emptyState}>
-            {rows.length === 0 ? `Nenhum ${novoLabel} cadastrado. Clique em "Novo ${novoLabel}" pra começar.` : 'Nenhum resultado para a busca.'}
+            {rows.length > 0 ? 'Nenhum resultado para a busca.' : isContrato ? (
+              'Nenhum contrato cadastrado. Clique em "Novo contrato" pra começar.'
+            ) : (
+              <>
+                {/* O PROJETO NASCE DA VENDA.
+                    Todo projeto veio de uma proposta -- decisão dela, 05/11. Um
+                    projeto criado solto não tem de onde ler o valor vendido, e
+                    sem valor vendido não há contra o que comparar o faturado.
+                    Foi assim que as duas cascas de R$ 0 existiram. */}
+                <div style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: 8 }}>
+                  Nenhum projeto cadastrado.
+                </div>
+                <div style={{ maxWidth: 520, margin: '0 auto', lineHeight: 1.7 }}>
+                  O projeto nasce da <strong>venda</strong>: você registra a oportunidade no Funil e,
+                  ao marcá-la como ganha, gera o projeto a partir dela. Assim ele já nasce com o
+                  valor vendido, ligado ao cliente e à proposta — e o faturamento tem contra o que
+                  ser comparado.
+                </div>
+                <button onClick={() => navegar('/funil')} style={{ ...btnNovo, margin: '16px auto 0' }}>
+                  Ir para o Funil
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <table style={{ ...tbl, tableLayout: 'fixed' }}>
