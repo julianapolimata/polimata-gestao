@@ -74,9 +74,8 @@ export default function ModalParcelas({ open, onClose, contrato }) {
         </div>
       ) : !parcelas.length ? (
         <div style={aviso}>
-          Este contrato ainda não tem parcelas em Contas a Pagar. Enquanto não tiver, não há o que
-          conciliar — e o saldo dele não é apurado. O botão <strong>Gerar parcelas</strong>, na
-          lista, lança o cronograma.
+          Este contrato não tem parcelas em Contas a Pagar. Sem parcelas não há conciliação, e o
+          saldo não é apurado. O botão <strong>Gerar parcelas</strong>, na lista, lança o cronograma.
         </div>
       ) : (
         <>
@@ -127,8 +126,9 @@ export default function ModalParcelas({ open, onClose, contrato }) {
             <>
               <div style={subtitulo}>Ajustes da conciliação</div>
               <p style={nota}>
-                Nasceram quando você conciliou um pagamento e explicou a diferença. Pertencem ao
-                contrato, mas não são parcela dele — por isso ficam fora da contagem acima.
+                Lançamentos criados na conciliação para explicar a diferença entre o valor pago e o
+                valor da parcela. Pertencem ao contrato, mas não são parcela dele — por isso ficam
+                fora da contagem acima.
               </p>
               <div style={rolagem}>
                 <table style={tabela}>

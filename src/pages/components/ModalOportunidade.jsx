@@ -106,9 +106,9 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
         anterior
           ? `Nasce como renovação do projeto anterior (ciclo ${novo.ciclo - 1}), encadeado a ele.`
           : 'É o primeiro projeto desta pessoa.',
-        `Valor vendido: ${fmtMoney(novo.value)}. O faturamento se liga a ele pelos lançamentos de receita.`,
-        'O projeto nasce ligado à pessoa e a esta oportunidade por identificador, e não por texto.',
-        'Prazo e etapas ficam em branco: você preenche na tela de Projetos.',
+        `Valor vendido: ${fmtMoney(novo.value)}. O faturamento é apurado pelos lançamentos de receita vinculados ao projeto.`,
+        'O vínculo com o cliente e com esta oportunidade é por identificador.',
+        'Prazo e etapas nascem em branco, e são preenchidos na tela de Projetos.',
       ],
       confirmarLabel: 'Gerar projeto',
     })
@@ -197,7 +197,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
             ))}
           </select>
           <div style={dica}>
-            No momento da proposta ela ainda pode não ser cliente — e isso está certo.
+            Na data da proposta, a pessoa ainda pode não ser cliente.
           </div>
         </Campo>
         <Campo label="Data da proposta">
@@ -217,7 +217,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
             <button type="button" onClick={sugerirReferencia} style={btnMini}>sugerir</button>
           </div>
           <div style={dica}>
-            É esta a referência citada na proposta, na nota e no nome do arquivo. Ela mora aqui.
+            Referência citada na proposta, na nota e no nome do arquivo.
           </div>
         </Campo>
         <Campo label="Valor estimado (R$)">
@@ -246,7 +246,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
               <option value="">— escolha —</option>
               {ETAPAS.map(e2 => <option key={e2} value={e2}>{e2}</option>)}
             </select>
-            <div style={dica}>Onde a negociação está. Ganha ou perdida, ela sai do funil.</div>
+            <div style={dica}>Posição da negociação no funil. Ganha ou perdida, ela sai dele.</div>
           </Campo>
         )}
       </Linha>
@@ -261,7 +261,7 @@ export default function ModalOportunidade({ open, onClose, registro, pessoas, on
               style={input}
             />
             <div style={dica}>
-              É daqui que o funil ensina alguma coisa. Perda sem motivo não ensina nada.
+              O motivo é o que permite apurar a causa das perdas no funil.
             </div>
           </Campo>
         </Linha>

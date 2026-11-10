@@ -106,14 +106,14 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
   async function abrirNovo() {
     if (isContrato) { setEdicao(null); setModalOpen(true); return }
     const criarAssimMesmo = await confirmar({
-      titulo: "Este projeto veio de uma venda?",
-      texto: "Registrando a oportunidade no Funil e marcando como ganha, o projeto é gerado a partir dela.",
+      titulo: "Projeto sem venda vinculada",
+      texto: "O projeto gerado a partir de uma oportunidade herda o valor vendido e o vínculo com o cliente e a proposta.",
       consequencias: [
-        "Nascendo da venda, ele já vem com o valor vendido e ligado ao cliente e à proposta.",
-        "Criado aqui, ele nasce sem valor vendido — e o faturamento não tem contra o que ser comparado.",
-        "Se for um trabalho que não veio de proposta, criar aqui é o certo.",
+        "Criado nesta tela, o projeto nasce sem valor vendido.",
+        "Sem valor vendido, a coluna Faturado fica sem base de comparação.",
+        "Trabalho que não teve proposta é cadastrado aqui.",
       ],
-      confirmarLabel: "Criar sem venda",
+      confirmarLabel: "Criar sem vínculo",
       cancelarLabel: "Ir para o Funil",
     })
     if (criarAssimMesmo) { setEdicao(null); setModalOpen(true); return }
@@ -241,10 +241,8 @@ export default function Catalogo({ tabela, titulo, labelParte = 'Cliente' }) {
                   Nenhum projeto cadastrado.
                 </div>
                 <div style={{ maxWidth: 520, margin: '0 auto', lineHeight: 1.7 }}>
-                  O projeto nasce da <strong>venda</strong>: você registra a oportunidade no Funil e,
-                  ao marcá-la como ganha, gera o projeto a partir dela. Assim ele já nasce com o
-                  valor vendido, ligado ao cliente e à proposta — e o faturamento tem contra o que
-                  ser comparado.
+                  O projeto é gerado a partir de uma oportunidade ganha, no Funil, e herda dela o
+                  valor vendido e o vínculo com o cliente e a proposta.
                 </div>
                 <button onClick={() => navegar('/funil')} style={{ ...btnNovo, margin: '16px auto 0' }}>
                   Ir para o Funil

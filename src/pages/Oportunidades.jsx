@@ -121,10 +121,8 @@ export default function Oportunidades() {
         <div style={vazio}>
           <strong>Nenhuma oportunidade registrada.</strong>
           <p style={{ margin: '8px 0 0', lineHeight: 1.6 }}>
-            A oportunidade é o que está sendo negociado com alguém — e ela aponta para a pessoa,
-            não o contrário. Um cliente pode existir no cadastro sem nunca ter passado por aqui;
-            o que não cabia antes era <strong>duas propostas para o mesmo cliente</strong>, porque a
-            etapa morava na ficha dele.
+            A oportunidade registra uma negociação com uma pessoa do cadastro. Uma mesma pessoa
+            pode ter várias, em situações diferentes — e o cadastro não depende delas.
           </p>
         </div>
       ) : (
